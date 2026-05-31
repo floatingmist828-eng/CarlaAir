@@ -249,6 +249,22 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if safety_gate.get("blocked"):
             return self._brake(str(safety_gate.get("reason", "safety_gate")), safety_gate=safety_gate, command=command)
 
+        if self.control_mode != "direct":
+            fallback_control = self.fallback_policy.predict(obs)
+            fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+            fallback_lane_confidence = float(fallback_diagnostics.get("lane_confidence", 0.0) or 0.0)
+            if fallback_lane_confidence >= 0.01:
+                return self._fallback_control(
+                    obs,
+                    "rgb_lane_reference_available",
+                    safety_gate,
+                    command,
+                    None,
+                    None,
+                    control=fallback_control,
+                    fallback_diagnostics=fallback_diagnostics,
+                )
+
         try:
             if hasattr(self.model, "predict"):
                 trajectory, raw_control = self.model.predict(rgb=rgb, speed_mps=speed_mps, command=command)

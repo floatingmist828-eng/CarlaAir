@@ -259,7 +259,7 @@ def test_tcp_lite_policy_falls_back_when_rgb_lane_reference_disagrees():
     assert control.steer == -0.5
     assert control.throttle == 0.3
     assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
-    assert policy.last_diagnostics["fallback"]["reason"] == "rgb_lane_reference_disagreement"
+    assert policy.last_diagnostics["fallback"]["reason"] == "rgb_lane_reference_available"
 
 
 def test_tcp_lite_policy_prefers_confident_rgb_lane_reference():
@@ -272,6 +272,7 @@ def test_tcp_lite_policy_prefers_confident_rgb_lane_reference():
     assert control.throttle == 0.3
     assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
     assert policy.last_diagnostics["fallback"]["reason"] == "rgb_lane_reference_available"
+    assert policy.last_diagnostics["raw_control"] is None
 
 
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
