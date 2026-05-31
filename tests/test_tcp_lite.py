@@ -53,6 +53,20 @@ class _FallbackPolicy:
         return control
 
 
+class _AgreeingFallbackPolicy:
+    def __init__(self) -> None:
+        self.last_diagnostics = {}
+
+    def predict(self, obs):
+        import carla
+
+        self.last_diagnostics = {"lane_confidence": 0.25}
+        control = carla.VehicleControl()
+        control.steer = 0.3
+        control.throttle = 0.3
+        return control
+
+
 def _checkerboard(width=160, height=90):
     y, x = np.indices((height, width))
     board = ((x // 4 + y // 4) % 2 * 255).astype(np.uint8)
@@ -246,6 +260,18 @@ def test_tcp_lite_policy_falls_back_when_rgb_lane_reference_disagrees():
     assert control.throttle == 0.3
     assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
     assert policy.last_diagnostics["fallback"]["reason"] == "rgb_lane_reference_disagreement"
+
+
+def test_tcp_lite_policy_prefers_confident_rgb_lane_reference():
+    policy = TcpLiteVisionPolicy(model=_ConsistentTcpModel(), navigation_command="lane_follow")
+    policy.fallback_policy = _AgreeingFallbackPolicy()
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert control.steer == 0.3
+    assert control.throttle == 0.3
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["fallback"]["reason"] == "rgb_lane_reference_available"
 
 
 def test_tcp_lite_policy_brakes_when_model_predict_raises():

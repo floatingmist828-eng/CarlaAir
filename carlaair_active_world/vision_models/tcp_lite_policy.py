@@ -276,13 +276,14 @@ class TcpLiteVisionPolicy(VisionPolicy):
                         fallback_diagnostics=fallback_diagnostics,
                         refresh_latch=False,
                     )
-                if (
-                    fallback_lane_confidence >= 0.01
-                    and abs(float(fallback_control.steer) - float(steer)) > self._fallback_disagreement_threshold
-                ):
+                fallback_disagreement = abs(float(fallback_control.steer) - float(steer))
+                if fallback_lane_confidence >= 0.01:
+                    fallback_reason = "rgb_lane_reference_available"
+                    if fallback_disagreement > self._fallback_disagreement_threshold:
+                        fallback_reason = "rgb_lane_reference_disagreement"
                     return self._fallback_control(
                         obs,
-                        "rgb_lane_reference_disagreement",
+                        fallback_reason,
                         safety_gate,
                         command,
                         trajectory,
