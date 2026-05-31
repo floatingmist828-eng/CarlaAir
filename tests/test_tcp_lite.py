@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import numpy as np
+
 from carlaair_active_world.scenario import ScenarioConfig
+from carlaair_active_world.vision_models.safety_gate import (
+    VisionSafetyGateConfig,
+    compute_attack_pattern_score,
+    evaluate_vision_safety_gate,
+)
+
+
+def _checkerboard(width=160, height=90):
+    y, x = np.indices((height, width))
+    board = ((x // 4 + y // 4) % 2 * 255).astype(np.uint8)
+    return np.stack([board, board, board], axis=-1)
 
 
 def test_tcp_lite_scenario_config_round_trips():
@@ -40,3 +53,52 @@ def test_tcp_lite_project_scenario_loads():
     assert scenario.vision_attack_pattern_gate is False
     assert scenario.vehicle_sensor_limit == 1
     assert scenario.traffic_vehicles == 0
+
+
+def test_safety_gate_blocks_detector_obstacle():
+    result = evaluate_vision_safety_gate(
+        np.zeros((90, 160, 3), dtype=np.uint8),
+        {"obstacle": True, "label": "car"},
+        VisionSafetyGateConfig(enabled=True),
+    )
+
+    assert result["blocked"] is True
+    assert result["reason"] == "vision_obstacle"
+    assert result["detector_obstacle"] is True
+
+
+def test_safety_gate_does_not_block_when_disabled():
+    result = evaluate_vision_safety_gate(
+        np.zeros((90, 160, 3), dtype=np.uint8),
+        {"obstacle": True},
+        VisionSafetyGateConfig(enabled=False),
+    )
+
+    assert result["blocked"] is False
+    assert result["reason"] == "disabled"
+
+
+def test_attack_pattern_score_is_higher_for_repeated_high_contrast_texture():
+    clean_score = compute_attack_pattern_score(np.zeros((90, 160, 3), dtype=np.uint8))
+    noisy_score = compute_attack_pattern_score(_checkerboard())
+
+    assert noisy_score > clean_score + 0.2
+
+
+def test_attack_pattern_gate_blocks_only_when_enabled():
+    rgb = _checkerboard()
+    disabled_gate = evaluate_vision_safety_gate(
+        rgb,
+        {},
+        VisionSafetyGateConfig(attack_pattern_gate=False, attack_pattern_threshold=0.2),
+    )
+    enabled_gate = evaluate_vision_safety_gate(
+        rgb,
+        {},
+        VisionSafetyGateConfig(attack_pattern_gate=True, attack_pattern_threshold=0.2),
+    )
+
+    assert disabled_gate["blocked"] is False
+    assert disabled_gate["attack_pattern_score"] > 0.2
+    assert enabled_gate["blocked"] is True
+    assert enabled_gate["reason"] == "attack_pattern"
