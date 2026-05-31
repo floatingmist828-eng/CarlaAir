@@ -151,6 +151,17 @@ def test_tcp_lite_policy_brakes_without_model_path():
     assert control.throttle == 0.0
     assert policy.last_diagnostics["model_ready"] is False
     assert policy.last_diagnostics["reason"] == "missing_model_path"
+    assert policy.last_diagnostics["model_path"] == ""
+
+
+def test_tcp_lite_policy_reports_missing_checkpoint_path():
+    policy = TcpLiteVisionPolicy(model_path="missing/checkpoint.pt")
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert control.brake == 1.0
+    assert policy.last_diagnostics["reason"] == "missing_model_path"
+    assert policy.last_diagnostics["model_path"] == "missing/checkpoint.pt"
 
 
 def test_tcp_lite_policy_uses_mock_model_and_clamps_control():

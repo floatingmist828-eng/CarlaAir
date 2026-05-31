@@ -55,6 +55,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         control.steer = 0.0
         self.last_diagnostics = {
             "model_ready": bool(self.model_ready),
+            "model_path": self.model_path,
             "command": command or self.navigation_command,
             "reason": reason,
             "safety_gate": safety_gate,
@@ -175,6 +176,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         control.brake = _clamp(brake_raw, 0.0, 1.0)
         self.last_diagnostics = {
             "model_ready": True,
+            "model_path": self.model_path,
             "command": command,
             "reason": "ok",
             "safety_gate": safety_gate,
