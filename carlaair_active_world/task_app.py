@@ -217,6 +217,7 @@ class ActiveUAVTaskApp:
                         navigation_command=self.scenario.vision_navigation_command,
                         safety_gate_enabled=self.scenario.vision_safety_gate_enabled,
                         attack_pattern_gate=self.scenario.vision_attack_pattern_gate,
+                        target_speed_mps=float(self.scenario.ego_target_speed_mps),
                     )
                 self.ego_driver = VisionEgoDriver(
                     self.world,

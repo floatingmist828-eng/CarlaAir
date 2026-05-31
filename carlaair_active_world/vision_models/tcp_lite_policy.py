@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
@@ -23,11 +24,16 @@ class TcpLiteVisionPolicy(VisionPolicy):
         navigation_command: str = "lane_follow",
         safety_gate_enabled: bool = True,
         attack_pattern_gate: bool = False,
+        target_speed_mps: float = 4.0,
+        control_mode: str = "trajectory",
         model: Optional[Any] = None,
     ) -> None:
         self.model_path = str(model_path or "")
         self.device = str(device)
         self.navigation_command = str(navigation_command)
+        self.target_speed_mps = float(target_speed_mps)
+        self.control_mode = str(control_mode or "trajectory").lower()
+        self._last_speed_error = 0.0
         self.safety_gate_config = VisionSafetyGateConfig(
             enabled=bool(safety_gate_enabled),
             attack_pattern_gate=bool(attack_pattern_gate),
@@ -57,6 +63,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "model_ready": bool(self.model_ready),
             "model_path": self.model_path,
             "command": command or self.navigation_command,
+            "control_mode": self.control_mode,
             "reason": reason,
             "safety_gate": safety_gate,
             "trajectory": trajectory,
@@ -146,6 +153,40 @@ class TcpLiteVisionPolicy(VisionPolicy):
             return float(values[0]), float(values[1]), float(values[2])
         raise ValueError("control must be a dict or sequence")
 
+    def _trajectory_control(self, trajectory: Any, speed_mps: float) -> tuple[float, float, float]:
+        if not isinstance(trajectory, Sequence) or not trajectory:
+            raise ValueError("trajectory must contain at least one point")
+
+        point = None
+        for candidate in reversed(list(trajectory)):
+            if isinstance(candidate, Sequence) and len(candidate) >= 2:
+                x = float(candidate[0])
+                y = float(candidate[1])
+                if x > 0.25:
+                    point = (x, y)
+                    break
+        if point is None:
+            raise ValueError("trajectory has no forward point")
+
+        x, y = point
+        angle = math.atan2(y, max(0.5, x))
+        steer = _clamp(1.25 * angle, -0.65, 0.65)
+        target_speed = self.target_speed_mps
+        if abs(steer) > 0.35:
+            target_speed = min(target_speed, 1.8)
+
+        speed_error = float(target_speed - speed_mps)
+        derivative = speed_error - self._last_speed_error
+        self._last_speed_error = speed_error
+        throttle = _clamp(0.18 * speed_error + 0.04 * derivative, 0.0, 0.42)
+        brake = 0.0
+        if speed_error < -0.8:
+            brake = _clamp((-speed_error) / max(1.0, self.target_speed_mps), 0.0, 0.6)
+            throttle = 0.0
+        elif speed_mps < 0.3 and target_speed > 0.5:
+            throttle = max(throttle, 0.32)
+        return steer, throttle, brake
+
     def predict(self, obs: Dict[str, Any]) -> carla.VehicleControl:
         rgb = obs.get("rgb")
         speed_mps = float(obs.get("speed_mps", 0.0))
@@ -171,17 +212,22 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 trajectory, raw_control = self._predict_with_torch_model(rgb, speed_mps, command)
 
             steer_raw, throttle_raw, brake_raw = self._control_values(raw_control)
+            if self.control_mode == "direct":
+                steer, throttle, brake = steer_raw, throttle_raw, brake_raw
+            else:
+                steer, throttle, brake = self._trajectory_control(trajectory, speed_mps)
         except Exception as exc:
             return self._brake(f"{type(exc).__name__}: {exc}", safety_gate=safety_gate, command=command)
 
         control = carla.VehicleControl()
-        control.steer = _clamp(steer_raw, -1.0, 1.0)
-        control.throttle = _clamp(throttle_raw, 0.0, 1.0)
-        control.brake = _clamp(brake_raw, 0.0, 1.0)
+        control.steer = _clamp(steer, -1.0, 1.0)
+        control.throttle = _clamp(throttle, 0.0, 1.0)
+        control.brake = _clamp(brake, 0.0, 1.0)
         self.last_diagnostics = {
             "model_ready": True,
             "model_path": self.model_path,
             "command": command,
+            "control_mode": self.control_mode,
             "reason": "ok",
             "safety_gate": safety_gate,
             "trajectory": trajectory,

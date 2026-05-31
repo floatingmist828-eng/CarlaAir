@@ -175,7 +175,7 @@ def test_tcp_lite_policy_reports_missing_checkpoint_path():
 
 
 def test_tcp_lite_policy_uses_mock_model_and_clamps_control():
-    policy = TcpLiteVisionPolicy(model=_MockTcpModel(), navigation_command="lane_follow")
+    policy = TcpLiteVisionPolicy(model=_MockTcpModel(), navigation_command="lane_follow", control_mode="direct")
 
     control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
 
@@ -185,6 +185,22 @@ def test_tcp_lite_policy_uses_mock_model_and_clamps_control():
     assert policy.last_diagnostics["model_ready"] is True
     assert policy.last_diagnostics["command"] == "lane_follow"
     assert policy.last_diagnostics["trajectory"][0] == [1.0, 0.0]
+
+
+def test_tcp_lite_policy_defaults_to_trajectory_tracking_control():
+    policy = TcpLiteVisionPolicy(
+        model=_MockTcpModel(),
+        navigation_command="lane_follow",
+        target_speed_mps=4.0,
+    )
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert 0.0 < control.steer < 0.5
+    assert control.throttle > 0.0
+    assert control.brake == 0.0
+    assert policy.last_diagnostics["control_mode"] == "trajectory"
+    assert policy.last_diagnostics["raw_control"] == [1.5, 0.4, -0.2]
 
 
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
@@ -498,6 +514,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "vision_model_path": "checkpoints/tcp.pt",
             "vision_model_device": "cpu",
             "vision_navigation_command": "right",
+            "ego_target_speed_mps": 3.5,
         }
     )
     app = env.ActiveAirGroundEnv(scenario=scenario)
@@ -512,6 +529,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert app.ego_vehicle.autopilot is False
     assert captured["policy_kwargs"]["model_path"] == "checkpoints/tcp.pt"
     assert captured["policy_kwargs"]["navigation_command"] == "right"
+    assert captured["policy_kwargs"]["target_speed_mps"] == 3.5
     assert captured["driver_policy"] is not None
     assert captured["driver_navigation_command"] == "right"
 
@@ -579,6 +597,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "vision_navigation_command": "left",
             "vision_safety_gate_enabled": False,
             "vision_attack_pattern_gate": True,
+            "ego_target_speed_mps": 3.25,
         }
     )
     app = task_app.ActiveUAVTaskApp(scenario, output_dir=Path("recordings/test_tcp_lite_task_app"))
@@ -596,6 +615,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["navigation_command"] == "left"
     assert captured["policy_kwargs"]["safety_gate_enabled"] is False
     assert captured["policy_kwargs"]["attack_pattern_gate"] is True
+    assert captured["policy_kwargs"]["target_speed_mps"] == 3.25
     assert captured["driver_policy"] is captured["policy"]
     assert captured["driver_navigation_command"] == "left"
     assert captured["configure_autopilot_calls"] == 0
