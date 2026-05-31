@@ -1,0 +1,82 @@
+{
+  "name": "town10hd_vision_tcp_lite",
+  "map_name": "Town10HD",
+  "ego_blueprint": "vehicle.tesla.model3",
+  "ego_spawn_index": 20,
+  "ego_sensor_mode": "vision",
+  "ego_control_mode": "vision_tcp_lite",
+  "ego_drive_hz": 8.0,
+  "ego_target_speed_mps": 4.0,
+  "ego_lookahead_m": 10.0,
+  "traffic_vehicles": 0,
+  "traffic_walkers": 0,
+  "duration_sec": 60.0,
+  "step_sec": 0.5,
+  "future_horizon_sec": 3.0,
+  "sample_only_near_hotspot": true,
+  "sample_hotspot_radius_m": 70.0,
+  "sample_min_interval_sec": 0.5,
+  "vehicle_sensor_limit": 1,
+  "vision_model_path": "",
+  "vision_model_device": "cpu",
+  "vision_navigation_command": "lane_follow",
+  "vision_safety_gate_enabled": true,
+  "vision_attack_pattern_gate": false,
+  "uav_enabled": true,
+  "uav_name": "SimpleFlight",
+  "uav_altitude": 18.0,
+  "uav_back_distance": 8.0,
+  "uav_auto_patrol_enabled": false,
+  "uav_patrol_interval_sec": 4.0,
+  "candidate_offsets": [
+    {
+      "name": "front_high",
+      "x": 18.0,
+      "y": 0.0,
+      "z": 10.0,
+      "weight": 1.0
+    },
+    {
+      "name": "front_left",
+      "x": 15.0,
+      "y": 8.0,
+      "z": 10.0,
+      "weight": 1.0
+    },
+    {
+      "name": "front_right",
+      "x": 15.0,
+      "y": -8.0,
+      "z": 10.0,
+      "weight": 1.0
+    },
+    {
+      "name": "top",
+      "x": 0.0,
+      "y": 0.0,
+      "z": 22.0,
+      "weight": 0.8
+    },
+    {
+      "name": "rear_high",
+      "x": -10.0,
+      "y": 0.0,
+      "z": 12.0,
+      "weight": 0.7
+    },
+    {
+      "name": "left_high",
+      "x": 0.0,
+      "y": 14.0,
+      "z": 12.0,
+      "weight": 0.8
+    },
+    {
+      "name": "right_high",
+      "x": 0.0,
+      "y": -14.0,
+      "z": 12.0,
+      "weight": 0.8
+    }
+  ]
+}
