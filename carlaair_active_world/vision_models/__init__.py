@@ -3,6 +3,7 @@ __all__ = [
     "SimpleLaneVisionPolicy",
     "COMMAND_TO_INDEX",
     "TcpLiteModel",
+    "TcpLiteVisionPolicy",
     "command_to_index",
 ]
 
@@ -20,4 +21,8 @@ def __getattr__(name):
         from . import tcp_lite
 
         return getattr(tcp_lite, name)
+    if name == "TcpLiteVisionPolicy":
+        from .tcp_lite_policy import TcpLiteVisionPolicy
+
+        return TcpLiteVisionPolicy
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

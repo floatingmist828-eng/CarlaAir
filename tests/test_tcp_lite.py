@@ -14,8 +14,14 @@ from carlaair_active_world.vision_models.safety_gate import (
     compute_attack_pattern_score,
     evaluate_vision_safety_gate,
 )
+from carlaair_active_world.vision_models.tcp_lite_policy import TcpLiteVisionPolicy
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class _MockTcpModel:
+    def predict(self, rgb, speed_mps, command):
+        return [[1.0, 0.0], [2.0, 0.5]], [1.5, 0.4, -0.2]
 
 
 def _checkerboard(width=160, height=90):
@@ -134,6 +140,47 @@ def test_tcp_lite_project_scenario_loads():
     assert scenario.vision_attack_pattern_gate is False
     assert scenario.vehicle_sensor_limit == 1
     assert scenario.traffic_vehicles == 0
+
+
+def test_tcp_lite_policy_brakes_without_model_path():
+    policy = TcpLiteVisionPolicy(model_path="")
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert control.brake == 1.0
+    assert control.throttle == 0.0
+    assert policy.last_diagnostics["model_ready"] is False
+    assert policy.last_diagnostics["reason"] == "missing_model_path"
+
+
+def test_tcp_lite_policy_uses_mock_model_and_clamps_control():
+    policy = TcpLiteVisionPolicy(model=_MockTcpModel(), navigation_command="lane_follow")
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert control.steer == 1.0
+    assert control.throttle == 0.4
+    assert control.brake == 0.0
+    assert policy.last_diagnostics["model_ready"] is True
+    assert policy.last_diagnostics["command"] == "lane_follow"
+    assert policy.last_diagnostics["trajectory"][0] == [1.0, 0.0]
+
+
+def test_tcp_lite_policy_safety_gate_brakes_for_obstacle():
+    policy = TcpLiteVisionPolicy(model=_MockTcpModel(), safety_gate_enabled=True)
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "vision_detector": {"obstacle": True, "label": "car"},
+        }
+    )
+
+    assert control.brake == 1.0
+    assert control.throttle == 0.0
+    assert policy.last_diagnostics["safety_gate"]["blocked"] is True
+    assert policy.last_diagnostics["reason"] == "vision_obstacle"
 
 
 def test_safety_gate_blocks_detector_obstacle():
