@@ -45,6 +45,7 @@ from .scenario import ScenarioConfig
 from .sensors import UAVSensorRig, VehicleSensorRig, save_numpy_image
 from .traffic import spawn_traffic_vehicles
 from .vision_driver import VisionEgoDriver
+from .vision_models import TcpLiteVisionPolicy
 
 
 def _safe_actor_role(actor: carla.Actor) -> str:
@@ -202,17 +203,28 @@ class ActiveUAVTaskApp:
             blueprint_id=self.scenario.ego_blueprint,
             spawn_index=self.scenario.ego_spawn_index,
         )
-        if self._ego_control_mode in {"route_follow", "route", "behavior", "vision_simple", "vision_rgb_only"}:
+        if self._ego_control_mode in {"route_follow", "route", "behavior", "vision_simple", "vision_rgb_only", "vision_tcp_lite"}:
             try:
                 self.ego_vehicle.set_autopilot(False)
             except Exception:
                 pass
-            if self._ego_control_mode in {"vision_simple", "vision_rgb_only"}:
+            if self._ego_control_mode in {"vision_simple", "vision_rgb_only", "vision_tcp_lite"}:
+                policy = None
+                if self._ego_control_mode == "vision_tcp_lite":
+                    policy = TcpLiteVisionPolicy(
+                        model_path=self.scenario.vision_model_path,
+                        device=self.scenario.vision_model_device,
+                        navigation_command=self.scenario.vision_navigation_command,
+                        safety_gate_enabled=self.scenario.vision_safety_gate_enabled,
+                        attack_pattern_gate=self.scenario.vision_attack_pattern_gate,
+                    )
                 self.ego_driver = VisionEgoDriver(
                     self.world,
                     self.ego_vehicle,
                     target_speed_mps=float(self.scenario.ego_target_speed_mps),
-                    use_semantic=self._ego_control_mode != "vision_rgb_only",
+                    policy=policy,
+                    use_semantic=self._ego_control_mode == "vision_simple",
+                    navigation_command=self.scenario.vision_navigation_command,
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
                     vision_detector_model_path=str(getattr(self.scenario, "vision_detector_model_path", "")),

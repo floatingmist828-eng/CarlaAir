@@ -25,10 +25,12 @@ class VisionEgoDriver:
         vision_detector_model_path: str = "",
         vision_detector_confidence: float = 0.35,
         detector: Optional[Any] = None,
+        navigation_command: str = "lane_follow",
     ) -> None:
         self.world = world
         self.ego_vehicle = ego_vehicle
         self.use_semantic = bool(use_semantic)
+        self.navigation_command = navigation_command
         self.sensor_rig = self.sensor_rig_class(
             world,
             ego_vehicle,
@@ -84,6 +86,7 @@ class VisionEgoDriver:
             "depth": frames.get("depth"),
             "semantic": frames.get("semantic") if self.use_semantic else None,
             "speed_mps": self._vehicle_speed_mps(vehicle),
+            "navigation_command": self.navigation_command,
         }
         detector_diagnostics = dict(self._detector_diagnostics)
         vision_obstacle = False

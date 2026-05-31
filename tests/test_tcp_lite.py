@@ -366,3 +366,97 @@ def test_train_tcp_lite_saves_checkpoint(tmp_path):
     assert "model_state_dict" in checkpoint
     assert checkpoint["image_size"] == [32, 48]
     assert checkpoint["trajectory_points"] == 4
+
+
+def test_vision_driver_forwards_navigation_command_to_policy(monkeypatch):
+    from carlaair_active_world.vision_driver import VisionEgoDriver
+
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": np.zeros((90, 160, 3), dtype=np.uint8)}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Policy:
+        def __init__(self) -> None:
+            self.obs = None
+            self.last_diagnostics = {}
+
+        def predict(self, obs):
+            self.obs = obs
+            import carla
+
+            return carla.VehicleControl()
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+    policy = _Policy()
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+
+    driver = VisionEgoDriver(object(), _Vehicle(), policy=policy, navigation_command="left")
+    driver.predict()
+
+    assert policy.obs["navigation_command"] == "left"
+
+
+def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
+    from carlaair_active_world import env
+
+    captured = {}
+
+    class _Policy:
+        def __init__(self, **kwargs) -> None:
+            captured["policy_kwargs"] = kwargs
+
+    class _Driver:
+        def __init__(self, world, ego_vehicle, **kwargs) -> None:
+            captured["driver_policy"] = kwargs.get("policy")
+            captured["driver_navigation_command"] = kwargs.get("navigation_command")
+
+        def predict(self, *args, **kwargs):
+            import carla
+
+            return carla.VehicleControl()
+
+    class _Vehicle:
+        def __init__(self) -> None:
+            self.autopilot = None
+
+        def set_autopilot(self, value):
+            self.autopilot = value
+
+    monkeypatch.setattr(env, "TcpLiteVisionPolicy", _Policy)
+    monkeypatch.setattr(env, "VisionEgoDriver", _Driver)
+
+    scenario = ScenarioConfig.from_dict(
+        {
+            "name": "tcp_lite_env",
+            "ego_control_mode": "vision_tcp_lite",
+            "vision_model_path": "checkpoints/tcp.pt",
+            "vision_model_device": "cpu",
+            "vision_navigation_command": "right",
+        }
+    )
+    app = env.ActiveAirGroundEnv(scenario=scenario)
+    app.world = object()
+    app.ego_vehicle = _Vehicle()
+
+    app._start_ego_control()
+    app._closed = True
+    if app._ego_driver_thread is not None:
+        app._ego_driver_thread.join(timeout=1.0)
+
+    assert app.ego_vehicle.autopilot is False
+    assert captured["policy_kwargs"]["model_path"] == "checkpoints/tcp.pt"
+    assert captured["policy_kwargs"]["navigation_command"] == "right"
+    assert captured["driver_policy"] is not None
+    assert captured["driver_navigation_command"] == "right"
