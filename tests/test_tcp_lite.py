@@ -254,7 +254,15 @@ def test_tcp_lite_dataset_rejects_rgb_path_outside_root(tmp_path):
         dataset[0]
 
 
-def test_tcp_lite_dataset_rejects_malformed_trajectory(tmp_path):
+@pytest.mark.parametrize(
+    "trajectory",
+    [
+        [1.0, 2.0, 3.0],
+        [[0.0, 0.0], [1.0]],
+        [[0.0, "bad"]],
+    ],
+)
+def test_tcp_lite_dataset_rejects_malformed_trajectory(tmp_path, trajectory):
     pytest.importorskip("torch")
     PIL_Image = pytest.importorskip("PIL.Image")
     image_path = tmp_path / "image.png"
@@ -265,7 +273,7 @@ def test_tcp_lite_dataset_rejects_malformed_trajectory(tmp_path):
             "rgb": "image.png",
             "speed_mps": 0.0,
             "command": "lane_follow",
-            "trajectory": [1.0, 2.0, 3.0],
+            "trajectory": trajectory,
             "control": {"steer": 0.0, "throttle": 0.0, "brake": 0.0},
         },
     )
@@ -273,7 +281,7 @@ def test_tcp_lite_dataset_rejects_malformed_trajectory(tmp_path):
 
     dataset = TcpLiteImitationDataset(tmp_path)
 
-    with pytest.raises(ValueError, match="trajectory"):
+    with pytest.raises(ValueError, match="trajectory must be a sequence of \\[x, y\\] points"):
         dataset[0]
 
 

@@ -51,7 +51,10 @@ class TcpLiteImitationDataset(Dataset):
 
     def _trajectory(self, sample: dict) -> np.ndarray:
         trajectory = np.zeros((self.trajectory_points, 2), dtype=np.float32)
-        points = np.asarray(sample.get("trajectory", []), dtype=np.float32)
+        try:
+            points = np.asarray(sample.get("trajectory", []), dtype=np.float32)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("trajectory must be a sequence of [x, y] points") from exc
         if points.ndim != 2 or points.shape[1] != 2:
             raise ValueError("trajectory must be a sequence of [x, y] points")
 
