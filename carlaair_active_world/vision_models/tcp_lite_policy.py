@@ -36,8 +36,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self.control_mode = str(control_mode or "trajectory").lower()
         self._last_speed_error = 0.0
         self._stuck_frames = 0
+        self._fallback_frames_left = 0
         self._fallback_disagreement_threshold = 0.25
         self._fallback_stuck_frame_threshold = 8
+        self._fallback_latch_frames = 24
         self.fallback_policy = SimpleLaneVisionPolicy(target_speed_mps=self.target_speed_mps)
         self.safety_gate_config = VisionSafetyGateConfig(
             enabled=bool(safety_gate_enabled),
@@ -200,9 +202,16 @@ class TcpLiteVisionPolicy(VisionPolicy):
         command: str,
         trajectory: Any,
         raw_control: Any,
+        control: Optional[carla.VehicleControl] = None,
+        fallback_diagnostics: Optional[Dict[str, Any]] = None,
+        refresh_latch: bool = True,
     ) -> carla.VehicleControl:
-        control = self.fallback_policy.predict(obs)
-        fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+        if control is None:
+            control = self.fallback_policy.predict(obs)
+        if fallback_diagnostics is None:
+            fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+        if refresh_latch:
+            self._fallback_frames_left = int(self._fallback_latch_frames)
         self.last_diagnostics = {
             "model_ready": True,
             "model_path": self.model_path,
@@ -251,6 +260,36 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 steer, throttle, brake = steer_raw, throttle_raw, brake_raw
             else:
                 steer, throttle, brake = self._trajectory_control(trajectory, speed_mps)
+                fallback_control = self.fallback_policy.predict(obs)
+                fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+                fallback_lane_confidence = float(fallback_diagnostics.get("lane_confidence", 0.0) or 0.0)
+                if self._fallback_frames_left > 0:
+                    self._fallback_frames_left -= 1
+                    return self._fallback_control(
+                        obs,
+                        "fallback_latched",
+                        safety_gate,
+                        command,
+                        trajectory,
+                        raw_control,
+                        control=fallback_control,
+                        fallback_diagnostics=fallback_diagnostics,
+                        refresh_latch=False,
+                    )
+                if (
+                    fallback_lane_confidence >= 0.01
+                    and abs(float(fallback_control.steer) - float(steer)) > self._fallback_disagreement_threshold
+                ):
+                    return self._fallback_control(
+                        obs,
+                        "rgb_lane_reference_disagreement",
+                        safety_gate,
+                        command,
+                        trajectory,
+                        raw_control,
+                        control=fallback_control,
+                        fallback_diagnostics=fallback_diagnostics,
+                    )
                 disagreement = abs(float(steer) - float(steer_raw))
                 if disagreement > self._fallback_disagreement_threshold:
                     return self._fallback_control(
