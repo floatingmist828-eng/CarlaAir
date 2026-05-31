@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from carlaair_active_world.scenario import ScenarioConfig
 from carlaair_active_world.vision_models.safety_gate import (
@@ -106,3 +107,30 @@ def test_attack_pattern_gate_blocks_only_when_enabled():
     assert disabled_gate["attack_pattern_score"] > 0.2
     assert enabled_gate["blocked"] is True
     assert enabled_gate["reason"] == "attack_pattern"
+
+
+def test_command_to_index_accepts_known_and_unknown_commands():
+    from carlaair_active_world.vision_models.tcp_lite import COMMAND_TO_INDEX, command_to_index
+
+    assert command_to_index("lane_follow") == COMMAND_TO_INDEX["lane_follow"]
+    assert command_to_index("left") == COMMAND_TO_INDEX["left"]
+    assert command_to_index("unknown") == COMMAND_TO_INDEX["lane_follow"]
+
+
+def test_tcp_lite_model_outputs_trajectory_and_control_shapes():
+    torch = pytest.importorskip("torch")
+    from carlaair_active_world.vision_models.tcp_lite import COMMAND_TO_INDEX, TcpLiteModel
+
+    model = TcpLiteModel(
+        image_channels=3,
+        command_count=len(COMMAND_TO_INDEX),
+        trajectory_points=4,
+    )
+    rgb = torch.zeros((2, 3, 96, 160))
+    speed = torch.zeros((2, 1))
+    command = torch.zeros((2,), dtype=torch.long)
+
+    trajectory, control = model(rgb, speed, command)
+
+    assert trajectory.shape == (2, 4, 2)
+    assert control.shape == (2, 3)
