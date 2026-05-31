@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
 COMMAND_TO_INDEX = {
     "lane_follow": 0,
@@ -55,14 +55,14 @@ if nn is not None:
             self.trajectory_head = nn.Linear(64, self.trajectory_points * 2)
             self.control_head = nn.Linear(64, 3)
 
-        def forward(self, rgb: torch.Tensor, speed: torch.Tensor, command: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        def forward(self, rgb: torch.Tensor, speed: torch.Tensor, command: torch.Tensor) -> Dict[str, torch.Tensor]:
             image_features = self.image_encoder(rgb)
             speed_features = self.speed_encoder(speed)
             command_features = self.command_embedding(command.long())
             fused = self.fusion(torch.cat([image_features, speed_features, command_features], dim=1))
             trajectory = self.trajectory_head(fused).view(rgb.shape[0], self.trajectory_points, 2)
             control = self.control_head(fused)
-            return trajectory, control
+            return {"trajectory": trajectory, "control": control}
 
 else:
 

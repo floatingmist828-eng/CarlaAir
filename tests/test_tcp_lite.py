@@ -130,7 +130,7 @@ def test_tcp_lite_model_outputs_trajectory_and_control_shapes():
     speed = torch.zeros((2, 1))
     command = torch.zeros((2,), dtype=torch.long)
 
-    trajectory, control = model(rgb, speed, command)
+    output = model(rgb, speed, command)
 
-    assert trajectory.shape == (2, 4, 2)
-    assert control.shape == (2, 3)
+    assert output["trajectory"].shape == (2, 4, 2)
+    assert output["control"].shape == (2, 3)
