@@ -19,6 +19,8 @@ def train_tcp_lite(
     image_height: int = 96,
     image_width: int = 160,
     trajectory_points: int = 4,
+    trajectory_loss_weight: float = 1.0,
+    control_loss_weight: float = 1.0,
 ) -> Path:
     try:
         import torch
@@ -45,8 +47,13 @@ def train_tcp_lite(
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = torch.nn.MSELoss()
 
+    trajectory_loss_weight = float(trajectory_loss_weight)
+    control_loss_weight = float(control_loss_weight)
+
     model.train()
-    for _ in range(int(epochs)):
+    for epoch_idx in range(int(epochs)):
+        total_loss = 0.0
+        batch_count = 0
         for batch in loader:
             rgb = batch["rgb"].to(torch_device)
             speed = batch["speed"].to(torch_device)
@@ -56,12 +63,18 @@ def train_tcp_lite(
 
             optimizer.zero_grad()
             outputs = model(rgb, speed, command)
-            loss = criterion(outputs["trajectory"], target_trajectory) + criterion(
-                outputs["control"],
-                target_control,
+            trajectory_loss = criterion(outputs["trajectory"], target_trajectory)
+            control_loss = criterion(outputs["control"], target_control)
+            loss = (
+                trajectory_loss_weight * trajectory_loss
+                + control_loss_weight * control_loss
             )
             loss.backward()
             optimizer.step()
+            total_loss += float(loss.detach().cpu())
+            batch_count += 1
+        avg_loss = total_loss / max(1, batch_count)
+        print(f"epoch={epoch_idx + 1}/{int(epochs)} loss={avg_loss:.6f}", flush=True)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -70,6 +83,8 @@ def train_tcp_lite(
             "image_size": [int(image_height), int(image_width)],
             "trajectory_points": int(trajectory_points),
             "commands": COMMAND_TO_INDEX,
+            "trajectory_loss_weight": trajectory_loss_weight,
+            "control_loss_weight": control_loss_weight,
         },
         output_path,
     )
@@ -87,6 +102,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--image-height", default=96, type=int)
     parser.add_argument("--image-width", default=160, type=int)
     parser.add_argument("--trajectory-points", default=4, type=int)
+    parser.add_argument("--trajectory-loss-weight", default=1.0, type=float)
+    parser.add_argument("--control-loss-weight", default=1.0, type=float)
     return parser.parse_args()
 
 
@@ -102,6 +119,8 @@ def main() -> None:
         image_height=args.image_height,
         image_width=args.image_width,
         trajectory_points=args.trajectory_points,
+        trajectory_loss_weight=args.trajectory_loss_weight,
+        control_loss_weight=args.control_loss_weight,
     )
 
 

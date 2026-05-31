@@ -40,7 +40,7 @@ if nn is not None:
                 nn.ReLU(inplace=True),
                 nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
                 nn.ReLU(inplace=True),
-                nn.AdaptiveAvgPool2d((1, 1)),
+                nn.AdaptiveAvgPool2d((4, 4)),
                 nn.Flatten(),
             )
             self.speed_encoder = nn.Sequential(
@@ -49,7 +49,7 @@ if nn is not None:
             )
             self.command_embedding = nn.Embedding(command_count, 16)
             self.fusion = nn.Sequential(
-                nn.Linear(96, 64),
+                nn.Linear(64 * 4 * 4 + 16 + 16, 64),
                 nn.ReLU(inplace=True),
             )
             self.trajectory_head = nn.Linear(64, self.trajectory_points * 2)

@@ -307,6 +307,21 @@ def test_tcp_lite_model_outputs_trajectory_and_control_shapes():
     assert output["control"].shape == (2, 3)
 
 
+def test_tcp_lite_model_keeps_spatial_image_features():
+    torch = pytest.importorskip("torch")
+    from carlaair_active_world.vision_models.tcp_lite import COMMAND_TO_INDEX, TcpLiteModel
+
+    model = TcpLiteModel(
+        image_channels=3,
+        command_count=len(COMMAND_TO_INDEX),
+        trajectory_points=4,
+    )
+
+    features = model.image_encoder(torch.zeros((1, 3, 96, 160)))
+
+    assert features.shape == (1, 64 * 4 * 4)
+
+
 def test_tcp_lite_dataset_reads_jsonl_samples(tmp_path):
     pytest.importorskip("torch")
     _write_tiny_tcp_lite_dataset(tmp_path)
@@ -392,6 +407,8 @@ def test_train_tcp_lite_saves_checkpoint(tmp_path):
         image_height=32,
         image_width=48,
         trajectory_points=4,
+        trajectory_loss_weight=0.5,
+        control_loss_weight=3.0,
     )
 
     checkpoint = torch.load(output_path, map_location="cpu")
@@ -399,6 +416,8 @@ def test_train_tcp_lite_saves_checkpoint(tmp_path):
     assert "model_state_dict" in checkpoint
     assert checkpoint["image_size"] == [32, 48]
     assert checkpoint["trajectory_points"] == 4
+    assert checkpoint["trajectory_loss_weight"] == 0.5
+    assert checkpoint["control_loss_weight"] == 3.0
 
 
 def test_vision_driver_forwards_navigation_command_to_policy(monkeypatch):
