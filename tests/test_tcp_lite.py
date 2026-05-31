@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,29 @@ def _checkerboard(width=160, height=90):
     y, x = np.indices((height, width))
     board = ((x // 4 + y // 4) % 2 * 255).astype(np.uint8)
     return np.stack([board, board, board], axis=-1)
+
+
+def _write_tiny_tcp_lite_dataset(root: Path):
+    PIL_Image = pytest.importorskip("PIL.Image")
+    image_dir = root / "images"
+    image_dir.mkdir()
+    for index in range(2):
+        rgb = np.full((32, 48, 3), index * 64, dtype=np.uint8)
+        PIL_Image.fromarray(rgb).save(image_dir / f"{index:06d}.png")
+
+    samples = [
+        {
+            "rgb": f"images/{index:06d}.png",
+            "speed_mps": float(index),
+            "command": "lane_follow",
+            "trajectory": [[0.0, 0.0], [1.0, 0.5], [2.0, 1.0], [3.0, 1.5]],
+            "control": {"steer": 0.1, "throttle": 0.2, "brake": 0.0},
+        }
+        for index in range(2)
+    ]
+    with (root / "samples.jsonl").open("w", encoding="utf-8") as handle:
+        for sample in samples:
+            handle.write(json.dumps(sample) + "\n")
 
 
 def test_tcp_lite_helpers_import_without_carla_dependency():
@@ -157,3 +181,43 @@ def test_tcp_lite_model_outputs_trajectory_and_control_shapes():
 
     assert output["trajectory"].shape == (2, 4, 2)
     assert output["control"].shape == (2, 3)
+
+
+def test_tcp_lite_dataset_reads_jsonl_samples(tmp_path):
+    pytest.importorskip("torch")
+    _write_tiny_tcp_lite_dataset(tmp_path)
+    from carlaair_active_world.vision_models.tcp_lite_dataset import TcpLiteImitationDataset
+
+    dataset = TcpLiteImitationDataset(tmp_path, image_size=(32, 48), trajectory_points=4)
+    item = dataset[0]
+
+    assert len(dataset) == 2
+    assert item["rgb"].shape == (3, 32, 48)
+    assert item["speed"].shape == (1,)
+    assert item["trajectory"].shape == (4, 2)
+    assert item["control"].shape == (3,)
+
+
+def test_train_tcp_lite_saves_checkpoint(tmp_path):
+    torch = pytest.importorskip("torch")
+    _write_tiny_tcp_lite_dataset(tmp_path)
+    from scripts.train_tcp_lite import train_tcp_lite
+
+    output_path = tmp_path / "tcp_lite.pt"
+    train_tcp_lite(
+        dataset_root=tmp_path,
+        output_path=output_path,
+        epochs=1,
+        batch_size=2,
+        lr=1e-3,
+        device="cpu",
+        image_height=32,
+        image_width=48,
+        trajectory_points=4,
+    )
+
+    checkpoint = torch.load(output_path, map_location="cpu")
+    assert output_path.exists()
+    assert "model_state_dict" in checkpoint
+    assert checkpoint["image_size"] == [32, 48]
+    assert checkpoint["trajectory_points"] == 4
