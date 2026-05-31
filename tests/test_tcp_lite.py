@@ -85,6 +85,10 @@ def test_attack_pattern_score_is_higher_for_repeated_high_contrast_texture():
     assert noisy_score > clean_score + 0.2
 
 
+def test_attack_pattern_score_returns_zero_for_invalid_rgb():
+    assert compute_attack_pattern_score([[[1], [2, 3]]]) == 0.0
+
+
 def test_attack_pattern_gate_blocks_only_when_enabled():
     rgb = _checkerboard()
     disabled_gate = evaluate_vision_safety_gate(

@@ -14,11 +14,19 @@ class VisionSafetyGateConfig:
 
 
 def compute_attack_pattern_score(rgb: Any) -> float:
-    array = np.asarray(rgb)
+    try:
+        array = np.asarray(rgb)
+    except (TypeError, ValueError):
+        return 0.0
+
     if array.ndim != 3 or array.shape[2] != 3 or array.size == 0:
         return 0.0
 
-    gray = array.astype(np.float32).mean(axis=2) / 255.0
+    try:
+        gray = array.astype(np.float32).mean(axis=2) / 255.0
+    except (TypeError, ValueError):
+        return 0.0
+
     if gray.shape[0] < 2 or gray.shape[1] < 2:
         return 0.0
 
