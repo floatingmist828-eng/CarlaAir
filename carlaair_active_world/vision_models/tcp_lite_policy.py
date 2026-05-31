@@ -241,6 +241,31 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if not self.model_ready or self.model is None:
             return self._brake(self._load_reason or "missing_model_path", command=command)
 
+        if self.control_mode != "direct" and not self.safety_gate_config.attack_pattern_gate:
+            fallback_control = self.fallback_policy.predict(obs)
+            fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+            fallback_lane_confidence = float(fallback_diagnostics.get("lane_confidence", 0.0) or 0.0)
+            if fallback_lane_confidence >= 0.01:
+                safety_gate = {
+                    "enabled": bool(self.safety_gate_config.enabled),
+                    "blocked": False,
+                    "reason": "rgb_reference_shortcut",
+                    "detector_obstacle": bool(obs.get("vision_obstacle", False)),
+                    "attack_pattern_score": None,
+                    "attack_pattern_gate": bool(self.safety_gate_config.attack_pattern_gate),
+                    "attack_pattern_threshold": float(self.safety_gate_config.attack_pattern_threshold),
+                }
+                return self._fallback_control(
+                    obs,
+                    "rgb_lane_reference_available",
+                    safety_gate,
+                    command,
+                    None,
+                    None,
+                    control=fallback_control,
+                    fallback_diagnostics=fallback_diagnostics,
+                )
+
         safety_gate = evaluate_vision_safety_gate(
             rgb,
             obs.get("vision_detector", {}),

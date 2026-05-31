@@ -273,6 +273,7 @@ def test_tcp_lite_policy_prefers_confident_rgb_lane_reference():
     assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
     assert policy.last_diagnostics["fallback"]["reason"] == "rgb_lane_reference_available"
     assert policy.last_diagnostics["raw_control"] is None
+    assert policy.last_diagnostics["safety_gate"]["reason"] == "rgb_reference_shortcut"
 
 
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
