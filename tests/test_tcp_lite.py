@@ -460,3 +460,89 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["navigation_command"] == "right"
     assert captured["driver_policy"] is not None
     assert captured["driver_navigation_command"] == "right"
+
+
+def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
+    import carla
+    from carlaair_active_world import task_app
+
+    captured = {"configure_autopilot_calls": 0, "move_uav_calls": 0}
+
+    class _Actor:
+        id = 42
+
+        def __init__(self) -> None:
+            self.autopilot = None
+
+        def set_autopilot(self, value):
+            self.autopilot = value
+
+        def get_transform(self):
+            return carla.Transform(carla.Location(), carla.Rotation())
+
+    class _World:
+        def get_settings(self):
+            return type("Settings", (), {"synchronous_mode": False})()
+
+    class _Policy:
+        def __init__(self, **kwargs) -> None:
+            captured["policy"] = self
+            captured["policy_kwargs"] = kwargs
+
+    class _Driver:
+        def __init__(self, world, ego_vehicle, **kwargs) -> None:
+            captured["driver_policy"] = kwargs.get("policy")
+            captured["driver_navigation_command"] = kwargs.get("navigation_command")
+
+    actor = _Actor()
+    monkeypatch.setattr(task_app, "TcpLiteVisionPolicy", _Policy)
+    monkeypatch.setattr(task_app, "VisionEgoDriver", _Driver)
+    monkeypatch.setattr(task_app, "cleanup_actors_by_role", lambda *args, **kwargs: None)
+    monkeypatch.setattr(task_app, "cleanup_old_vehicles", lambda *args, **kwargs: None)
+    monkeypatch.setattr(task_app, "spawn_ego_vehicle", lambda *args, **kwargs: actor)
+    monkeypatch.setattr(task_app, "spawn_traffic_vehicles", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        task_app,
+        "configure_autopilot",
+        lambda *args, **kwargs: captured.__setitem__(
+            "configure_autopilot_calls",
+            captured["configure_autopilot_calls"] + 1,
+        ),
+    )
+    monkeypatch.setattr(
+        task_app,
+        "move_uav_to",
+        lambda *args, **kwargs: captured.__setitem__("move_uav_calls", captured["move_uav_calls"] + 1),
+    )
+
+    scenario = ScenarioConfig.from_dict(
+        {
+            "name": "tcp_lite_task_app",
+            "ego_control_mode": "vision_tcp_lite",
+            "uav_enabled": False,
+            "vision_model_path": "checkpoints/tcp.pt",
+            "vision_model_device": "cpu",
+            "vision_navigation_command": "left",
+            "vision_safety_gate_enabled": False,
+            "vision_attack_pattern_gate": True,
+        }
+    )
+    app = task_app.ActiveUAVTaskApp(scenario, output_dir=Path("recordings/test_tcp_lite_task_app"))
+    app.client = object()
+    app.world = _World()
+    app.start_ego_driver = lambda: None
+    app._attach_vehicle_sensors = lambda: None
+    app.start_vehicle_viewer = lambda: None
+
+    app.setup()
+
+    assert actor.autopilot is False
+    assert captured["policy_kwargs"]["model_path"] == "checkpoints/tcp.pt"
+    assert captured["policy_kwargs"]["device"] == "cpu"
+    assert captured["policy_kwargs"]["navigation_command"] == "left"
+    assert captured["policy_kwargs"]["safety_gate_enabled"] is False
+    assert captured["policy_kwargs"]["attack_pattern_gate"] is True
+    assert captured["driver_policy"] is captured["policy"]
+    assert captured["driver_navigation_command"] == "left"
+    assert captured["configure_autopilot_calls"] == 0
+    assert captured["move_uav_calls"] == 0
