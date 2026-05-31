@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -10,11 +14,30 @@ from carlaair_active_world.vision_models.safety_gate import (
     evaluate_vision_safety_gate,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _checkerboard(width=160, height=90):
     y, x = np.indices((height, width))
     board = ((x // 4 + y // 4) % 2 * 255).astype(np.uint8)
     return np.stack([board, board, board], axis=-1)
+
+
+def test_tcp_lite_helpers_import_without_carla_dependency():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from carlaair_active_world.vision_models.tcp_lite import command_to_index; "
+            'print(command_to_index("left"))',
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1"
 
 
 def test_tcp_lite_scenario_config_round_trips():
