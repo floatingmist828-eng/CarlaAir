@@ -46,6 +46,7 @@ class VisionEgoDriver:
         if self.detector is None and vision_detector_model_path:
             self.detector = self._load_detector(vision_detector_model_path, vision_detector_confidence)
         self.last_diagnostics: Dict[str, Any] = {}
+        self.last_observation: Dict[str, Any] = {}
 
     def _load_detector(self, model_path: str, confidence: float) -> Optional[Any]:
         path = Path(model_path)
@@ -101,6 +102,7 @@ class VisionEgoDriver:
             vision_obstacle = bool(detector_diagnostics.get("obstacle", False))
         obs["vision_detector"] = detector_diagnostics
         obs["vision_obstacle"] = bool(vision_obstacle)
+        self.last_observation = dict(obs)
         control = self.policy.predict(obs)
         self.last_diagnostics = dict(getattr(self.policy, "last_diagnostics", {}))
         self.last_diagnostics["vision_detector"] = detector_diagnostics

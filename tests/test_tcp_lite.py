@@ -458,6 +458,8 @@ def test_vision_driver_forwards_navigation_command_to_policy(monkeypatch):
     driver.predict()
 
     assert policy.obs["navigation_command"] == "left"
+    assert driver.last_observation["navigation_command"] == "left"
+    assert driver.last_observation["rgb"].shape == (90, 160, 3)
 
 
 def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):

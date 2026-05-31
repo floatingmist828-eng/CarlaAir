@@ -80,6 +80,20 @@ def control_from_diagnostics(diagnostics: Dict[str, Any]) -> Optional[Dict[str, 
         return None
 
 
+def driver_decision_observation(driver: Any) -> Dict[str, Any]:
+    observation = dict(getattr(driver, "last_observation", {}) or {})
+    if observation.get("rgb") is not None:
+        return observation
+
+    sensor_rig = getattr(driver, "sensor_rig", None)
+    if sensor_rig is None:
+        return observation
+    frames = dict(sensor_rig.snapshot() or {})
+    if frames.get("rgb") is not None:
+        observation["rgb"] = frames.get("rgb")
+    return observation
+
+
 def vehicle_speed_mps(vehicle: carla.Actor) -> float:
     velocity = vehicle.get_velocity()
     return float(np.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z))
@@ -128,11 +142,8 @@ def collect_tcp_lite_dataset(
 
                 if env.ego_driver is None or env.ego_vehicle is None or env.world is None:
                     continue
-                sensor_rig = getattr(env.ego_driver, "sensor_rig", None)
-                if sensor_rig is None:
-                    continue
-                frames = sensor_rig.snapshot()
-                rgb = frames.get("rgb")
+                decision_observation = driver_decision_observation(env.ego_driver)
+                rgb = decision_observation.get("rgb")
                 if rgb is None:
                     continue
                 diagnostics = dict(getattr(env.ego_driver, "last_diagnostics", {}) or {})
@@ -144,8 +155,8 @@ def collect_tcp_lite_dataset(
                 save_numpy_image(image_dir / image_name, np.asarray(rgb, dtype=np.uint8))
                 sample = {
                     "rgb": f"images/{image_name}",
-                    "speed_mps": vehicle_speed_mps(env.ego_vehicle),
-                    "command": str(command),
+                    "speed_mps": float(decision_observation.get("speed_mps", vehicle_speed_mps(env.ego_vehicle))),
+                    "command": str(decision_observation.get("navigation_command", command)),
                     "trajectory": future_route_trajectory(env.world, env.ego_vehicle, distances),
                     "control": control,
                     "source": {
