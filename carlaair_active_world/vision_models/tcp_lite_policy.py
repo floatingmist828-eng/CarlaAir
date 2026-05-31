@@ -164,12 +164,16 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if safety_gate.get("blocked"):
             return self._brake(str(safety_gate.get("reason", "safety_gate")), safety_gate=safety_gate, command=command)
 
-        if hasattr(self.model, "predict"):
-            trajectory, raw_control = self.model.predict(rgb=rgb, speed_mps=speed_mps, command=command)
-        else:
-            trajectory, raw_control = self._predict_with_torch_model(rgb, speed_mps, command)
+        try:
+            if hasattr(self.model, "predict"):
+                trajectory, raw_control = self.model.predict(rgb=rgb, speed_mps=speed_mps, command=command)
+            else:
+                trajectory, raw_control = self._predict_with_torch_model(rgb, speed_mps, command)
 
-        steer_raw, throttle_raw, brake_raw = self._control_values(raw_control)
+            steer_raw, throttle_raw, brake_raw = self._control_values(raw_control)
+        except Exception as exc:
+            return self._brake(f"{type(exc).__name__}: {exc}", safety_gate=safety_gate, command=command)
+
         control = carla.VehicleControl()
         control.steer = _clamp(steer_raw, -1.0, 1.0)
         control.throttle = _clamp(throttle_raw, 0.0, 1.0)

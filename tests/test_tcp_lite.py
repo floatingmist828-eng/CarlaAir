@@ -24,6 +24,16 @@ class _MockTcpModel:
         return [[1.0, 0.0], [2.0, 0.5]], [1.5, 0.4, -0.2]
 
 
+class _RaisingTcpModel:
+    def predict(self, rgb, speed_mps, command):
+        raise RuntimeError("boom")
+
+
+class _MalformedControlTcpModel:
+    def predict(self, rgb, speed_mps, command):
+        return [], "bad"
+
+
 def _checkerboard(width=160, height=90):
     y, x = np.indices((height, width))
     board = ((x // 4 + y // 4) % 2 * 255).astype(np.uint8)
@@ -175,6 +185,29 @@ def test_tcp_lite_policy_uses_mock_model_and_clamps_control():
     assert policy.last_diagnostics["model_ready"] is True
     assert policy.last_diagnostics["command"] == "lane_follow"
     assert policy.last_diagnostics["trajectory"][0] == [1.0, 0.0]
+
+
+def test_tcp_lite_policy_brakes_when_model_predict_raises():
+    policy = TcpLiteVisionPolicy(model=_RaisingTcpModel(), navigation_command="lane_follow")
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert control.brake == 1.0
+    assert control.throttle == 0.0
+    assert "RuntimeError" in policy.last_diagnostics["reason"] or "boom" in policy.last_diagnostics["reason"]
+    assert policy.last_diagnostics["model_ready"] is True
+
+
+def test_tcp_lite_policy_brakes_when_model_control_is_malformed():
+    policy = TcpLiteVisionPolicy(model=_MalformedControlTcpModel(), navigation_command="lane_follow")
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert control.brake == 1.0
+    assert control.throttle == 0.0
+    reason = policy.last_diagnostics["reason"]
+    assert "ValueError" in reason or "invalid control" in reason
+    assert policy.last_diagnostics["model_ready"] is True
 
 
 def test_tcp_lite_policy_safety_gate_brakes_for_obstacle():
