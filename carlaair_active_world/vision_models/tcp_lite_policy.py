@@ -9,6 +9,7 @@ import numpy as np
 
 from .base import VisionPolicy
 from .safety_gate import VisionSafetyGateConfig, evaluate_vision_safety_gate
+from .simple_lane import SimpleLaneVisionPolicy
 from .tcp_lite import command_to_index
 
 
@@ -34,6 +35,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self.target_speed_mps = float(target_speed_mps)
         self.control_mode = str(control_mode or "trajectory").lower()
         self._last_speed_error = 0.0
+        self._stuck_frames = 0
+        self._fallback_disagreement_threshold = 0.25
+        self._fallback_stuck_frame_threshold = 8
+        self.fallback_policy = SimpleLaneVisionPolicy(target_speed_mps=self.target_speed_mps)
         self.safety_gate_config = VisionSafetyGateConfig(
             enabled=bool(safety_gate_enabled),
             attack_pattern_gate=bool(attack_pattern_gate),
@@ -187,6 +192,36 @@ class TcpLiteVisionPolicy(VisionPolicy):
             throttle = max(throttle, 0.32)
         return steer, throttle, brake
 
+    def _fallback_control(
+        self,
+        obs: Dict[str, Any],
+        reason: str,
+        safety_gate: Dict[str, Any],
+        command: str,
+        trajectory: Any,
+        raw_control: Any,
+    ) -> carla.VehicleControl:
+        control = self.fallback_policy.predict(obs)
+        fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+        self.last_diagnostics = {
+            "model_ready": True,
+            "model_path": self.model_path,
+            "command": command,
+            "control_mode": self.control_mode,
+            "reason": "fallback_confidence_gate",
+            "fallback": {
+                "reason": reason,
+                "diagnostics": fallback_diagnostics,
+            },
+            "safety_gate": safety_gate,
+            "trajectory": trajectory,
+            "raw_control": raw_control,
+            "steer": float(control.steer),
+            "throttle": float(control.throttle),
+            "brake": float(control.brake),
+        }
+        return control
+
     def predict(self, obs: Dict[str, Any]) -> carla.VehicleControl:
         rgb = obs.get("rgb")
         speed_mps = float(obs.get("speed_mps", 0.0))
@@ -216,6 +251,29 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 steer, throttle, brake = steer_raw, throttle_raw, brake_raw
             else:
                 steer, throttle, brake = self._trajectory_control(trajectory, speed_mps)
+                disagreement = abs(float(steer) - float(steer_raw))
+                if disagreement > self._fallback_disagreement_threshold:
+                    return self._fallback_control(
+                        obs,
+                        "model_trajectory_control_disagreement",
+                        safety_gate,
+                        command,
+                        trajectory,
+                        raw_control,
+                    )
+                if speed_mps < 0.25 and throttle > 0.2 and brake < 0.1:
+                    self._stuck_frames += 1
+                else:
+                    self._stuck_frames = 0
+                if self._stuck_frames >= self._fallback_stuck_frame_threshold:
+                    return self._fallback_control(
+                        obs,
+                        "model_stuck",
+                        safety_gate,
+                        command,
+                        trajectory,
+                        raw_control,
+                    )
         except Exception as exc:
             return self._brake(f"{type(exc).__name__}: {exc}", safety_gate=safety_gate, command=command)
 

@@ -24,6 +24,11 @@ class _MockTcpModel:
         return [[1.0, 0.0], [2.0, 0.5]], [1.5, 0.4, -0.2]
 
 
+class _ConsistentTcpModel:
+    def predict(self, rgb, speed_mps, command):
+        return [[1.0, 0.0], [2.0, 0.5]], [0.3, 0.4, 0.0]
+
+
 class _RaisingTcpModel:
     def predict(self, rgb, speed_mps, command):
         raise RuntimeError("boom")
@@ -189,7 +194,7 @@ def test_tcp_lite_policy_uses_mock_model_and_clamps_control():
 
 def test_tcp_lite_policy_defaults_to_trajectory_tracking_control():
     policy = TcpLiteVisionPolicy(
-        model=_MockTcpModel(),
+        model=_ConsistentTcpModel(),
         navigation_command="lane_follow",
         target_speed_mps=4.0,
     )
@@ -200,7 +205,21 @@ def test_tcp_lite_policy_defaults_to_trajectory_tracking_control():
     assert control.throttle > 0.0
     assert control.brake == 0.0
     assert policy.last_diagnostics["control_mode"] == "trajectory"
-    assert policy.last_diagnostics["raw_control"] == [1.5, 0.4, -0.2]
+    assert policy.last_diagnostics["raw_control"] == [0.3, 0.4, 0.0]
+
+
+def test_tcp_lite_policy_falls_back_when_trajectory_and_control_disagree():
+    policy = TcpLiteVisionPolicy(
+        model=_MockTcpModel(),
+        navigation_command="lane_follow",
+        target_speed_mps=4.0,
+    )
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 0.1})
+
+    assert control.throttle > 0.0
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["fallback"]["reason"] == "model_trajectory_control_disagreement"
 
 
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
