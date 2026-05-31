@@ -94,6 +94,15 @@ def driver_decision_observation(driver: Any) -> Dict[str, Any]:
     return observation
 
 
+def should_keep_tcp_lite_sample(diagnostics: Dict[str, Any], trajectory: Sequence[Sequence[float]]) -> bool:
+    if bool(diagnostics.get("reverse", False)) or bool(diagnostics.get("recovery_active", False)):
+        return False
+    try:
+        return all(float(point[0]) > 0.25 for point in trajectory)
+    except (IndexError, TypeError, ValueError):
+        return False
+
+
 def vehicle_speed_mps(vehicle: carla.Actor) -> float:
     velocity = vehicle.get_velocity()
     return float(np.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z))
@@ -150,6 +159,9 @@ def collect_tcp_lite_dataset(
                 control = control_from_diagnostics(diagnostics)
                 if control is None:
                     continue
+                trajectory = future_route_trajectory(env.world, env.ego_vehicle, distances)
+                if not should_keep_tcp_lite_sample(diagnostics, trajectory):
+                    continue
 
                 image_name = f"{saved:06d}.png"
                 save_numpy_image(image_dir / image_name, np.asarray(rgb, dtype=np.uint8))
@@ -157,7 +169,7 @@ def collect_tcp_lite_dataset(
                     "rgb": f"images/{image_name}",
                     "speed_mps": float(decision_observation.get("speed_mps", vehicle_speed_mps(env.ego_vehicle))),
                     "command": str(decision_observation.get("navigation_command", command)),
-                    "trajectory": future_route_trajectory(env.world, env.ego_vehicle, distances),
+                    "trajectory": trajectory,
                     "control": control,
                     "source": {
                         "scenario": str(scenario_path),

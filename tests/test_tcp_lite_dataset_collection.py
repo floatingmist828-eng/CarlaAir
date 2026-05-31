@@ -9,6 +9,7 @@ from scripts.collect_tcp_lite_dataset import (
     driver_decision_observation,
     local_xy,
     parse_distances,
+    should_keep_tcp_lite_sample,
 )
 
 
@@ -53,3 +54,22 @@ def test_driver_decision_observation_prefers_policy_input_frame():
     assert np.array_equal(observation["rgb"], policy_rgb)
     assert observation["speed_mps"] == 2.5
     assert observation["navigation_command"] == "left"
+
+
+def test_should_keep_tcp_lite_sample_rejects_recovery_and_backward_trajectory():
+    assert should_keep_tcp_lite_sample(
+        {"reverse": False, "recovery_active": False},
+        [[2.0, 0.0], [4.0, 0.0]],
+    )
+    assert not should_keep_tcp_lite_sample(
+        {"reverse": True, "recovery_active": False},
+        [[2.0, 0.0], [4.0, 0.0]],
+    )
+    assert not should_keep_tcp_lite_sample(
+        {"reverse": False, "recovery_active": True},
+        [[2.0, 0.0], [4.0, 0.0]],
+    )
+    assert not should_keep_tcp_lite_sample(
+        {"reverse": False, "recovery_active": False},
+        [[2.0, 0.0], [-1.0, 0.0]],
+    )
