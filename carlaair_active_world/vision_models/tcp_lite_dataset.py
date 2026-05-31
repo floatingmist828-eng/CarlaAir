@@ -19,6 +19,7 @@ class TcpLiteImitationDataset(Dataset):
         trajectory_points: int = 4,
     ) -> None:
         self.root = Path(root)
+        self.root_resolved = self.root.resolve()
         self.image_size = (int(image_size[0]), int(image_size[1]))
         self.trajectory_points = int(trajectory_points)
         self.samples = []
@@ -36,19 +37,33 @@ class TcpLiteImitationDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        sample = self.samples[index]
+    def _load_rgb(self, rgb_path: str) -> np.ndarray:
+        candidate = (self.root / rgb_path).resolve()
+        try:
+            candidate.relative_to(self.root_resolved)
+        except ValueError as exc:
+            raise ValueError(f"RGB path is outside dataset root: {rgb_path}") from exc
+
         height, width = self.image_size
-
-        with Image.open(self.root / sample["rgb"]) as image:
+        with Image.open(candidate) as image:
             image = image.convert("RGB").resize((width, height))
-            rgb = np.asarray(image, dtype=np.float32) / 255.0
+            return np.asarray(image, dtype=np.float32) / 255.0
 
+    def _trajectory(self, sample: dict) -> np.ndarray:
         trajectory = np.zeros((self.trajectory_points, 2), dtype=np.float32)
-        points = np.asarray(sample.get("trajectory", []), dtype=np.float32).reshape(-1, 2)
+        points = np.asarray(sample.get("trajectory", []), dtype=np.float32)
+        if points.ndim != 2 or points.shape[1] != 2:
+            raise ValueError("trajectory must be a sequence of [x, y] points")
+
         point_count = min(len(points), self.trajectory_points)
         if point_count:
             trajectory[:point_count] = points[:point_count]
+        return trajectory
+
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        sample = self.samples[index]
+        rgb = self._load_rgb(sample["rgb"])
+        trajectory = self._trajectory(sample)
 
         control = sample["control"]
         return {

@@ -47,6 +47,39 @@ def _write_tiny_tcp_lite_dataset(root: Path):
             handle.write(json.dumps(sample) + "\n")
 
 
+def _write_single_tcp_lite_sample(root: Path, sample: dict):
+    with (root / "samples.jsonl").open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(sample) + "\n")
+
+
+def test_train_tcp_lite_module_imports_without_torch_dependency():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from scripts.train_tcp_lite import train_tcp_lite; print(callable(train_tcp_lite))",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "True"
+
+
+def test_train_tcp_lite_help_works_without_torch_dependency():
+    result = subprocess.run(
+        [sys.executable, "scripts/train_tcp_lite.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Train TCP-Lite" in result.stdout or "--dataset" in result.stdout
+
+
 def test_tcp_lite_helpers_import_without_carla_dependency():
     result = subprocess.run(
         [
@@ -196,6 +229,52 @@ def test_tcp_lite_dataset_reads_jsonl_samples(tmp_path):
     assert item["speed"].shape == (1,)
     assert item["trajectory"].shape == (4, 2)
     assert item["control"].shape == (3,)
+
+
+def test_tcp_lite_dataset_rejects_rgb_path_outside_root(tmp_path):
+    pytest.importorskip("torch")
+    PIL_Image = pytest.importorskip("PIL.Image")
+    outside_path = tmp_path.parent / "outside.png"
+    PIL_Image.fromarray(np.zeros((4, 4, 3), dtype=np.uint8)).save(outside_path)
+    _write_single_tcp_lite_sample(
+        tmp_path,
+        {
+            "rgb": "../outside.png",
+            "speed_mps": 0.0,
+            "command": "lane_follow",
+            "trajectory": [[0.0, 0.0]],
+            "control": {"steer": 0.0, "throttle": 0.0, "brake": 0.0},
+        },
+    )
+    from carlaair_active_world.vision_models.tcp_lite_dataset import TcpLiteImitationDataset
+
+    dataset = TcpLiteImitationDataset(tmp_path)
+
+    with pytest.raises(ValueError, match="outside dataset root"):
+        dataset[0]
+
+
+def test_tcp_lite_dataset_rejects_malformed_trajectory(tmp_path):
+    pytest.importorskip("torch")
+    PIL_Image = pytest.importorskip("PIL.Image")
+    image_path = tmp_path / "image.png"
+    PIL_Image.fromarray(np.zeros((4, 4, 3), dtype=np.uint8)).save(image_path)
+    _write_single_tcp_lite_sample(
+        tmp_path,
+        {
+            "rgb": "image.png",
+            "speed_mps": 0.0,
+            "command": "lane_follow",
+            "trajectory": [1.0, 2.0, 3.0],
+            "control": {"steer": 0.0, "throttle": 0.0, "brake": 0.0},
+        },
+    )
+    from carlaair_active_world.vision_models.tcp_lite_dataset import TcpLiteImitationDataset
+
+    dataset = TcpLiteImitationDataset(tmp_path)
+
+    with pytest.raises(ValueError, match="trajectory"):
+        dataset[0]
 
 
 def test_train_tcp_lite_saves_checkpoint(tmp_path):

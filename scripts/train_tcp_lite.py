@@ -8,12 +8,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import torch
-from torch.utils.data import DataLoader
-
-from carlaair_active_world.vision_models.tcp_lite import COMMAND_TO_INDEX, TcpLiteModel
-from carlaair_active_world.vision_models.tcp_lite_dataset import TcpLiteImitationDataset
-
 
 def train_tcp_lite(
     dataset_root: str | Path,
@@ -26,6 +20,15 @@ def train_tcp_lite(
     image_width: int = 160,
     trajectory_points: int = 4,
 ) -> Path:
+    try:
+        import torch
+        from torch.utils.data import DataLoader
+
+        from carlaair_active_world.vision_models.tcp_lite import COMMAND_TO_INDEX, TcpLiteModel
+        from carlaair_active_world.vision_models.tcp_lite_dataset import TcpLiteImitationDataset
+    except ImportError as exc:
+        raise ImportError("PyTorch is required to train TCP-Lite") from exc
+
     output_path = Path(output_path)
     dataset = TcpLiteImitationDataset(
         dataset_root,
