@@ -98,6 +98,10 @@ PY
             cat /tmp/carla_vehicle_eval_probe.out
             return 0
         fi
+        if [ -n "${CARLA_PID:-}" ] && ! kill -0 "${CARLA_PID}" 2>/dev/null; then
+            echo "CARLA process exited before RPC became ready." >&2
+            return 1
+        fi
         sleep 2
     done
     cat /tmp/carla_vehicle_eval_probe.err >&2 || true
@@ -123,6 +127,7 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/nvidia_icd.
 export __GLX_VENDOR_LIBRARY_NAME="${__GLX_VENDOR_LIBRARY_NAME:-nvidia}"
 
 "${CARLA_BIN}" CarlaUE4 "${MAP_NAME}" \
+    -windowed \
     -ResX="${RES_X}" -ResY="${RES_Y}" \
     -carla-rpc-port="${CARLA_PORT}" \
     -quality-level="${QUALITY}" \

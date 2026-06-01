@@ -138,6 +138,8 @@ def test_vehicle_eval_launcher_uses_car_airsim_mode_without_city_traffic():
     assert '"VehicleType": "PhysXCar"' in content
     assert "CARLAAIR_DISPLAY" in content
     assert "XAUTHORITY" in content
+    assert "-windowed" in content
+    assert "CARLA process exited before RPC became ready." in content
     assert "--no-city-traffic" in content
 
 
