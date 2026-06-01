@@ -129,6 +129,18 @@ def test_train_tcp_lite_help_works_without_torch_dependency():
     assert "Train TCP-Lite" in result.stdout or "--dataset" in result.stdout
 
 
+def test_vehicle_eval_launcher_uses_car_airsim_mode_without_city_traffic():
+    script = ROOT / "scripts" / "launch_carla_vehicle_eval.sh"
+
+    content = script.read_text(encoding="utf-8")
+
+    assert '"SimMode": "Car"' in content
+    assert '"VehicleType": "PhysXCar"' in content
+    assert "CARLAAIR_DISPLAY" in content
+    assert "XAUTHORITY" in content
+    assert "--no-city-traffic" in content
+
+
 def test_tcp_lite_helpers_import_without_carla_dependency():
     result = subprocess.run(
         [
