@@ -257,12 +257,12 @@ def test_tcp_lite_yolo_attack_project_scenarios_load():
 
     assert texture.ego_control_mode == "vision_tcp_lite"
     assert texture.vision_attack == "texture"
-    assert texture.vision_attack_pattern_gate is True
+    assert texture.vision_attack_pattern_gate is False
     assert texture.vision_attack_pattern_threshold == 0.50
     assert texture.vision_detector_model_path == "models/yolo11n.pt"
     assert weather.weather_preset == "hard_rain_fog"
-    assert weather.vision_attack == "weather"
-    assert weather.vision_low_visibility_gate is True
+    assert weather.vision_attack == "none"
+    assert weather.vision_low_visibility_gate is False
     assert weather.vision_low_visibility_threshold == 0.19
     assert weather.vision_detector_model_path == "models/yolo11n.pt"
 

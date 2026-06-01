@@ -27,7 +27,7 @@
   "vision_model_control_mode": "trajectory_model",
   "vision_navigation_command": "lane_follow",
   "vision_safety_gate_enabled": true,
-  "vision_attack_pattern_gate": true,
+  "vision_attack_pattern_gate": false,
   "vision_attack_pattern_threshold": 0.50,
   "vision_low_visibility_gate": false,
   "vision_low_visibility_threshold": 0.12,
