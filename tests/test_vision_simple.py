@@ -176,6 +176,48 @@ def test_vision_driver_rgb_only_disables_semantic_for_policy():
     assert policy.obs["semantic"] is None
 
 
+def test_vision_driver_can_disable_depth_for_rgb_only_policy():
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            self.kwargs = kwargs
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": _lane_image(), "semantic": _semantic(), "depth": _clear_depth()}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Policy:
+        def __init__(self) -> None:
+            self.obs = None
+            self.last_diagnostics = {}
+
+        def predict(self, obs):
+            self.obs = obs
+            import carla
+
+            return carla.VehicleControl()
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+    policy = _Policy()
+    original = VisionEgoDriver.sensor_rig_class
+    VisionEgoDriver.sensor_rig_class = _Rig
+    try:
+        driver = VisionEgoDriver(object(), _Vehicle(), use_semantic=False, use_depth=False, policy=policy)
+        driver.predict()
+    finally:
+        VisionEgoDriver.sensor_rig_class = original
+
+    assert driver.sensor_rig.kwargs["disable_depth"] is True
+    assert policy.obs["depth"] is None
+
+
 def test_vision_driver_forwards_detector_obstacle_to_policy():
     class _Rig:
         def __init__(self, *args, **kwargs) -> None:
@@ -267,6 +309,56 @@ def test_vehicle_sensor_rig_spawns_rgb_depth_and_semantic_cameras():
         "sensor.camera.semantic_segmentation",
     ]
     assert set(rig.latest) == {"rgb", "depth", "semantic"}
+
+
+def test_vehicle_sensor_rig_can_spawn_rgb_only_camera():
+    class _Blueprint:
+        def __init__(self, type_id: str) -> None:
+            self.type_id = type_id
+            self.attributes = {}
+
+        def set_attribute(self, key: str, value: str) -> None:
+            self.attributes[key] = value
+
+    class _BlueprintLibrary:
+        def find(self, type_id: str):
+            return _Blueprint(type_id)
+
+    class _Sensor:
+        def __init__(self, blueprint: _Blueprint) -> None:
+            self.blueprint = blueprint
+            self.callback = None
+
+        def listen(self, callback) -> None:
+            self.callback = callback
+
+    class _World:
+        def __init__(self) -> None:
+            self.spawned = []
+
+        def get_blueprint_library(self):
+            return _BlueprintLibrary()
+
+        def spawn_actor(self, blueprint, transform, attach_to=None):
+            sensor = _Sensor(blueprint)
+            self.spawned.append(sensor)
+            return sensor
+
+    world = _World()
+    rig = VehicleSensorRig(
+        world,
+        object(),
+        "ego",
+        width=4,
+        height=3,
+        disable_depth=True,
+        disable_semantic=True,
+    )
+
+    rig.spawn()
+
+    assert [s.blueprint.type_id for s in world.spawned] == ["sensor.camera.rgb"]
+    assert set(rig.latest) == {"rgb"}
 
 
 def test_vehicle_sensor_rig_camera_points_down_to_see_road():

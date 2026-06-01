@@ -20,6 +20,7 @@ class VisionEgoDriver:
         target_speed_mps: float = 4.0,
         policy: Optional[VisionPolicy] = None,
         use_semantic: bool = True,
+        use_depth: bool = True,
         vision_attack: str = "none",
         vision_attack_intensity: float = 1.0,
         vision_detector_model_path: str = "",
@@ -30,6 +31,7 @@ class VisionEgoDriver:
         self.world = world
         self.ego_vehicle = ego_vehicle
         self.use_semantic = bool(use_semantic)
+        self.use_depth = bool(use_depth)
         self.navigation_command = navigation_command
         self.sensor_rig = self.sensor_rig_class(
             world,
@@ -37,6 +39,7 @@ class VisionEgoDriver:
             "ego_vision",
             vision_attack=vision_attack,
             vision_attack_intensity=vision_attack_intensity,
+            disable_depth=not bool(use_depth),
             disable_semantic=not bool(use_semantic),
         )
         self.sensor_rig.spawn()
@@ -84,7 +87,7 @@ class VisionEgoDriver:
         frames = self.sensor_rig.snapshot()
         obs = {
             "rgb": frames.get("rgb"),
-            "depth": frames.get("depth"),
+            "depth": frames.get("depth") if self.use_depth else None,
             "semantic": frames.get("semantic") if self.use_semantic else None,
             "speed_mps": self._vehicle_speed_mps(vehicle),
             "navigation_command": self.navigation_command,

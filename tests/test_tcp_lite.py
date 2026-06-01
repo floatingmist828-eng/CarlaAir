@@ -564,6 +564,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
         def __init__(self, world, ego_vehicle, **kwargs) -> None:
             captured["driver_policy"] = kwargs.get("policy")
             captured["driver_navigation_command"] = kwargs.get("navigation_command")
+            captured["driver_use_depth"] = kwargs.get("use_depth")
 
         def predict(self, *args, **kwargs):
             import carla
@@ -605,6 +606,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["target_speed_mps"] == 3.5
     assert captured["driver_policy"] is not None
     assert captured["driver_navigation_command"] == "right"
+    assert captured["driver_use_depth"] is False
 
 
 def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
@@ -638,6 +640,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
         def __init__(self, world, ego_vehicle, **kwargs) -> None:
             captured["driver_policy"] = kwargs.get("policy")
             captured["driver_navigation_command"] = kwargs.get("navigation_command")
+            captured["driver_use_depth"] = kwargs.get("use_depth")
 
     actor = _Actor()
     monkeypatch.setattr(task_app, "TcpLiteVisionPolicy", _Policy)
@@ -688,6 +691,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["navigation_command"] == "left"
     assert captured["policy_kwargs"]["safety_gate_enabled"] is False
     assert captured["policy_kwargs"]["attack_pattern_gate"] is True
+    assert captured["driver_use_depth"] is False
     assert captured["policy_kwargs"]["target_speed_mps"] == 3.25
     assert captured["driver_policy"] is captured["policy"]
     assert captured["driver_navigation_command"] == "left"

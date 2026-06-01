@@ -225,6 +225,7 @@ class ActiveUAVTaskApp:
                     target_speed_mps=float(self.scenario.ego_target_speed_mps),
                     policy=policy,
                     use_semantic=self._ego_control_mode == "vision_simple",
+                    use_depth=self._ego_control_mode != "vision_tcp_lite",
                     navigation_command=self.scenario.vision_navigation_command,
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
@@ -331,7 +332,8 @@ class ActiveUAVTaskApp:
                 role,
                 vision_attack=str(getattr(self.scenario, "vision_attack", "none")) if actor is self.ego_vehicle else "none",
                 vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
-                disable_semantic=self._ego_control_mode == "vision_rgb_only" if actor is self.ego_vehicle else False,
+                disable_depth=self._ego_control_mode == "vision_tcp_lite" if actor is self.ego_vehicle else False,
+                disable_semantic=self._ego_control_mode in {"vision_rgb_only", "vision_tcp_lite"} if actor is self.ego_vehicle else False,
             )
             rig.spawn()
             self.vehicle_sensors[int(actor.id)] = rig

@@ -55,15 +55,17 @@ class VehicleSensorRig:
     _locks: Dict[str, threading.Lock] = field(default_factory=dict)
     vision_attack: str = "none"
     vision_attack_intensity: float = 1.0
+    disable_depth: bool = False
     disable_semantic: bool = False
 
     def spawn(self) -> None:
         bp_lib = self.world.get_blueprint_library()
-        for sensor_name, sensor_type in (
-            ("rgb", "sensor.camera.rgb"),
-            ("depth", "sensor.camera.depth"),
-            ("semantic", "sensor.camera.semantic_segmentation"),
-        ):
+        sensor_specs = [("rgb", "sensor.camera.rgb")]
+        if not self.disable_depth:
+            sensor_specs.append(("depth", "sensor.camera.depth"))
+        if not self.disable_semantic:
+            sensor_specs.append(("semantic", "sensor.camera.semantic_segmentation"))
+        for sensor_name, sensor_type in sensor_specs:
             bp = bp_lib.find(sensor_type)
             bp.set_attribute("image_size_x", str(self.width))
             bp.set_attribute("image_size_y", str(self.height))

@@ -121,6 +121,7 @@ class ActiveAirGroundEnv:
                     target_speed_mps=float(getattr(self.scenario, "ego_target_speed_mps", 4.0)),
                     policy=policy,
                     use_semantic=mode == "vision_simple",
+                    use_depth=mode != "vision_tcp_lite",
                     navigation_command=self.scenario.vision_navigation_command,
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
