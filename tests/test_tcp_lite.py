@@ -190,6 +190,19 @@ def test_tcp_lite_project_scenario_loads():
     assert scenario.uav_enabled is False
 
 
+def test_tcp_lite_yolo_project_scenario_loads():
+    scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo.json")
+
+    assert scenario.ego_control_mode == "vision_tcp_lite"
+    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
+    assert scenario.vision_model_control_mode == "trajectory_model"
+    assert scenario.vision_detector_model_path == "models/yolo11n.pt"
+    assert scenario.vision_detector_confidence == 0.35
+    assert scenario.vision_safety_gate_enabled is True
+    assert scenario.traffic_vehicles == 0
+    assert scenario.uav_enabled is False
+
+
 def test_tcp_lite_policy_brakes_without_model_path():
     policy = TcpLiteVisionPolicy(model_path="")
 
