@@ -143,6 +143,15 @@ def test_vehicle_eval_launcher_uses_car_airsim_mode_without_city_traffic():
     assert "--no-city-traffic" in content
 
 
+def test_run_active_world_help_exposes_ego_viewer_flag():
+    script = ROOT / "scripts" / "run_active_world.py"
+
+    content = script.read_text(encoding="utf-8")
+
+    assert "--viewer" in content
+    assert "Show the ego vehicle RGB camera" in content
+
+
 def test_tcp_lite_helpers_import_without_carla_dependency():
     result = subprocess.run(
         [

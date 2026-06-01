@@ -15,6 +15,32 @@ from carlaair_active_world.recorder import EpisodeRecorder
 from carlaair_active_world.scenario import ScenarioConfig
 
 
+def show_ego_view(env: ActiveAirGroundEnv, window_name: str = "EgoVehicleRGB") -> bool:
+    try:
+        import cv2
+    except Exception as exc:
+        print(f"Viewer unavailable: OpenCV import failed: {exc}", file=sys.stderr)
+        return False
+
+    rig = getattr(getattr(env, "ego_driver", None), "sensor_rig", None)
+    if rig is None:
+        print("Viewer unavailable: ego driver has no vehicle camera rig.", file=sys.stderr)
+        return False
+
+    frames = rig.snapshot()
+    rgb = frames.get("rgb")
+    if rgb is None:
+        return True
+
+    try:
+        cv2.imshow(window_name, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+        cv2.waitKey(1)
+    except Exception as exc:
+        print(f"Viewer unavailable: OpenCV display failed: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
 def load_scenario(path: Path) -> ScenarioConfig:
     return ScenarioConfig.load(path)
 
@@ -26,6 +52,7 @@ def main() -> None:
     parser.add_argument("--policy-index", type=int, default=0, help="Fixed policy candidate index.")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--record", type=Path, default=None, help="Optional output JSON file.")
+    parser.add_argument("--viewer", action="store_true", help="Show the ego vehicle RGB camera in an OpenCV window.")
     args = parser.parse_args()
 
     scenario = load_scenario(args.scenario)
@@ -42,6 +69,9 @@ def main() -> None:
         )
 
     observation = env.reset()
+    viewer_enabled = bool(args.viewer)
+    if viewer_enabled:
+        viewer_enabled = show_ego_view(env)
     print(f"Scenario: {scenario.name}")
     print(f"Policy: {policy.name}")
     print(f"Candidates: {[c.name for c in scenario.candidate_offsets]}")
@@ -54,6 +84,8 @@ def main() -> None:
             result = env.step(action)
             observation = result.observation
             done = result.done
+            if viewer_enabled:
+                viewer_enabled = show_ego_view(env)
             step_idx += 1
 
             candidate_name = scenario.candidate_offsets[action].name
