@@ -179,9 +179,9 @@ def test_tcp_lite_project_scenario_loads():
     scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite.json")
 
     assert scenario.ego_control_mode == "vision_tcp_lite"
-    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e20.pt"
+    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
     assert scenario.vision_model_device == "cpu"
-    assert scenario.vision_model_control_mode == "trajectory"
+    assert scenario.vision_model_control_mode == "trajectory_model"
     assert scenario.vision_navigation_command == "lane_follow"
     assert scenario.vision_safety_gate_enabled is True
     assert scenario.vision_attack_pattern_gate is False
