@@ -45,11 +45,13 @@ class UltralyticsObstacleDetector:
     def _is_forward_obstacle(width: int, height: int, xyxy: tuple[float, float, float, float]) -> bool:
         x1, y1, x2, y2 = xyxy
         center_x = 0.5 * (x1 + x2)
-        center_y = 0.5 * (y1 + y2)
+        bottom_y = max(y1, y2)
         box_area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
         image_area = max(1.0, float(width * height))
         central = width * 0.30 <= center_x <= width * 0.70
-        ahead = center_y >= height * 0.45 or box_area / image_area >= 0.035
+        close_enough = bottom_y >= height * 0.78 or box_area / image_area >= 0.18
+        plausible_size = box_area / image_area >= 0.025
+        ahead = close_enough and plausible_size
         return bool(central and ahead)
 
     def predict(self, rgb: np.ndarray) -> Dict[str, Any]:

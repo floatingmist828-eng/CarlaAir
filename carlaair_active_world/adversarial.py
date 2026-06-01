@@ -27,9 +27,20 @@ def build_weather_parameters(preset: str) -> Optional[carla.WeatherParameters]:
 
 
 def apply_weather_preset(world: carla.World, preset: str) -> None:
+    set_weather = getattr(world, "set_weather", None)
+    if not callable(set_weather):
+        return
     weather = build_weather_parameters(preset)
-    if weather is not None:
-        world.set_weather(weather)
+    if weather is None:
+        clear_weather = getattr(
+            carla.WeatherParameters,
+            "Default",
+            getattr(carla.WeatherParameters, "ClearNoon", None),
+        )
+        if clear_weather is not None:
+            set_weather(clear_weather)
+        return
+    set_weather(weather)
 
 
 def apply_vision_attack(

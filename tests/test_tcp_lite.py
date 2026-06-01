@@ -227,7 +227,7 @@ def test_tcp_lite_project_scenario_loads():
     scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite.json")
 
     assert scenario.ego_control_mode == "vision_tcp_lite"
-    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_smooth_e40.pt"
+    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
     assert scenario.vision_model_device == "cpu"
     assert scenario.vision_model_control_mode == "trajectory_model"
     assert scenario.vision_navigation_command == "lane_follow"
@@ -242,7 +242,7 @@ def test_tcp_lite_yolo_project_scenario_loads():
     scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo.json")
 
     assert scenario.ego_control_mode == "vision_tcp_lite"
-    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_smooth_e40.pt"
+    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
     assert scenario.vision_model_control_mode == "trajectory_model"
     assert scenario.vision_detector_model_path == "models/yolo11n.pt"
     assert scenario.vision_detector_confidence == 0.35
@@ -258,12 +258,12 @@ def test_tcp_lite_yolo_attack_project_scenarios_load():
     assert texture.ego_control_mode == "vision_tcp_lite"
     assert texture.vision_attack == "texture"
     assert texture.vision_attack_pattern_gate is True
-    assert texture.vision_attack_pattern_threshold == 0.08
+    assert texture.vision_attack_pattern_threshold == 0.50
     assert texture.vision_detector_model_path == "models/yolo11n.pt"
     assert weather.weather_preset == "hard_rain_fog"
     assert weather.vision_attack == "weather"
     assert weather.vision_low_visibility_gate is True
-    assert weather.vision_low_visibility_threshold == 0.12
+    assert weather.vision_low_visibility_threshold == 0.19
     assert weather.vision_detector_model_path == "models/yolo11n.pt"
 
 
@@ -411,6 +411,22 @@ def test_tcp_lite_policy_rate_limits_alternating_junction_steer():
     assert policy.last_diagnostics["stabilization"]["in_junction"] is True
 
 
+def test_tcp_lite_policy_limits_lane_follow_steer_outside_junction():
+    policy = TcpLiteVisionPolicy(
+        model=_AlternatingTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+    )
+    obs = {"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0, "in_junction": False}
+
+    first = policy.predict(obs)
+    second = policy.predict(obs)
+
+    assert abs(first.steer) <= 0.38
+    assert abs(second.steer - first.steer) <= 0.061
+    assert abs(second.steer) <= 0.38
+
+
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
     policy = TcpLiteVisionPolicy(model=_RaisingTcpModel(), navigation_command="lane_follow")
 
@@ -479,6 +495,16 @@ def test_attack_pattern_score_is_higher_for_repeated_high_contrast_texture():
     noisy_score = compute_attack_pattern_score(_checkerboard())
 
     assert noisy_score > clean_score + 0.2
+
+
+def test_attack_pattern_score_detects_project_texture_attack():
+    from carlaair_active_world.adversarial import apply_vision_attack
+
+    clean = np.full((90, 160, 3), 35, dtype=np.uint8)
+    attacked = apply_vision_attack({"rgb": clean}, attack="texture", intensity=1.5)["rgb"]
+
+    assert compute_attack_pattern_score(clean) < 0.04
+    assert compute_attack_pattern_score(attacked) > 0.08
 
 
 def test_attack_pattern_score_returns_zero_for_invalid_rgb():

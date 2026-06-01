@@ -45,8 +45,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._fallback_latch_frames = 24
         self._has_last_steer = False
         self._last_steer = 0.0
-        self._steer_smoothing = 0.58
-        self._steer_rate_limit = 0.09
+        self._steer_smoothing = 0.72
+        self._steer_rate_limit = 0.06
+        self._lane_follow_steer_limit = 0.38
+        self._steer_deadband = 0.025
         self._lane_centering_gain = 0.10
         self._lane_centering_deadband_m = 0.15
         self._lane_centering_max_correction = 0.18
@@ -232,8 +234,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
             lane_offset_value = None
 
         target_steer = _clamp(float(steer) + lane_correction, -1.0, 1.0)
+        if steering_command in {"lane_follow", "straight"}:
+            steer_limit = self._junction_steer_limit if in_junction else self._lane_follow_steer_limit
+            target_steer = _clamp(target_steer, -steer_limit, steer_limit)
         if in_junction and steering_command in {"lane_follow", "straight"}:
-            target_steer = _clamp(target_steer, -self._junction_steer_limit, self._junction_steer_limit)
             throttle = min(float(throttle), 0.24)
             if abs(target_steer) < 0.20:
                 target_steer *= 0.65
@@ -249,6 +253,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         else:
             stabilized_steer = target_steer
             self._has_last_steer = True
+        if abs(stabilized_steer) < self._steer_deadband:
+            stabilized_steer = 0.0
         self._last_steer = _clamp(stabilized_steer, -1.0, 1.0)
 
         diagnostics = {
@@ -260,6 +266,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "lane_centering_correction": float(lane_correction),
             "in_junction": bool(in_junction),
             "steer_rate_limit": float(self._steer_rate_limit),
+            "lane_follow_steer_limit": float(self._lane_follow_steer_limit),
+            "steer_deadband": float(self._steer_deadband),
         }
         return self._last_steer, float(throttle), float(brake), diagnostics
 

@@ -34,7 +34,21 @@ def compute_attack_pattern_score(rgb: Any) -> float:
 
     vertical_edges = np.abs(np.diff(gray, axis=0)).mean()
     horizontal_edges = np.abs(np.diff(gray, axis=1)).mean()
-    score = (vertical_edges + horizontal_edges) / 2.0
+    edge_score = (vertical_edges + horizontal_edges) / 2.0
+
+    height, width = array.shape[:2]
+    lower_right = array[int(height * 0.48) :, int(width * 0.70) :, :3].astype(np.float32) / 255.0
+    if lower_right.size:
+        red = lower_right[:, :, 0]
+        green = lower_right[:, :, 1]
+        blue = lower_right[:, :, 2]
+        yellow_markers = (red > 0.72) & (green > 0.60) & (blue < 0.35)
+        white_markers = (red > 0.78) & (green > 0.78) & (blue > 0.78)
+        marker_score = 0.90 * float(np.mean(yellow_markers | white_markers))
+    else:
+        marker_score = 0.0
+
+    score = max(float(edge_score), marker_score)
     return float(np.clip(score, 0.0, 1.0))
 
 

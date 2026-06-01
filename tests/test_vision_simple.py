@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from carlaair_active_world.adversarial import apply_vision_attack, build_weather_parameters
+from carlaair_active_world.adversarial import apply_vision_attack, apply_weather_preset, build_weather_parameters
 from carlaair_active_world.scenario import ScenarioConfig
 from carlaair_active_world.sensors import VehicleSensorRig
 from carlaair_active_world.vision_driver import VisionEgoDriver
@@ -87,6 +87,21 @@ def test_hard_rain_fog_weather_preset_is_adverse():
     assert weather.precipitation >= 80.0
     assert weather.fog_density >= 70.0
     assert weather.wetness >= 80.0
+
+
+def test_none_weather_preset_resets_world_to_default(monkeypatch):
+    import carla
+
+    calls = []
+    monkeypatch.setattr(carla.WeatherParameters, "Default", "DefaultWeather", raising=False)
+
+    class _World:
+        def set_weather(self, weather):
+            calls.append(weather)
+
+    apply_weather_preset(_World(), "none")
+
+    assert calls == ["DefaultWeather"]
 
 
 def test_texture_attack_overlays_rgb_and_can_remove_semantic():
@@ -295,6 +310,24 @@ def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():
     assert diagnostics["traffic"] is True
     assert diagnostics["traffic_label"] == "traffic light"
     assert diagnostics["traffic_detections"] == 1
+
+
+def test_yolo_forward_obstacle_rejects_midfield_static_car_bbox():
+    bbox = (270.0, 115.0, 397.0, 201.0)
+
+    assert not UltralyticsObstacleDetector._is_forward_obstacle(640, 360, bbox)
+
+
+def test_yolo_forward_obstacle_rejects_clean_scene_self_or_background_bbox():
+    bbox = (127.0, 126.0, 316.0, 260.0)
+
+    assert not UltralyticsObstacleDetector._is_forward_obstacle(640, 360, bbox)
+
+
+def test_yolo_forward_obstacle_accepts_close_center_car_bbox():
+    bbox = (220.0, 145.0, 430.0, 315.0)
+
+    assert UltralyticsObstacleDetector._is_forward_obstacle(640, 360, bbox)
 
 
 def test_vehicle_sensor_rig_spawns_rgb_depth_and_semantic_cameras():
