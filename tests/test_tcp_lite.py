@@ -176,7 +176,7 @@ def test_tcp_lite_project_scenario_loads():
     scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite.json")
 
     assert scenario.ego_control_mode == "vision_tcp_lite"
-    assert scenario.vision_model_path == ""
+    assert scenario.vision_model_path == "models/tcp_lite_aligned_filtered_spatial_t05_c10_e20.pt"
     assert scenario.vision_model_device == "cpu"
     assert scenario.vision_navigation_command == "lane_follow"
     assert scenario.vision_safety_gate_enabled is True
