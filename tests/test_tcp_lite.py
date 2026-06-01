@@ -281,6 +281,23 @@ def test_tcp_lite_policy_prefers_confident_rgb_lane_reference():
     assert policy.last_diagnostics["safety_gate"]["reason"] == "rgb_reference_shortcut"
 
 
+def test_tcp_lite_policy_trajectory_model_mode_skips_rgb_reference_fallback():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+    )
+    policy.fallback_policy = _FallbackPolicy()
+
+    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+
+    assert control.steer != -0.5
+    assert control.throttle > 0.0
+    assert policy.last_diagnostics["reason"] == "ok"
+    assert policy.last_diagnostics["control_mode"] == "trajectory_model"
+    assert policy.last_diagnostics["raw_control"] == [0.3, 0.4, 0.0]
+
+
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
     policy = TcpLiteVisionPolicy(model=_RaisingTcpModel(), navigation_command="lane_follow")
 
