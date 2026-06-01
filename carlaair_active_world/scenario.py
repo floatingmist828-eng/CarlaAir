@@ -39,6 +39,9 @@ class ScenarioConfig:
     vision_navigation_command: str = "lane_follow"
     vision_safety_gate_enabled: bool = True
     vision_attack_pattern_gate: bool = False
+    vision_attack_pattern_threshold: float = 0.35
+    vision_low_visibility_gate: bool = False
+    vision_low_visibility_threshold: float = 0.12
     uav_enabled: bool = True
     uav_name: str = "SimpleFlight"
     uav_altitude: float = 18.0
@@ -92,6 +95,9 @@ class ScenarioConfig:
             vision_navigation_command=str(data.get("vision_navigation_command", "lane_follow")),
             vision_safety_gate_enabled=bool(data.get("vision_safety_gate_enabled", True)),
             vision_attack_pattern_gate=bool(data.get("vision_attack_pattern_gate", False)),
+            vision_attack_pattern_threshold=float(data.get("vision_attack_pattern_threshold", 0.35)),
+            vision_low_visibility_gate=bool(data.get("vision_low_visibility_gate", False)),
+            vision_low_visibility_threshold=float(data.get("vision_low_visibility_threshold", 0.12)),
             uav_enabled=bool(data.get("uav_enabled", True)),
             uav_name=str(data.get("uav_name", "SimpleFlight")),
             uav_altitude=float(data.get("uav_altitude", 18.0)),
@@ -137,6 +143,9 @@ class ScenarioConfig:
             "vision_navigation_command": self.vision_navigation_command,
             "vision_safety_gate_enabled": self.vision_safety_gate_enabled,
             "vision_attack_pattern_gate": self.vision_attack_pattern_gate,
+            "vision_attack_pattern_threshold": self.vision_attack_pattern_threshold,
+            "vision_low_visibility_gate": self.vision_low_visibility_gate,
+            "vision_low_visibility_threshold": self.vision_low_visibility_threshold,
             "uav_enabled": self.uav_enabled,
             "uav_name": self.uav_name,
             "uav_altitude": self.uav_altitude,

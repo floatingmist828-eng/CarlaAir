@@ -11,6 +11,8 @@ class VisionSafetyGateConfig:
     enabled: bool = True
     attack_pattern_gate: bool = False
     attack_pattern_threshold: float = 0.35
+    low_visibility_gate: bool = False
+    low_visibility_threshold: float = 0.12
 
 
 def compute_attack_pattern_score(rgb: Any) -> float:
@@ -36,6 +38,25 @@ def compute_attack_pattern_score(rgb: Any) -> float:
     return float(np.clip(score, 0.0, 1.0))
 
 
+def compute_visibility_score(rgb: Any) -> float:
+    try:
+        array = np.asarray(rgb)
+    except (TypeError, ValueError):
+        return 1.0
+
+    if array.ndim != 3 or array.shape[2] != 3 or array.size == 0:
+        return 1.0
+
+    try:
+        gray = array.astype(np.float32).mean(axis=2) / 255.0
+    except (TypeError, ValueError):
+        return 1.0
+
+    contrast = float(np.std(gray))
+    brightness_margin = float(min(np.mean(gray), 1.0 - np.mean(gray)))
+    return float(np.clip(0.75 * contrast + 0.25 * brightness_margin, 0.0, 1.0))
+
+
 def evaluate_vision_safety_gate(
     rgb: Any,
     detector_diagnostics: Mapping[str, Any] | None,
@@ -45,6 +66,7 @@ def evaluate_vision_safety_gate(
     diagnostics = detector_diagnostics or {}
     detector_obstacle = bool(diagnostics.get("obstacle", False))
     attack_pattern_score = compute_attack_pattern_score(rgb)
+    visibility_score = compute_visibility_score(rgb)
 
     result = {
         "enabled": gate_config.enabled,
@@ -54,6 +76,9 @@ def evaluate_vision_safety_gate(
         "attack_pattern_score": attack_pattern_score,
         "attack_pattern_gate": gate_config.attack_pattern_gate,
         "attack_pattern_threshold": gate_config.attack_pattern_threshold,
+        "visibility_score": visibility_score,
+        "low_visibility_gate": gate_config.low_visibility_gate,
+        "low_visibility_threshold": gate_config.low_visibility_threshold,
     }
 
     if not gate_config.enabled:
@@ -71,5 +96,13 @@ def evaluate_vision_safety_gate(
     ):
         result["blocked"] = True
         result["reason"] = "attack_pattern"
+        return result
+
+    if (
+        gate_config.low_visibility_gate
+        and visibility_score <= gate_config.low_visibility_threshold
+    ):
+        result["blocked"] = True
+        result["reason"] = "low_visibility"
 
     return result

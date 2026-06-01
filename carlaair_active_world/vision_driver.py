@@ -82,8 +82,35 @@ class VisionEgoDriver:
         velocity = vehicle.get_velocity()
         return float(np.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z))
 
+    @staticmethod
+    def _lane_reference(vehicle: carla.Actor, world: Optional[carla.World]) -> Dict[str, Any]:
+        if world is None:
+            return {}
+        try:
+            waypoint = world.get_map().get_waypoint(
+                vehicle.get_location(),
+                project_to_road=True,
+                lane_type=carla.LaneType.Driving,
+            )
+            loc = vehicle.get_location()
+            center = waypoint.transform.location
+            yaw = np.deg2rad(float(waypoint.transform.rotation.yaw))
+            dx = float(loc.x - center.x)
+            dy = float(loc.y - center.y)
+            lateral_offset = -np.sin(yaw) * dx + np.cos(yaw) * dy
+            return {
+                "lane_center_offset_m": float(lateral_offset),
+                "lane_width_m": float(getattr(waypoint, "lane_width", 0.0) or 0.0),
+                "lane_road_id": int(getattr(waypoint, "road_id", 0) or 0),
+                "lane_id": int(getattr(waypoint, "lane_id", 0) or 0),
+                "in_junction": bool(getattr(waypoint, "is_junction", False)),
+            }
+        except Exception:
+            return {}
+
     def predict(self, ego_vehicle: Optional[carla.Actor] = None, world: Optional[carla.World] = None) -> carla.VehicleControl:
         vehicle = ego_vehicle or self.ego_vehicle
+        active_world = world or self.world
         frames = self.sensor_rig.snapshot()
         obs = {
             "rgb": frames.get("rgb"),
@@ -92,6 +119,7 @@ class VisionEgoDriver:
             "speed_mps": self._vehicle_speed_mps(vehicle),
             "navigation_command": self.navigation_command,
         }
+        obs.update(self._lane_reference(vehicle, active_world))
         detector_diagnostics = dict(self._detector_diagnostics)
         vision_obstacle = False
         if self.detector is not None and obs["rgb"] is not None:

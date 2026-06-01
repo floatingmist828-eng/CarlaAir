@@ -50,23 +50,37 @@ def future_route_trajectory(
         return fallback
 
     points: List[List[float]] = []
+    current_waypoint = waypoint
+    previous_distance = 0.0
     for distance in distances_m:
         try:
-            candidates = waypoint.next(max(0.5, float(distance)))
+            step_distance = max(0.5, float(distance) - float(previous_distance))
+            candidates = current_waypoint.next(step_distance)
         except Exception:
             candidates = []
         if not candidates:
             points.append(fallback[len(points)])
+            previous_distance = float(distance)
             continue
         best = None
+        best_waypoint = None
         best_cost = None
         for candidate in candidates:
             xy = local_xy(ego_transform, candidate.transform.location)
-            cost = abs(xy[1])
+            heading_delta = abs(
+                (float(candidate.transform.rotation.yaw) - float(current_waypoint.transform.rotation.yaw) + 180.0)
+                % 360.0
+                - 180.0
+            )
+            cost = heading_delta + 0.15 * abs(xy[1])
             if best_cost is None or cost < best_cost:
                 best = xy
+                best_waypoint = candidate
                 best_cost = cost
         points.append(best if best is not None else fallback[len(points)])
+        if best_waypoint is not None:
+            current_waypoint = best_waypoint
+        previous_distance = float(distance)
     return points
 
 

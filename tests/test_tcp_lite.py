@@ -12,6 +12,7 @@ from carlaair_active_world.scenario import ScenarioConfig
 from carlaair_active_world.vision_models.safety_gate import (
     VisionSafetyGateConfig,
     compute_attack_pattern_score,
+    compute_visibility_score,
     evaluate_vision_safety_gate,
 )
 from carlaair_active_world.vision_models.tcp_lite_policy import TcpLiteVisionPolicy
@@ -37,6 +38,21 @@ class _RaisingTcpModel:
 class _MalformedControlTcpModel:
     def predict(self, rgb, speed_mps, command):
         return [], "bad"
+
+
+class _StraightTcpModel:
+    def predict(self, rgb, speed_mps, command):
+        return [[2.0, 0.0], [4.0, 0.0], [6.0, 0.0], [8.0, 0.0]], [0.0, 0.3, 0.0]
+
+
+class _AlternatingTcpModel:
+    def __init__(self) -> None:
+        self.sign = 1.0
+
+    def predict(self, rgb, speed_mps, command):
+        self.sign *= -1.0
+        y = 4.0 * self.sign
+        return [[2.0, y], [4.0, y], [6.0, y], [8.0, y]], [0.0, 0.3, 0.0]
 
 
 class _FallbackPolicy:
@@ -180,6 +196,9 @@ def test_tcp_lite_scenario_config_round_trips():
             "vision_navigation_command": "lane_follow",
             "vision_safety_gate_enabled": False,
             "vision_attack_pattern_gate": True,
+            "vision_attack_pattern_threshold": 0.12,
+            "vision_low_visibility_gate": True,
+            "vision_low_visibility_threshold": 0.09,
         }
     )
 
@@ -190,19 +209,25 @@ def test_tcp_lite_scenario_config_round_trips():
     assert scenario.vision_navigation_command == "lane_follow"
     assert scenario.vision_safety_gate_enabled is False
     assert scenario.vision_attack_pattern_gate is True
+    assert scenario.vision_attack_pattern_threshold == 0.12
+    assert scenario.vision_low_visibility_gate is True
+    assert scenario.vision_low_visibility_threshold == 0.09
     assert scenario.to_dict()["vision_model_path"] == "checkpoints/tcp_lite.pt"
     assert scenario.to_dict()["vision_model_device"] == "cpu"
     assert scenario.to_dict()["vision_model_control_mode"] == "direct"
     assert scenario.to_dict()["vision_navigation_command"] == "lane_follow"
     assert scenario.to_dict()["vision_safety_gate_enabled"] is False
     assert scenario.to_dict()["vision_attack_pattern_gate"] is True
+    assert scenario.to_dict()["vision_attack_pattern_threshold"] == 0.12
+    assert scenario.to_dict()["vision_low_visibility_gate"] is True
+    assert scenario.to_dict()["vision_low_visibility_threshold"] == 0.09
 
 
 def test_tcp_lite_project_scenario_loads():
     scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite.json")
 
     assert scenario.ego_control_mode == "vision_tcp_lite"
-    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
+    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_smooth_e40.pt"
     assert scenario.vision_model_device == "cpu"
     assert scenario.vision_model_control_mode == "trajectory_model"
     assert scenario.vision_navigation_command == "lane_follow"
@@ -217,13 +242,29 @@ def test_tcp_lite_yolo_project_scenario_loads():
     scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo.json")
 
     assert scenario.ego_control_mode == "vision_tcp_lite"
-    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
+    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_smooth_e40.pt"
     assert scenario.vision_model_control_mode == "trajectory_model"
     assert scenario.vision_detector_model_path == "models/yolo11n.pt"
     assert scenario.vision_detector_confidence == 0.35
     assert scenario.vision_safety_gate_enabled is True
     assert scenario.traffic_vehicles == 0
     assert scenario.uav_enabled is False
+
+
+def test_tcp_lite_yolo_attack_project_scenarios_load():
+    texture = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo_texture_attack.json")
+    weather = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo_weather_attack.json")
+
+    assert texture.ego_control_mode == "vision_tcp_lite"
+    assert texture.vision_attack == "texture"
+    assert texture.vision_attack_pattern_gate is True
+    assert texture.vision_attack_pattern_threshold == 0.08
+    assert texture.vision_detector_model_path == "models/yolo11n.pt"
+    assert weather.weather_preset == "hard_rain_fog"
+    assert weather.vision_attack == "weather"
+    assert weather.vision_low_visibility_gate is True
+    assert weather.vision_low_visibility_threshold == 0.12
+    assert weather.vision_detector_model_path == "models/yolo11n.pt"
 
 
 def test_tcp_lite_policy_brakes_without_model_path():
@@ -334,6 +375,42 @@ def test_tcp_lite_policy_trajectory_model_mode_skips_rgb_reference_fallback():
     assert policy.last_diagnostics["raw_control"] == [0.3, 0.4, 0.0]
 
 
+def test_tcp_lite_policy_applies_lane_centering_correction():
+    policy = TcpLiteVisionPolicy(
+        model=_StraightTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "lane_center_offset_m": -1.0,
+            "in_junction": False,
+        }
+    )
+
+    assert control.steer > 0.0
+    assert policy.last_diagnostics["stabilization"]["lane_centering_correction"] > 0.0
+
+
+def test_tcp_lite_policy_rate_limits_alternating_junction_steer():
+    policy = TcpLiteVisionPolicy(
+        model=_AlternatingTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+    )
+    obs = {"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0, "in_junction": True}
+
+    first = policy.predict(obs)
+    second = policy.predict(obs)
+
+    assert abs(second.steer - first.steer) <= 0.091
+    assert abs(second.steer) <= 0.34
+    assert policy.last_diagnostics["stabilization"]["in_junction"] is True
+
+
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
     policy = TcpLiteVisionPolicy(model=_RaisingTcpModel(), navigation_command="lane_follow")
 
@@ -425,6 +502,22 @@ def test_attack_pattern_gate_blocks_only_when_enabled():
     assert disabled_gate["attack_pattern_score"] > 0.2
     assert enabled_gate["blocked"] is True
     assert enabled_gate["reason"] == "attack_pattern"
+
+
+def test_low_visibility_gate_blocks_flat_foggy_frame():
+    clean = _checkerboard()
+    foggy = np.full((90, 160, 3), 115, dtype=np.uint8)
+
+    assert compute_visibility_score(clean) > compute_visibility_score(foggy)
+
+    result = evaluate_vision_safety_gate(
+        foggy,
+        {},
+        VisionSafetyGateConfig(low_visibility_gate=True, low_visibility_threshold=0.12),
+    )
+
+    assert result["blocked"] is True
+    assert result["reason"] == "low_visibility"
 
 
 def test_command_to_index_accepts_known_and_unknown_commands():
@@ -556,6 +649,8 @@ def test_train_tcp_lite_saves_checkpoint(tmp_path):
         trajectory_points=4,
         trajectory_loss_weight=0.5,
         control_loss_weight=3.0,
+        trajectory_smoothness_loss_weight=0.2,
+        straight_lateral_loss_weight=0.05,
     )
 
     checkpoint = torch.load(output_path, map_location="cpu")
@@ -565,6 +660,8 @@ def test_train_tcp_lite_saves_checkpoint(tmp_path):
     assert checkpoint["trajectory_points"] == 4
     assert checkpoint["trajectory_loss_weight"] == 0.5
     assert checkpoint["control_loss_weight"] == 3.0
+    assert checkpoint["trajectory_smoothness_loss_weight"] == 0.2
+    assert checkpoint["straight_lateral_loss_weight"] == 0.05
 
 
 def test_vision_driver_forwards_navigation_command_to_policy(monkeypatch):

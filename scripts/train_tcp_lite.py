@@ -21,6 +21,8 @@ def train_tcp_lite(
     trajectory_points: int = 4,
     trajectory_loss_weight: float = 1.0,
     control_loss_weight: float = 1.0,
+    trajectory_smoothness_loss_weight: float = 0.0,
+    straight_lateral_loss_weight: float = 0.0,
 ) -> Path:
     try:
         import torch
@@ -49,6 +51,8 @@ def train_tcp_lite(
 
     trajectory_loss_weight = float(trajectory_loss_weight)
     control_loss_weight = float(control_loss_weight)
+    trajectory_smoothness_loss_weight = float(trajectory_smoothness_loss_weight)
+    straight_lateral_loss_weight = float(straight_lateral_loss_weight)
 
     model.train()
     for epoch_idx in range(int(epochs)):
@@ -65,9 +69,24 @@ def train_tcp_lite(
             outputs = model(rgb, speed, command)
             trajectory_loss = criterion(outputs["trajectory"], target_trajectory)
             control_loss = criterion(outputs["control"], target_control)
+            smoothness_loss = torch.tensor(0.0, dtype=trajectory_loss.dtype, device=torch_device)
+            if int(trajectory_points) >= 3:
+                curvature = (
+                    outputs["trajectory"][:, 2:, :]
+                    - 2.0 * outputs["trajectory"][:, 1:-1, :]
+                    + outputs["trajectory"][:, :-2, :]
+                )
+                smoothness_loss = torch.mean(curvature * curvature)
+            straight_mask = (command == 0) | (command == 3)
+            lateral_loss = torch.tensor(0.0, dtype=trajectory_loss.dtype, device=torch_device)
+            if bool(torch.any(straight_mask)):
+                lateral = outputs["trajectory"][straight_mask, :, 1]
+                lateral_loss = torch.mean(lateral * lateral)
             loss = (
                 trajectory_loss_weight * trajectory_loss
                 + control_loss_weight * control_loss
+                + trajectory_smoothness_loss_weight * smoothness_loss
+                + straight_lateral_loss_weight * lateral_loss
             )
             loss.backward()
             optimizer.step()
@@ -85,6 +104,8 @@ def train_tcp_lite(
             "commands": COMMAND_TO_INDEX,
             "trajectory_loss_weight": trajectory_loss_weight,
             "control_loss_weight": control_loss_weight,
+            "trajectory_smoothness_loss_weight": trajectory_smoothness_loss_weight,
+            "straight_lateral_loss_weight": straight_lateral_loss_weight,
         },
         output_path,
     )
@@ -104,6 +125,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--trajectory-points", default=4, type=int)
     parser.add_argument("--trajectory-loss-weight", default=1.0, type=float)
     parser.add_argument("--control-loss-weight", default=1.0, type=float)
+    parser.add_argument("--trajectory-smoothness-loss-weight", default=0.0, type=float)
+    parser.add_argument("--straight-lateral-loss-weight", default=0.0, type=float)
     return parser.parse_args()
 
 
@@ -121,6 +144,8 @@ def main() -> None:
         trajectory_points=args.trajectory_points,
         trajectory_loss_weight=args.trajectory_loss_weight,
         control_loss_weight=args.control_loss_weight,
+        trajectory_smoothness_loss_weight=args.trajectory_smoothness_loss_weight,
+        straight_lateral_loss_weight=args.straight_lateral_loss_weight,
     )
 
 

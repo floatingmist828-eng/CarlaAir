@@ -25,6 +25,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
         navigation_command: str = "lane_follow",
         safety_gate_enabled: bool = True,
         attack_pattern_gate: bool = False,
+        attack_pattern_threshold: float = 0.35,
+        low_visibility_gate: bool = False,
+        low_visibility_threshold: float = 0.12,
         target_speed_mps: float = 4.0,
         control_mode: str = "trajectory",
         model: Optional[Any] = None,
@@ -40,10 +43,21 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._fallback_disagreement_threshold = 0.25
         self._fallback_stuck_frame_threshold = 8
         self._fallback_latch_frames = 24
+        self._has_last_steer = False
+        self._last_steer = 0.0
+        self._steer_smoothing = 0.58
+        self._steer_rate_limit = 0.09
+        self._lane_centering_gain = 0.10
+        self._lane_centering_deadband_m = 0.15
+        self._lane_centering_max_correction = 0.18
+        self._junction_steer_limit = 0.34
         self.fallback_policy = SimpleLaneVisionPolicy(target_speed_mps=self.target_speed_mps)
         self.safety_gate_config = VisionSafetyGateConfig(
             enabled=bool(safety_gate_enabled),
             attack_pattern_gate=bool(attack_pattern_gate),
+            attack_pattern_threshold=float(attack_pattern_threshold),
+            low_visibility_gate=bool(low_visibility_gate),
+            low_visibility_threshold=float(low_visibility_threshold),
         )
         self.model = model
         self.model_ready = model is not None
@@ -194,6 +208,61 @@ class TcpLiteVisionPolicy(VisionPolicy):
             throttle = max(throttle, 0.32)
         return steer, throttle, brake
 
+    def _stabilize_control(
+        self,
+        steer: float,
+        throttle: float,
+        brake: float,
+        obs: Dict[str, Any],
+        command: str,
+    ) -> tuple[float, float, float, Dict[str, Any]]:
+        steering_command = str(command or self.navigation_command).lower()
+        in_junction = bool(obs.get("in_junction", False))
+        lane_offset = obs.get("lane_center_offset_m")
+        lane_correction = 0.0
+        try:
+            lane_offset_value = float(lane_offset)
+            if abs(lane_offset_value) > self._lane_centering_deadband_m and not in_junction:
+                lane_correction = _clamp(
+                    -self._lane_centering_gain * lane_offset_value,
+                    -self._lane_centering_max_correction,
+                    self._lane_centering_max_correction,
+                )
+        except (TypeError, ValueError):
+            lane_offset_value = None
+
+        target_steer = _clamp(float(steer) + lane_correction, -1.0, 1.0)
+        if in_junction and steering_command in {"lane_follow", "straight"}:
+            target_steer = _clamp(target_steer, -self._junction_steer_limit, self._junction_steer_limit)
+            throttle = min(float(throttle), 0.24)
+            if abs(target_steer) < 0.20:
+                target_steer *= 0.65
+
+        if self._has_last_steer:
+            smoothed = self._steer_smoothing * self._last_steer + (1.0 - self._steer_smoothing) * target_steer
+            delta = _clamp(
+                smoothed - self._last_steer,
+                -self._steer_rate_limit,
+                self._steer_rate_limit,
+            )
+            stabilized_steer = self._last_steer + delta
+        else:
+            stabilized_steer = target_steer
+            self._has_last_steer = True
+        self._last_steer = _clamp(stabilized_steer, -1.0, 1.0)
+
+        diagnostics = {
+            "enabled": True,
+            "input_steer": float(steer),
+            "target_steer": float(target_steer),
+            "output_steer": float(self._last_steer),
+            "lane_center_offset_m": lane_offset_value,
+            "lane_centering_correction": float(lane_correction),
+            "in_junction": bool(in_junction),
+            "steer_rate_limit": float(self._steer_rate_limit),
+        }
+        return self._last_steer, float(throttle), float(brake), diagnostics
+
     def _fallback_control(
         self,
         obs: Dict[str, Any],
@@ -299,8 +368,16 @@ class TcpLiteVisionPolicy(VisionPolicy):
             steer_raw, throttle_raw, brake_raw = self._control_values(raw_control)
             if self.control_mode == "direct":
                 steer, throttle, brake = steer_raw, throttle_raw, brake_raw
+                stabilization_diagnostics: Dict[str, Any] = {"enabled": False}
             else:
                 steer, throttle, brake = self._trajectory_control(trajectory, speed_mps)
+                steer, throttle, brake, stabilization_diagnostics = self._stabilize_control(
+                    steer,
+                    throttle,
+                    brake,
+                    obs,
+                    command,
+                )
                 if self.control_mode == "trajectory":
                     fallback_control = self.fallback_policy.predict(obs)
                     fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
@@ -370,6 +447,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "control_mode": self.control_mode,
             "reason": "ok",
             "safety_gate": safety_gate,
+            "stabilization": stabilization_diagnostics,
             "trajectory": trajectory,
             "raw_control": raw_control,
             "steer": float(control.steer),

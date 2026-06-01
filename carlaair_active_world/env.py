@@ -114,6 +114,9 @@ class ActiveAirGroundEnv:
                         navigation_command=self.scenario.vision_navigation_command,
                         safety_gate_enabled=self.scenario.vision_safety_gate_enabled,
                         attack_pattern_gate=self.scenario.vision_attack_pattern_gate,
+                        attack_pattern_threshold=self.scenario.vision_attack_pattern_threshold,
+                        low_visibility_gate=self.scenario.vision_low_visibility_gate,
+                        low_visibility_threshold=self.scenario.vision_low_visibility_threshold,
                         target_speed_mps=float(getattr(self.scenario, "ego_target_speed_mps", 4.0)),
                     )
                 self.ego_driver = VisionEgoDriver(

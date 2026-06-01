@@ -7,6 +7,7 @@ import pytest
 from scripts.collect_tcp_lite_dataset import (
     control_from_diagnostics,
     driver_decision_observation,
+    future_route_trajectory,
     local_xy,
     parse_distances,
     should_keep_tcp_lite_sample,
@@ -73,3 +74,49 @@ def test_should_keep_tcp_lite_sample_rejects_recovery_and_backward_trajectory():
         {"reverse": False, "recovery_active": False},
         [[2.0, 0.0], [-1.0, 0.0]],
     )
+
+
+def test_future_route_trajectory_prefers_heading_continuity_at_branch():
+    class _Rotation:
+        def __init__(self, yaw):
+            self.yaw = yaw
+
+    class _Transform:
+        def __init__(self, x, y, yaw):
+            self.location = carla.Location(x=x, y=y, z=0.0)
+            self.rotation = _Rotation(yaw)
+
+    class _Waypoint:
+        def __init__(self, name, x, y, yaw):
+            self.name = name
+            self.transform = _Transform(x, y, yaw)
+
+        def next(self, distance):
+            if self.name == "root":
+                return [
+                    _Waypoint("sharp_turn", 2.0, 0.2, 80.0),
+                    _Waypoint("straight", 2.0, 0.6, 0.0),
+                ]
+            return [self]
+
+    class _Map:
+        def get_waypoint(self, location, project_to_road=True, lane_type=None):
+            return _Waypoint("root", 0.0, 0.0, 0.0)
+
+    class _World:
+        def get_map(self):
+            return _Map()
+
+    class _Vehicle:
+        def get_location(self):
+            return carla.Location(x=0.0, y=0.0, z=0.0)
+
+        def get_transform(self):
+            return carla.Transform(
+                carla.Location(x=0.0, y=0.0, z=0.0),
+                carla.Rotation(yaw=0.0),
+            )
+
+    trajectory = future_route_trajectory(_World(), _Vehicle(), [2.0])
+
+    assert trajectory == [[2.0, 0.6]]
