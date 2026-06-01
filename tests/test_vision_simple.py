@@ -40,6 +40,7 @@ def test_vision_simple_scenario_config_loads_project_file():
     assert scenario.ego_spawn_index == 20
     assert scenario.vehicle_sensor_limit == 1
     assert scenario.traffic_vehicles == 0
+    assert scenario.uav_enabled is False
 
 
 def test_vision_attack_scenario_config_loads_project_file():
@@ -50,6 +51,7 @@ def test_vision_attack_scenario_config_loads_project_file():
     assert scenario.vision_attack == "texture"
     assert scenario.vision_attack_intensity == 1.0
     assert scenario.weather_preset == "none"
+    assert scenario.uav_enabled is False
 
 
 def test_weather_attack_scenario_config_loads_project_file():
@@ -59,6 +61,7 @@ def test_weather_attack_scenario_config_loads_project_file():
     assert scenario.traffic_vehicles == 0
     assert scenario.vision_attack == "weather"
     assert scenario.weather_preset == "hard_rain_fog"
+    assert scenario.uav_enabled is False
 
 
 def test_vision_detector_config_round_trips():

@@ -22,7 +22,7 @@
   "vision_navigation_command": "lane_follow",
   "vision_safety_gate_enabled": true,
   "vision_attack_pattern_gate": false,
-  "uav_enabled": true,
+  "uav_enabled": false,
   "uav_name": "SimpleFlight",
   "uav_altitude": 18.0,
   "uav_back_distance": 8.0,

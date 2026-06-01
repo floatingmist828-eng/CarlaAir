@@ -20,7 +20,7 @@
   "weather_preset": "none",
   "vision_attack": "texture",
   "vision_attack_intensity": 1.0,
-  "uav_enabled": true,
+  "uav_enabled": false,
   "uav_name": "SimpleFlight",
   "uav_altitude": 18.0,
   "uav_back_distance": 8.0,

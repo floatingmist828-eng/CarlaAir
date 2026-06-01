@@ -17,7 +17,7 @@
   "sample_hotspot_radius_m": 70.0,
   "sample_min_interval_sec": 0.5,
   "vehicle_sensor_limit": 1,
-  "uav_enabled": true,
+  "uav_enabled": false,
   "uav_name": "SimpleFlight",
   "uav_altitude": 18.0,
   "uav_back_distance": 8.0,

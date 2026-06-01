@@ -183,6 +183,7 @@ def test_tcp_lite_project_scenario_loads():
     assert scenario.vision_attack_pattern_gate is False
     assert scenario.vehicle_sensor_limit == 1
     assert scenario.traffic_vehicles == 0
+    assert scenario.uav_enabled is False
 
 
 def test_tcp_lite_policy_brakes_without_model_path():
