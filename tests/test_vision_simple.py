@@ -7,6 +7,7 @@ from carlaair_active_world.scenario import ScenarioConfig
 from carlaair_active_world.sensors import VehicleSensorRig
 from carlaair_active_world.vision_driver import VisionEgoDriver
 from carlaair_active_world.vision_models.simple_lane import SimpleLaneVisionPolicy
+from carlaair_active_world.vision_models.yolo11_obstacle import UltralyticsObstacleDetector
 
 
 def _lane_image(width: int = 160, height: int = 90, lane_x: int = 80) -> np.ndarray:
@@ -266,6 +267,34 @@ def test_vision_driver_forwards_detector_obstacle_to_policy():
     assert policy.obs["vision_obstacle"] is True
     assert policy.obs["vision_detector"]["label"] == "car"
     assert driver.last_diagnostics["vision_obstacle"] is True
+
+
+def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():
+    class _Boxes:
+        cls = np.asarray([9])
+        conf = np.asarray([0.8])
+        xyxy = np.asarray([[70.0, 10.0, 90.0, 40.0]])
+
+    class _Result:
+        boxes = _Boxes()
+
+    class _Model:
+        names = {9: "traffic light"}
+
+        def predict(self, image, conf, verbose, device):
+            return [_Result()]
+
+    detector = object.__new__(UltralyticsObstacleDetector)
+    detector.model = _Model()
+    detector.confidence = 0.35
+
+    diagnostics = detector.predict(np.zeros((90, 160, 3), dtype=np.uint8))
+
+    assert diagnostics["available"] is True
+    assert diagnostics["obstacle"] is False
+    assert diagnostics["traffic"] is True
+    assert diagnostics["traffic_label"] == "traffic light"
+    assert diagnostics["traffic_detections"] == 1
 
 
 def test_vehicle_sensor_rig_spawns_rgb_depth_and_semantic_cameras():

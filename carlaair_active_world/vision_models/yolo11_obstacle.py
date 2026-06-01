@@ -9,6 +9,7 @@ class UltralyticsObstacleDetector:
     """Optional YOLO11-compatible forward-obstacle detector for RGB frames."""
 
     obstacle_classes = {"person", "bicycle", "car", "motorcycle", "bus", "truck"}
+    traffic_classes = {"traffic light", "stop sign"}
 
     def __init__(self, model_path: str, confidence: float = 0.35) -> None:
         from ultralytics import YOLO
@@ -61,10 +62,24 @@ class UltralyticsObstacleDetector:
         best: Dict[str, Any] = {
             "available": True,
             "obstacle": False,
+            "traffic": False,
             "detections": 0,
+            "traffic_detections": 0,
         }
         for result in results:
             for label, conf, xyxy in self._iter_boxes(result):
+                if label in self.traffic_classes:
+                    best["traffic"] = True
+                    best["traffic_detections"] = int(best["traffic_detections"]) + 1
+                    if conf >= float(best.get("traffic_confidence", 0.0)):
+                        best.update(
+                            {
+                                "traffic_label": label,
+                                "traffic_confidence": float(conf),
+                                "traffic_bbox_xyxy": [float(v) for v in xyxy],
+                            }
+                        )
+                    continue
                 if label not in self.obstacle_classes:
                     continue
                 best["detections"] = int(best["detections"]) + 1
