@@ -35,6 +35,7 @@ class ScenarioConfig:
     vision_detector_confidence: float = 0.35
     vision_model_path: str = ""
     vision_model_device: str = "cpu"
+    vision_model_control_mode: str = "trajectory"
     vision_navigation_command: str = "lane_follow"
     vision_safety_gate_enabled: bool = True
     vision_attack_pattern_gate: bool = False
@@ -87,6 +88,7 @@ class ScenarioConfig:
             vision_detector_confidence=float(data.get("vision_detector_confidence", 0.35)),
             vision_model_path=str(data.get("vision_model_path", "")),
             vision_model_device=str(data.get("vision_model_device", "cpu")),
+            vision_model_control_mode=str(data.get("vision_model_control_mode", "trajectory")),
             vision_navigation_command=str(data.get("vision_navigation_command", "lane_follow")),
             vision_safety_gate_enabled=bool(data.get("vision_safety_gate_enabled", True)),
             vision_attack_pattern_gate=bool(data.get("vision_attack_pattern_gate", False)),
@@ -131,6 +133,7 @@ class ScenarioConfig:
             "vision_detector_confidence": self.vision_detector_confidence,
             "vision_model_path": self.vision_model_path,
             "vision_model_device": self.vision_model_device,
+            "vision_model_control_mode": self.vision_model_control_mode,
             "vision_navigation_command": self.vision_navigation_command,
             "vision_safety_gate_enabled": self.vision_safety_gate_enabled,
             "vision_attack_pattern_gate": self.vision_attack_pattern_gate,

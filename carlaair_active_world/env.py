@@ -110,6 +110,7 @@ class ActiveAirGroundEnv:
                     policy = TcpLiteVisionPolicy(
                         model_path=self.scenario.vision_model_path,
                         device=self.scenario.vision_model_device,
+                        control_mode=self.scenario.vision_model_control_mode,
                         navigation_command=self.scenario.vision_navigation_command,
                         safety_gate_enabled=self.scenario.vision_safety_gate_enabled,
                         attack_pattern_gate=self.scenario.vision_attack_pattern_gate,

@@ -153,6 +153,7 @@ def test_tcp_lite_scenario_config_round_trips():
             "ego_control_mode": "vision_tcp_lite",
             "vision_model_path": "checkpoints/tcp_lite.pt",
             "vision_model_device": "cpu",
+            "vision_model_control_mode": "direct",
             "vision_navigation_command": "lane_follow",
             "vision_safety_gate_enabled": False,
             "vision_attack_pattern_gate": True,
@@ -162,11 +163,13 @@ def test_tcp_lite_scenario_config_round_trips():
     assert scenario.ego_control_mode == "vision_tcp_lite"
     assert scenario.vision_model_path == "checkpoints/tcp_lite.pt"
     assert scenario.vision_model_device == "cpu"
+    assert scenario.vision_model_control_mode == "direct"
     assert scenario.vision_navigation_command == "lane_follow"
     assert scenario.vision_safety_gate_enabled is False
     assert scenario.vision_attack_pattern_gate is True
     assert scenario.to_dict()["vision_model_path"] == "checkpoints/tcp_lite.pt"
     assert scenario.to_dict()["vision_model_device"] == "cpu"
+    assert scenario.to_dict()["vision_model_control_mode"] == "direct"
     assert scenario.to_dict()["vision_navigation_command"] == "lane_follow"
     assert scenario.to_dict()["vision_safety_gate_enabled"] is False
     assert scenario.to_dict()["vision_attack_pattern_gate"] is True
@@ -178,6 +181,7 @@ def test_tcp_lite_project_scenario_loads():
     assert scenario.ego_control_mode == "vision_tcp_lite"
     assert scenario.vision_model_path == "models/tcp_lite_aligned_filtered_spatial_t05_c10_e20.pt"
     assert scenario.vision_model_device == "cpu"
+    assert scenario.vision_model_control_mode == "trajectory"
     assert scenario.vision_navigation_command == "lane_follow"
     assert scenario.vision_safety_gate_enabled is True
     assert scenario.vision_attack_pattern_gate is False
@@ -588,6 +592,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "ego_control_mode": "vision_tcp_lite",
             "vision_model_path": "checkpoints/tcp.pt",
             "vision_model_device": "cpu",
+            "vision_model_control_mode": "direct",
             "vision_navigation_command": "right",
             "ego_target_speed_mps": 3.5,
         }
@@ -603,6 +608,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
 
     assert app.ego_vehicle.autopilot is False
     assert captured["policy_kwargs"]["model_path"] == "checkpoints/tcp.pt"
+    assert captured["policy_kwargs"]["control_mode"] == "direct"
     assert captured["policy_kwargs"]["navigation_command"] == "right"
     assert captured["policy_kwargs"]["target_speed_mps"] == 3.5
     assert captured["driver_policy"] is not None
@@ -671,6 +677,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "uav_enabled": False,
             "vision_model_path": "checkpoints/tcp.pt",
             "vision_model_device": "cpu",
+            "vision_model_control_mode": "direct",
             "vision_navigation_command": "left",
             "vision_safety_gate_enabled": False,
             "vision_attack_pattern_gate": True,
@@ -689,6 +696,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert actor.autopilot is False
     assert captured["policy_kwargs"]["model_path"] == "checkpoints/tcp.pt"
     assert captured["policy_kwargs"]["device"] == "cpu"
+    assert captured["policy_kwargs"]["control_mode"] == "direct"
     assert captured["policy_kwargs"]["navigation_command"] == "left"
     assert captured["policy_kwargs"]["safety_gate_enabled"] is False
     assert captured["policy_kwargs"]["attack_pattern_gate"] is True
