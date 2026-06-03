@@ -259,6 +259,7 @@ def test_tcp_lite_yolo_uav_bev_project_scenario_loads():
     assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
     assert scenario.vision_detector_model_path == "models/yolo11n.pt"
     assert scenario.uav_enabled is True
+    assert scenario.uav_control_enabled is False
     assert scenario.uav_bev_fusion_enabled is True
     assert scenario.uav_bev_camera_name == "front_center"
     assert scenario.uav_bev_refresh_hz == 2.0

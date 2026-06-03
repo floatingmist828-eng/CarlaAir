@@ -18,6 +18,8 @@ UAV RGB
 
 当前实现采用轻量 BEVFormer-Lite 风格原型，不直接训练完整 BEVFormer 大模型。原因是当前项目前三阶段已经有可运行的 TCP-Lite-YOLO11n 车端闭环，第四阶段优先要证明 UAV RGB 能进入车端控制链路，并且真实 CARLA 闭环运行不退化。
 
+当前服务器上的 AirSim 运行环境返回的是 `PhysXCar`，不支持 `getMultirotorState(vehicle_name=...)` 多旋翼状态 API。因此本阶段新增了 `uav_control_enabled` 开关：完整 UAV 控制场景仍可保留旧逻辑，当前 `town10hd_vision_tcp_lite_yolo_uav_bev.json` 使用 `uav_control_enabled=false`，通过 AirSim scene camera 获取 UAV-like 全局 RGB 做 BEV 融合验证。
+
 ## 当前实现
 
 新增配置：
@@ -79,6 +81,7 @@ UAV global BEV center_bias
 ```json
 {
   "uav_enabled": true,
+  "uav_control_enabled": false,
   "uav_bev_fusion_enabled": true,
   "uav_bev_camera_name": "front_center",
   "uav_bev_refresh_hz": 2.0,
@@ -91,6 +94,8 @@ UAV global BEV center_bias
 `uav_bev_refresh_hz` 限制 UAV 图像采样频率，避免车端 8Hz 控制循环每帧都阻塞 AirSim RPC。
 
 `uav_bev_max_steer_correction` 当前设置很保守，目标是先证明融合链路真实有效且不破坏 clean 驾驶。
+
+`uav_control_enabled=false` 表示本场景只使用 AirSim camera RGB，不调用 takeoff、hover、move 或 multirotor state API。
 
 ## 运行命令
 
@@ -157,7 +162,7 @@ clean 场景评价仍以闭环驾驶为准，重点看：
 当前版本的意义是先完成真实数据链路：
 
 ```text
-AirSim UAV RGB -> global BEV-like feature -> ego policy observation -> fusion planner -> vehicle control
+AirSim UAV/camera RGB -> global BEV-like feature -> ego policy observation -> fusion planner -> vehicle control
 ```
 
 后续如果要继续增强，可以再把 UAV BEV feature 记录成训练数据，训练一个显式的 fusion planner 或扩展 TCP-Lite 输入结构。

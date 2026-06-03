@@ -122,9 +122,14 @@ class ActiveUAVTaskApp:
     def _ensure_uav_connected(self) -> None:
         if not self.scenario.uav_enabled:
             return
+        control_enabled = bool(getattr(self.scenario, "uav_control_enabled", True))
+        if self.air_client is not None and not control_enabled:
+            return
         if self.air_client is not None and self.controller is not None:
             return
         self.air_client = connect_airsim(self.airsim_port, vehicle_name=self.scenario.uav_name)
+        if not control_enabled:
+            return
         self.controller = UAVCommandController(
             self.air_client,
             vehicle_name=self.scenario.uav_name,
@@ -179,7 +184,7 @@ class ActiveUAVTaskApp:
             except Exception:
                 pass
         self.traffic_actors.clear()
-        if self.air_client is not None:
+        if self.air_client is not None and bool(getattr(self.scenario, "uav_control_enabled", True)):
             try:
                 with self._air_rpc_lock:
                     self.air_client.hoverAsync(vehicle_name=self.scenario.uav_name)
@@ -284,7 +289,11 @@ class ActiveUAVTaskApp:
         self.start_vehicle_viewer()
         if self.scenario.uav_enabled:
             self._ensure_uav_connected()
-        if self.scenario.uav_enabled and self.controller is not None:
+        if (
+            self.scenario.uav_enabled
+            and self.controller is not None
+            and bool(getattr(self.scenario, "uav_control_enabled", True))
+        ):
             self.controller.takeoff()
             start_pose = Pose(
                 position=Vector3(
@@ -328,7 +337,23 @@ class ActiveUAVTaskApp:
                     roll=0.0,
                 ),
             )
-        if self.scenario.uav_enabled and self.scenario.uav_auto_patrol_enabled:
+        elif self.scenario.uav_enabled and self.air_client is not None:
+            self._current_uav_view = {
+                "name": "airsim_camera_only",
+                "pose": None,
+                "index": -1,
+            }
+            self.uav_sensors = UAVSensorRig(
+                self.air_client,
+                camera_name=str(getattr(self.scenario, "uav_bev_camera_name", "front_center")),
+                record_depth=False,
+                rpc_lock=self._air_rpc_lock,
+            )
+        if (
+            self.scenario.uav_enabled
+            and self.scenario.uav_auto_patrol_enabled
+            and bool(getattr(self.scenario, "uav_control_enabled", True))
+        ):
             self.start_uav_patrol()
         print(
             f"[Setup] ego=1, traffic_spawned={len(self.traffic_actors)}, "

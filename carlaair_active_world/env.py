@@ -78,11 +78,12 @@ class ActiveAirGroundEnv:
             cleanup_old_vehicles(self.world)
         if self.scenario.uav_enabled:
             self.air_client = connect_airsim(self.airsim_port, vehicle_name=self.scenario.uav_name)
-            self.ox, self.oy, self.oz = calibrate_offset(
-                self.world,
-                self.air_client,
-                preferred_name=self.scenario.uav_name,
-            )
+            if bool(getattr(self.scenario, "uav_control_enabled", True)):
+                self.ox, self.oy, self.oz = calibrate_offset(
+                    self.world,
+                    self.air_client,
+                    preferred_name=self.scenario.uav_name,
+                )
 
     def reset(self) -> Dict[str, Any]:
         if self.client is None or self.world is None:
@@ -101,7 +102,8 @@ class ActiveAirGroundEnv:
         self.start_time = time.time()
         observation = self.observe()
         if self.scenario.uav_enabled and self.air_client is not None:
-            self._place_initial_uav(observation)
+            if bool(getattr(self.scenario, "uav_control_enabled", True)):
+                self._place_initial_uav(observation)
             if bool(getattr(self.scenario, "uav_bev_fusion_enabled", False)):
                 self.uav_sensors = UAVSensorRig(
                     self.air_client,
@@ -233,7 +235,11 @@ class ActiveAirGroundEnv:
             waypoint = None
 
         drone_state = None
-        if self.scenario.uav_enabled and self.air_client is not None:
+        if (
+            self.scenario.uav_enabled
+            and self.air_client is not None
+            and bool(getattr(self.scenario, "uav_control_enabled", True))
+        ):
             try:
                 if self.scenario.uav_name:
                     state = self.air_client.getMultirotorState(vehicle_name=self.scenario.uav_name)
@@ -247,6 +253,11 @@ class ActiveAirGroundEnv:
                 }
             except Exception:
                 drone_state = None
+        elif self.scenario.uav_enabled and self.air_client is not None:
+            drone_state = {
+                "mode": "airsim_camera_only",
+                "camera_name": str(getattr(self.scenario, "uav_bev_camera_name", "front_center")),
+            }
 
         observation = {
             "time": float(time.time() - self.start_time),
@@ -265,7 +276,11 @@ class ActiveAirGroundEnv:
         self.last_action = int(action_index)
         if self.ego_vehicle is None:
             raise RuntimeError("Call reset() before step().")
-        if self.scenario.uav_enabled and self.air_client is not None:
+        if (
+            self.scenario.uav_enabled
+            and self.air_client is not None
+            and bool(getattr(self.scenario, "uav_control_enabled", True))
+        ):
             candidates = self.scenario.candidate_offsets
             idx = max(0, min(int(action_index), len(candidates) - 1))
             candidate = candidates[idx]
@@ -309,7 +324,7 @@ class ActiveAirGroundEnv:
             except Exception:
                 pass
         self.ego_driver = None
-        if self.air_client is not None:
+        if self.air_client is not None and bool(getattr(self.scenario, "uav_control_enabled", True)):
             set_uav_hover(self.air_client, vehicle_name=self.scenario.uav_name)
         self.uav_sensors = None
         if self.ego_vehicle is not None:

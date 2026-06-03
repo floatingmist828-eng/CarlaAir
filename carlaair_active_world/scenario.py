@@ -43,6 +43,7 @@ class ScenarioConfig:
     vision_low_visibility_gate: bool = False
     vision_low_visibility_threshold: float = 0.12
     uav_enabled: bool = True
+    uav_control_enabled: bool = True
     uav_name: str = "SimpleFlight"
     uav_altitude: float = 18.0
     uav_back_distance: float = 8.0
@@ -105,6 +106,7 @@ class ScenarioConfig:
             vision_low_visibility_gate=bool(data.get("vision_low_visibility_gate", False)),
             vision_low_visibility_threshold=float(data.get("vision_low_visibility_threshold", 0.12)),
             uav_enabled=bool(data.get("uav_enabled", True)),
+            uav_control_enabled=bool(data.get("uav_control_enabled", True)),
             uav_name=str(data.get("uav_name", "SimpleFlight")),
             uav_altitude=float(data.get("uav_altitude", 18.0)),
             uav_back_distance=float(data.get("uav_back_distance", 8.0)),
@@ -159,6 +161,7 @@ class ScenarioConfig:
             "vision_low_visibility_gate": self.vision_low_visibility_gate,
             "vision_low_visibility_threshold": self.vision_low_visibility_threshold,
             "uav_enabled": self.uav_enabled,
+            "uav_control_enabled": self.uav_control_enabled,
             "uav_name": self.uav_name,
             "uav_altitude": self.uav_altitude,
             "uav_back_distance": self.uav_back_distance,
