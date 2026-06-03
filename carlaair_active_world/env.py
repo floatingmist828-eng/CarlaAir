@@ -31,8 +31,10 @@ from .adversarial import apply_weather_preset
 from .geometry import CandidateViewpoint, Pose, ScenarioResult, Vector3
 from .labels import build_labels
 from .scenario import ScenarioConfig
+from .sensors import UAVSensorRig
 from .vision_driver import VisionEgoDriver
 from .vision_models import TcpLiteVisionPolicy
+from .vision_models.uav_bev import CachedUAVBEVProvider
 
 
 class ActiveAirGroundEnv:
@@ -54,6 +56,11 @@ class ActiveAirGroundEnv:
         self.air_client = None
         self.ego_vehicle = None
         self.ego_driver = None
+        self.uav_sensors = None
+        self.uav_bev_provider = CachedUAVBEVProvider(
+            lambda: self.uav_sensors,
+            refresh_hz=float(getattr(self.scenario, "uav_bev_refresh_hz", 2.0)),
+        )
         self._ego_driver_thread = None
         self.ox = 0.0
         self.oy = 0.0
@@ -95,6 +102,12 @@ class ActiveAirGroundEnv:
         observation = self.observe()
         if self.scenario.uav_enabled and self.air_client is not None:
             self._place_initial_uav(observation)
+            if bool(getattr(self.scenario, "uav_bev_fusion_enabled", False)):
+                self.uav_sensors = UAVSensorRig(
+                    self.air_client,
+                    camera_name=str(getattr(self.scenario, "uav_bev_camera_name", "front_center")),
+                    record_depth=False,
+                )
         return observation
 
     def _start_ego_control(self) -> None:
@@ -118,6 +131,12 @@ class ActiveAirGroundEnv:
                         low_visibility_gate=self.scenario.vision_low_visibility_gate,
                         low_visibility_threshold=self.scenario.vision_low_visibility_threshold,
                         target_speed_mps=float(getattr(self.scenario, "ego_target_speed_mps", 4.0)),
+                        uav_bev_fusion_enabled=bool(getattr(self.scenario, "uav_bev_fusion_enabled", False)),
+                        uav_bev_min_confidence=float(getattr(self.scenario, "uav_bev_min_confidence", 0.20)),
+                        uav_bev_steer_gain=float(getattr(self.scenario, "uav_bev_steer_gain", 0.08)),
+                        uav_bev_max_steer_correction=float(
+                            getattr(self.scenario, "uav_bev_max_steer_correction", 0.08)
+                        ),
                     )
                 self.ego_driver = VisionEgoDriver(
                     self.world,
@@ -131,6 +150,11 @@ class ActiveAirGroundEnv:
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
                     vision_detector_model_path=str(getattr(self.scenario, "vision_detector_model_path", "")),
                     vision_detector_confidence=float(getattr(self.scenario, "vision_detector_confidence", 0.35)),
+                    uav_bev_provider=(
+                        self.uav_bev_provider.snapshot
+                        if bool(getattr(self.scenario, "uav_bev_fusion_enabled", False))
+                        else None
+                    ),
                 )
             else:
                 self.ego_driver = RouteFollowingDriver(
@@ -287,6 +311,7 @@ class ActiveAirGroundEnv:
         self.ego_driver = None
         if self.air_client is not None:
             set_uav_hover(self.air_client, vehicle_name=self.scenario.uav_name)
+        self.uav_sensors = None
         if self.ego_vehicle is not None:
             try:
                 self.ego_vehicle.set_autopilot(False)

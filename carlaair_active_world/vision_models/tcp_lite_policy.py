@@ -31,6 +31,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
         target_speed_mps: float = 4.0,
         control_mode: str = "trajectory",
         model: Optional[Any] = None,
+        uav_bev_fusion_enabled: bool = False,
+        uav_bev_min_confidence: float = 0.20,
+        uav_bev_steer_gain: float = 0.08,
+        uav_bev_max_steer_correction: float = 0.08,
     ) -> None:
         self.model_path = str(model_path or "")
         self.device = str(device)
@@ -53,6 +57,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._lane_centering_deadband_m = 0.15
         self._lane_centering_max_correction = 0.18
         self._junction_steer_limit = 0.34
+        self.uav_bev_fusion_enabled = bool(uav_bev_fusion_enabled)
+        self.uav_bev_min_confidence = float(uav_bev_min_confidence)
+        self.uav_bev_steer_gain = float(uav_bev_steer_gain)
+        self.uav_bev_max_steer_correction = float(uav_bev_max_steer_correction)
         self.fallback_policy = SimpleLaneVisionPolicy(target_speed_mps=self.target_speed_mps)
         self.safety_gate_config = VisionSafetyGateConfig(
             enabled=bool(safety_gate_enabled),
@@ -210,6 +218,54 @@ class TcpLiteVisionPolicy(VisionPolicy):
             throttle = max(throttle, 0.32)
         return steer, throttle, brake
 
+    def _uav_bev_correction(self, obs: Dict[str, Any]) -> tuple[float, Dict[str, Any]]:
+        diagnostics: Dict[str, Any] = {
+            "enabled": bool(self.uav_bev_fusion_enabled),
+            "applied": False,
+            "steer_correction": 0.0,
+        }
+        if not self.uav_bev_fusion_enabled:
+            diagnostics["reason"] = "disabled"
+            return 0.0, diagnostics
+
+        feature = obs.get("uav_bev") or {}
+        diagnostics["available"] = bool(feature.get("available", False))
+        if not diagnostics["available"]:
+            diagnostics["reason"] = str(feature.get("reason", "unavailable"))
+            return 0.0, diagnostics
+
+        try:
+            confidence = float(feature.get("road_confidence", 0.0) or 0.0)
+            center_bias = float(feature.get("center_bias", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            diagnostics["reason"] = "invalid_feature"
+            return 0.0, diagnostics
+
+        diagnostics["road_confidence"] = float(confidence)
+        diagnostics["center_bias"] = float(center_bias)
+        diagnostics["min_confidence"] = float(self.uav_bev_min_confidence)
+        if confidence < self.uav_bev_min_confidence:
+            diagnostics["reason"] = "low_confidence"
+            return 0.0, diagnostics
+
+        correction = _clamp(
+            self.uav_bev_steer_gain * center_bias,
+            -self.uav_bev_max_steer_correction,
+            self.uav_bev_max_steer_correction,
+        )
+        if bool(obs.get("in_junction", False)):
+            correction *= 0.5
+            diagnostics["junction_scale"] = 0.5
+        if abs(correction) < 1.0e-4:
+            diagnostics["reason"] = "zero_bias"
+            return 0.0, diagnostics
+
+        diagnostics["applied"] = True
+        diagnostics["reason"] = "ok"
+        diagnostics["steer_correction"] = float(correction)
+        diagnostics["max_steer_correction"] = float(self.uav_bev_max_steer_correction)
+        return float(correction), diagnostics
+
     def _stabilize_control(
         self,
         steer: float,
@@ -233,7 +289,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         except (TypeError, ValueError):
             lane_offset_value = None
 
-        target_steer = _clamp(float(steer) + lane_correction, -1.0, 1.0)
+        uav_bev_correction, uav_bev_diagnostics = self._uav_bev_correction(obs)
+        target_steer = _clamp(float(steer) + lane_correction + uav_bev_correction, -1.0, 1.0)
         if steering_command in {"lane_follow", "straight"}:
             steer_limit = self._junction_steer_limit if in_junction else self._lane_follow_steer_limit
             target_steer = _clamp(target_steer, -steer_limit, steer_limit)
@@ -268,6 +325,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "steer_rate_limit": float(self._steer_rate_limit),
             "lane_follow_steer_limit": float(self._lane_follow_steer_limit),
             "steer_deadband": float(self._steer_deadband),
+            "uav_bev_fusion": uav_bev_diagnostics,
         }
         return self._last_steer, float(throttle), float(brake), diagnostics
 
@@ -289,6 +347,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
         if refresh_latch:
             self._fallback_frames_left = int(self._fallback_latch_frames)
+        _, uav_bev_diagnostics = self._uav_bev_correction(obs)
         self.last_diagnostics = {
             "model_ready": True,
             "model_path": self.model_path,
@@ -302,6 +361,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "safety_gate": safety_gate,
             "trajectory": trajectory,
             "raw_control": raw_control,
+            "uav_bev_fusion": uav_bev_diagnostics,
             "steer": float(control.steer),
             "throttle": float(control.throttle),
             "brake": float(control.brake),
@@ -458,6 +518,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "stabilization": stabilization_diagnostics,
             "trajectory": trajectory,
             "raw_control": raw_control,
+            "uav_bev_fusion": stabilization_diagnostics.get("uav_bev_fusion"),
             "steer": float(control.steer),
             "throttle": float(control.throttle),
             "brake": float(control.brake),

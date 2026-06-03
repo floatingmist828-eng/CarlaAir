@@ -284,6 +284,54 @@ def test_vision_driver_forwards_detector_obstacle_to_policy():
     assert driver.last_diagnostics["vision_obstacle"] is True
 
 
+def test_vision_driver_forwards_uav_bev_context_to_policy():
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": _lane_image(), "semantic": _semantic(), "depth": _clear_depth()}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Policy:
+        def __init__(self) -> None:
+            self.obs = None
+            self.last_diagnostics = {"policy": "ok"}
+
+        def predict(self, obs):
+            self.obs = obs
+            import carla
+
+            return carla.VehicleControl()
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+    policy = _Policy()
+    original = VisionEgoDriver.sensor_rig_class
+    VisionEgoDriver.sensor_rig_class = _Rig
+    try:
+        driver = VisionEgoDriver(
+            object(),
+            _Vehicle(),
+            policy=policy,
+            uav_bev_provider=lambda: {"available": True, "center_bias": 0.4},
+        )
+        driver.predict()
+    finally:
+        VisionEgoDriver.sensor_rig_class = original
+
+    assert policy.obs["uav_bev"]["available"] is True
+    assert policy.obs["uav_bev"]["center_bias"] == 0.4
+    assert driver.last_diagnostics["uav_bev"]["available"] is True
+
+
 def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():
     class _Boxes:
         cls = np.asarray([9])

@@ -16,6 +16,7 @@ from carlaair_active_world.vision_models.safety_gate import (
     evaluate_vision_safety_gate,
 )
 from carlaair_active_world.vision_models.tcp_lite_policy import TcpLiteVisionPolicy
+from carlaair_active_world.vision_models.uav_bev import CachedUAVBEVProvider, extract_uav_bev_feature
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -251,6 +252,19 @@ def test_tcp_lite_yolo_project_scenario_loads():
     assert scenario.uav_enabled is False
 
 
+def test_tcp_lite_yolo_uav_bev_project_scenario_loads():
+    scenario = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo_uav_bev.json")
+
+    assert scenario.ego_control_mode == "vision_tcp_lite"
+    assert scenario.vision_model_path == "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt"
+    assert scenario.vision_detector_model_path == "models/yolo11n.pt"
+    assert scenario.uav_enabled is True
+    assert scenario.uav_bev_fusion_enabled is True
+    assert scenario.uav_bev_camera_name == "front_center"
+    assert scenario.uav_bev_refresh_hz == 2.0
+    assert scenario.to_dict()["uav_bev_fusion_enabled"] is True
+
+
 def test_tcp_lite_yolo_attack_project_scenarios_load():
     texture = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo_texture_attack.json")
     weather = ScenarioConfig.load("configs/scenarios/town10hd_vision_tcp_lite_yolo_weather_attack.json")
@@ -395,6 +409,62 @@ def test_tcp_lite_policy_applies_lane_centering_correction():
     assert policy.last_diagnostics["stabilization"]["lane_centering_correction"] > 0.0
 
 
+def test_tcp_lite_policy_fuses_uav_bev_center_bias():
+    policy = TcpLiteVisionPolicy(
+        model=_StraightTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        uav_bev_fusion_enabled=True,
+        uav_bev_steer_gain=0.10,
+        uav_bev_max_steer_correction=0.10,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "lane_center_offset_m": 0.0,
+            "in_junction": False,
+            "uav_bev": {
+                "available": True,
+                "road_confidence": 0.8,
+                "center_bias": 1.0,
+            },
+        }
+    )
+
+    assert control.steer > 0.02
+    assert policy.last_diagnostics["uav_bev_fusion"]["enabled"] is True
+    assert policy.last_diagnostics["uav_bev_fusion"]["applied"] is True
+    assert policy.last_diagnostics["uav_bev_fusion"]["steer_correction"] > 0.0
+
+
+def test_tcp_lite_policy_ignores_uav_bev_when_disabled():
+    policy = TcpLiteVisionPolicy(
+        model=_StraightTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        uav_bev_fusion_enabled=False,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "lane_center_offset_m": 0.0,
+            "in_junction": False,
+            "uav_bev": {
+                "available": True,
+                "road_confidence": 0.8,
+                "center_bias": 1.0,
+            },
+        }
+    )
+
+    assert abs(control.steer) < 0.02
+    assert policy.last_diagnostics["uav_bev_fusion"]["enabled"] is False
+
+
 def test_tcp_lite_policy_rate_limits_alternating_junction_steer():
     policy = TcpLiteVisionPolicy(
         model=_AlternatingTcpModel(),
@@ -488,6 +558,44 @@ def test_safety_gate_does_not_block_when_disabled():
 
     assert result["blocked"] is False
     assert result["reason"] == "disabled"
+
+
+def test_extract_uav_bev_feature_reports_center_bias_from_road_region():
+    rgb = np.zeros((80, 120, 3), dtype=np.uint8)
+    rgb[:, 60:, :] = 90
+
+    feature = extract_uav_bev_feature(rgb)
+
+    assert feature["available"] is True
+    assert feature["road_confidence"] > 0.4
+    assert feature["center_bias"] > 0.25
+    assert feature["feature_dim"] == 4
+
+
+def test_cached_uav_bev_provider_reuses_recent_feature():
+    rgb = np.full((20, 30, 3), 80, dtype=np.uint8)
+
+    class _Rig:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def snapshot(self):
+            self.calls += 1
+            return {"rgb": rgb}
+
+    rig = _Rig()
+    now = [0.0]
+    provider = CachedUAVBEVProvider(lambda: rig, refresh_hz=2.0, clock=lambda: now[0])
+
+    first = provider.snapshot()
+    second = provider.snapshot()
+    now[0] = 0.6
+    third = provider.snapshot()
+
+    assert first["available"] is True
+    assert second["available"] is True
+    assert third["available"] is True
+    assert rig.calls == 2
 
 
 def test_attack_pattern_score_is_higher_for_repeated_high_contrast_texture():

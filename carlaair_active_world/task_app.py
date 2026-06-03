@@ -46,6 +46,7 @@ from .sensors import UAVSensorRig, VehicleSensorRig, save_numpy_image
 from .traffic import spawn_traffic_vehicles
 from .vision_driver import VisionEgoDriver
 from .vision_models import TcpLiteVisionPolicy
+from .vision_models.uav_bev import CachedUAVBEVProvider
 
 
 def _safe_actor_role(actor: carla.Actor) -> str:
@@ -79,6 +80,10 @@ class ActiveUAVTaskApp:
         self.traffic_actors: List[carla.Actor] = []
         self.vehicle_sensors: Dict[int, VehicleSensorRig] = {}
         self.uav_sensors: Optional[UAVSensorRig] = None
+        self.uav_bev_provider = CachedUAVBEVProvider(
+            lambda: self.uav_sensors,
+            refresh_hz=float(getattr(self.scenario, "uav_bev_refresh_hz", 2.0)),
+        )
         self.ego_driver: Optional[Any] = None
         self.ox = 0.0
         self.oy = 0.0
@@ -222,6 +227,12 @@ class ActiveUAVTaskApp:
                         low_visibility_gate=self.scenario.vision_low_visibility_gate,
                         low_visibility_threshold=self.scenario.vision_low_visibility_threshold,
                         target_speed_mps=float(self.scenario.ego_target_speed_mps),
+                        uav_bev_fusion_enabled=bool(getattr(self.scenario, "uav_bev_fusion_enabled", False)),
+                        uav_bev_min_confidence=float(getattr(self.scenario, "uav_bev_min_confidence", 0.20)),
+                        uav_bev_steer_gain=float(getattr(self.scenario, "uav_bev_steer_gain", 0.08)),
+                        uav_bev_max_steer_correction=float(
+                            getattr(self.scenario, "uav_bev_max_steer_correction", 0.08)
+                        ),
                     )
                 self.ego_driver = VisionEgoDriver(
                     self.world,
@@ -235,6 +246,11 @@ class ActiveUAVTaskApp:
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
                     vision_detector_model_path=str(getattr(self.scenario, "vision_detector_model_path", "")),
                     vision_detector_confidence=float(getattr(self.scenario, "vision_detector_confidence", 0.35)),
+                    uav_bev_provider=(
+                        self.uav_bev_provider.snapshot
+                        if bool(getattr(self.scenario, "uav_bev_fusion_enabled", False))
+                        else None
+                    ),
                 )
             else:
                 self.ego_driver = RouteFollowingDriver(
@@ -297,7 +313,7 @@ class ActiveUAVTaskApp:
             }
             self.uav_sensors = UAVSensorRig(
                 self.air_client,
-                camera_name="front_center",
+                camera_name=str(getattr(self.scenario, "uav_bev_camera_name", "front_center")),
                 rpc_lock=self._air_rpc_lock,
                 )
             self._patrol_anchor = carla.Transform(

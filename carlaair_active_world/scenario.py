@@ -48,6 +48,12 @@ class ScenarioConfig:
     uav_back_distance: float = 8.0
     uav_auto_patrol_enabled: bool = False
     uav_patrol_interval_sec: float = 4.0
+    uav_bev_fusion_enabled: bool = False
+    uav_bev_camera_name: str = "front_center"
+    uav_bev_refresh_hz: float = 2.0
+    uav_bev_min_confidence: float = 0.20
+    uav_bev_steer_gain: float = 0.08
+    uav_bev_max_steer_correction: float = 0.08
     candidate_offsets: List[CandidateViewpoint] = field(default_factory=list)
 
     @classmethod
@@ -104,6 +110,12 @@ class ScenarioConfig:
             uav_back_distance=float(data.get("uav_back_distance", 8.0)),
             uav_auto_patrol_enabled=bool(data.get("uav_auto_patrol_enabled", False)),
             uav_patrol_interval_sec=float(data.get("uav_patrol_interval_sec", 4.0)),
+            uav_bev_fusion_enabled=bool(data.get("uav_bev_fusion_enabled", False)),
+            uav_bev_camera_name=str(data.get("uav_bev_camera_name", "front_center")),
+            uav_bev_refresh_hz=float(data.get("uav_bev_refresh_hz", 2.0)),
+            uav_bev_min_confidence=float(data.get("uav_bev_min_confidence", 0.20)),
+            uav_bev_steer_gain=float(data.get("uav_bev_steer_gain", 0.08)),
+            uav_bev_max_steer_correction=float(data.get("uav_bev_max_steer_correction", 0.08)),
             candidate_offsets=candidates,
         )
 
@@ -152,6 +164,12 @@ class ScenarioConfig:
             "uav_back_distance": self.uav_back_distance,
             "uav_auto_patrol_enabled": self.uav_auto_patrol_enabled,
             "uav_patrol_interval_sec": self.uav_patrol_interval_sec,
+            "uav_bev_fusion_enabled": self.uav_bev_fusion_enabled,
+            "uav_bev_camera_name": self.uav_bev_camera_name,
+            "uav_bev_refresh_hz": self.uav_bev_refresh_hz,
+            "uav_bev_min_confidence": self.uav_bev_min_confidence,
+            "uav_bev_steer_gain": self.uav_bev_steer_gain,
+            "uav_bev_max_steer_correction": self.uav_bev_max_steer_correction,
             "candidate_offsets": [c.to_dict() for c in self.candidate_offsets],
         }
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import carla
 import numpy as np
@@ -27,6 +27,7 @@ class VisionEgoDriver:
         vision_detector_confidence: float = 0.35,
         detector: Optional[Any] = None,
         navigation_command: str = "lane_follow",
+        uav_bev_provider: Optional[Callable[[], Dict[str, Any]]] = None,
     ) -> None:
         self.world = world
         self.ego_vehicle = ego_vehicle
@@ -45,6 +46,7 @@ class VisionEgoDriver:
         self.sensor_rig.spawn()
         self.policy = policy or SimpleLaneVisionPolicy(target_speed_mps=target_speed_mps)
         self.detector = detector
+        self.uav_bev_provider = uav_bev_provider
         self._detector_diagnostics: Dict[str, Any] = {}
         if self.detector is None and vision_detector_model_path:
             self.detector = self._load_detector(vision_detector_model_path, vision_detector_confidence)
@@ -133,11 +135,22 @@ class VisionEgoDriver:
             vision_obstacle = bool(detector_diagnostics.get("obstacle", False))
         obs["vision_detector"] = detector_diagnostics
         obs["vision_obstacle"] = bool(vision_obstacle)
+        uav_bev: Dict[str, Any] = {"available": False, "reason": "disabled"}
+        if self.uav_bev_provider is not None:
+            try:
+                uav_bev = dict(self.uav_bev_provider() or {})
+            except Exception as exc:
+                uav_bev = {
+                    "available": False,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+        obs["uav_bev"] = uav_bev
         self.last_observation = dict(obs)
         control = self.policy.predict(obs)
         self.last_diagnostics = dict(getattr(self.policy, "last_diagnostics", {}))
         self.last_diagnostics["vision_detector"] = detector_diagnostics
         self.last_diagnostics["vision_obstacle"] = bool(vision_obstacle)
+        self.last_diagnostics["uav_bev"] = uav_bev
         return control
 
     def destroy(self) -> None:
