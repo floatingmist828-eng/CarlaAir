@@ -56,11 +56,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._lane_centering_gain = 0.10
         self._lane_centering_deadband_m = 0.15
         self._lane_centering_max_correction = 0.18
-        self._lane_departure_guard_offset_m = 1.2
+        self._lane_departure_guard_offset_m = 2.5
         self._lane_departure_max_correction = 0.28
         self._lane_departure_steer_rate_limit = 0.10
-        self._lane_departure_brake_speed_mps = 2.2
-        self._lane_departure_brake = 0.08
         self._junction_steer_limit = 0.34
         self._junction_low_speed_recovery_mps = 0.35
         self._junction_low_speed_recovery_throttle = 0.34
@@ -321,9 +319,6 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 throttle = min(float(throttle), 0.24)
             if abs(target_steer) < 0.20:
                 target_steer *= 0.65
-        elif lane_departure_guard and speed_mps > self._lane_departure_brake_speed_mps:
-            brake = max(float(brake), self._lane_departure_brake)
-            throttle = 0.0
 
         previous_steer = self._last_steer if self._has_last_steer else 0.0
         if self._has_last_steer:
