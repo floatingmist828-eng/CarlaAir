@@ -46,8 +46,16 @@ class UltralyticsObstacleDetector:
         x1, y1, x2, y2 = xyxy
         center_x = 0.5 * (x1 + x2)
         bottom_y = max(y1, y2)
-        box_area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        box_width = max(0.0, x2 - x1)
+        box_area = box_width * max(0.0, y2 - y1)
         image_area = max(1.0, float(width * height))
+        right_edge_ego_body = (
+            x2 >= width * 0.98
+            and center_x >= width * 0.62
+            and box_area / image_area >= 0.22
+        )
+        if right_edge_ego_body:
+            return False
         central = width * 0.30 <= center_x <= width * 0.70
         close_enough = bottom_y >= height * 0.78 or box_area / image_area >= 0.18
         plausible_size = box_area / image_area >= 0.025

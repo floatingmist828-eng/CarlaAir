@@ -372,6 +372,12 @@ def test_yolo_forward_obstacle_rejects_clean_scene_self_or_background_bbox():
     assert not UltralyticsObstacleDetector._is_forward_obstacle(640, 360, bbox)
 
 
+def test_yolo_forward_obstacle_rejects_right_edge_ego_body_bbox():
+    bbox = (251.0, 140.0, 639.0, 357.0)
+
+    assert not UltralyticsObstacleDetector._is_forward_obstacle(640, 360, bbox)
+
+
 def test_yolo_forward_obstacle_accepts_close_center_car_bbox():
     bbox = (220.0, 145.0, 430.0, 315.0)
 
