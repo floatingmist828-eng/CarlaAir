@@ -496,6 +496,27 @@ def test_tcp_lite_policy_rate_limits_first_steer_from_rest():
     assert abs(policy.last_diagnostics["stabilization"]["target_steer"]) > 0.30
 
 
+def test_tcp_lite_policy_uses_lane_departure_guard_outside_junction():
+    policy = TcpLiteVisionPolicy(
+        model=_StraightTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+    )
+    obs = {
+        "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+        "speed_mps": 3.0,
+        "lane_center_offset_m": 2.0,
+        "in_junction": False,
+    }
+
+    control = policy.predict(obs)
+
+    assert control.steer <= -0.09
+    assert control.throttle == 0.0
+    assert control.brake >= 0.08
+    assert policy.last_diagnostics["stabilization"]["lane_departure_guard"] is True
+
+
 def test_tcp_lite_policy_recovers_low_speed_in_junction():
     policy = TcpLiteVisionPolicy(
         model=_StraightTcpModel(),

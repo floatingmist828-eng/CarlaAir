@@ -56,6 +56,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._lane_centering_gain = 0.10
         self._lane_centering_deadband_m = 0.15
         self._lane_centering_max_correction = 0.18
+        self._lane_departure_guard_offset_m = 1.2
+        self._lane_departure_max_correction = 0.28
+        self._lane_departure_steer_rate_limit = 0.10
+        self._lane_departure_brake_speed_mps = 2.2
+        self._lane_departure_brake = 0.08
         self._junction_steer_limit = 0.34
         self._junction_low_speed_recovery_mps = 0.35
         self._junction_low_speed_recovery_throttle = 0.34
@@ -282,13 +287,23 @@ class TcpLiteVisionPolicy(VisionPolicy):
         lane_offset = obs.get("lane_center_offset_m")
         lane_correction = 0.0
         junction_low_speed_recovery = False
+        lane_departure_guard = False
         try:
             lane_offset_value = float(lane_offset)
+            lane_departure_guard = (
+                abs(lane_offset_value) > self._lane_departure_guard_offset_m
+                and not in_junction
+            )
             if abs(lane_offset_value) > self._lane_centering_deadband_m and not in_junction:
+                max_lane_correction = (
+                    self._lane_departure_max_correction
+                    if lane_departure_guard
+                    else self._lane_centering_max_correction
+                )
                 lane_correction = _clamp(
                     -self._lane_centering_gain * lane_offset_value,
-                    -self._lane_centering_max_correction,
-                    self._lane_centering_max_correction,
+                    -max_lane_correction,
+                    max_lane_correction,
                 )
         except (TypeError, ValueError):
             lane_offset_value = None
@@ -306,6 +321,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 throttle = min(float(throttle), 0.24)
             if abs(target_steer) < 0.20:
                 target_steer *= 0.65
+        elif lane_departure_guard and speed_mps > self._lane_departure_brake_speed_mps:
+            brake = max(float(brake), self._lane_departure_brake)
+            throttle = 0.0
 
         previous_steer = self._last_steer if self._has_last_steer else 0.0
         if self._has_last_steer:
@@ -313,10 +331,15 @@ class TcpLiteVisionPolicy(VisionPolicy):
         else:
             smoothed = target_steer
             self._has_last_steer = True
+        steer_rate_limit = (
+            self._lane_departure_steer_rate_limit
+            if lane_departure_guard
+            else self._steer_rate_limit
+        )
         delta = _clamp(
             smoothed - previous_steer,
-            -self._steer_rate_limit,
-            self._steer_rate_limit,
+            -steer_rate_limit,
+            steer_rate_limit,
         )
         stabilized_steer = previous_steer + delta
         if abs(stabilized_steer) < self._steer_deadband:
@@ -333,7 +356,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "in_junction": bool(in_junction),
             "speed_mps": float(speed_mps),
             "junction_low_speed_recovery": bool(junction_low_speed_recovery),
+            "lane_departure_guard": bool(lane_departure_guard),
             "steer_rate_limit": float(self._steer_rate_limit),
+            "active_steer_rate_limit": float(steer_rate_limit),
             "lane_follow_steer_limit": float(self._lane_follow_steer_limit),
             "steer_deadband": float(self._steer_deadband),
             "uav_bev_fusion": uav_bev_diagnostics,
