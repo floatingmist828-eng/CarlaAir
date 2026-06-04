@@ -57,6 +57,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._lane_centering_deadband_m = 0.15
         self._lane_centering_max_correction = 0.18
         self._junction_steer_limit = 0.34
+        self._junction_low_speed_recovery_mps = 0.35
+        self._junction_low_speed_recovery_throttle = 0.34
         self.uav_bev_fusion_enabled = bool(uav_bev_fusion_enabled)
         self.uav_bev_min_confidence = float(uav_bev_min_confidence)
         self.uav_bev_steer_gain = float(uav_bev_steer_gain)
@@ -276,8 +278,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
     ) -> tuple[float, float, float, Dict[str, Any]]:
         steering_command = str(command or self.navigation_command).lower()
         in_junction = bool(obs.get("in_junction", False))
+        speed_mps = float(obs.get("speed_mps", 0.0) or 0.0)
         lane_offset = obs.get("lane_center_offset_m")
         lane_correction = 0.0
+        junction_low_speed_recovery = False
         try:
             lane_offset_value = float(lane_offset)
             if abs(lane_offset_value) > self._lane_centering_deadband_m and not in_junction:
@@ -295,7 +299,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
             steer_limit = self._junction_steer_limit if in_junction else self._lane_follow_steer_limit
             target_steer = _clamp(target_steer, -steer_limit, steer_limit)
         if in_junction and steering_command in {"lane_follow", "straight"}:
-            throttle = min(float(throttle), 0.24)
+            if speed_mps < self._junction_low_speed_recovery_mps and float(brake) < 0.1:
+                throttle = max(float(throttle), self._junction_low_speed_recovery_throttle)
+                junction_low_speed_recovery = True
+            else:
+                throttle = min(float(throttle), 0.24)
             if abs(target_steer) < 0.20:
                 target_steer *= 0.65
 
@@ -322,6 +330,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "lane_center_offset_m": lane_offset_value,
             "lane_centering_correction": float(lane_correction),
             "in_junction": bool(in_junction),
+            "speed_mps": float(speed_mps),
+            "junction_low_speed_recovery": bool(junction_low_speed_recovery),
             "steer_rate_limit": float(self._steer_rate_limit),
             "lane_follow_steer_limit": float(self._lane_follow_steer_limit),
             "steer_deadband": float(self._steer_deadband),
