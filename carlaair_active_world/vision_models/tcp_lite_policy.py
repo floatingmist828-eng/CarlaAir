@@ -307,17 +307,18 @@ class TcpLiteVisionPolicy(VisionPolicy):
             if abs(target_steer) < 0.20:
                 target_steer *= 0.65
 
+        previous_steer = self._last_steer if self._has_last_steer else 0.0
         if self._has_last_steer:
-            smoothed = self._steer_smoothing * self._last_steer + (1.0 - self._steer_smoothing) * target_steer
-            delta = _clamp(
-                smoothed - self._last_steer,
-                -self._steer_rate_limit,
-                self._steer_rate_limit,
-            )
-            stabilized_steer = self._last_steer + delta
+            smoothed = self._steer_smoothing * previous_steer + (1.0 - self._steer_smoothing) * target_steer
         else:
-            stabilized_steer = target_steer
+            smoothed = target_steer
             self._has_last_steer = True
+        delta = _clamp(
+            smoothed - previous_steer,
+            -self._steer_rate_limit,
+            self._steer_rate_limit,
+        )
+        stabilized_steer = previous_steer + delta
         if abs(stabilized_steer) < self._steer_deadband:
             stabilized_steer = 0.0
         self._last_steer = _clamp(stabilized_steer, -1.0, 1.0)

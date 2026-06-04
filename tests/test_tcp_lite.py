@@ -482,6 +482,20 @@ def test_tcp_lite_policy_rate_limits_alternating_junction_steer():
     assert policy.last_diagnostics["stabilization"]["in_junction"] is True
 
 
+def test_tcp_lite_policy_rate_limits_first_steer_from_rest():
+    policy = TcpLiteVisionPolicy(
+        model=_AlternatingTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+    )
+    obs = {"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 0.0, "in_junction": False}
+
+    control = policy.predict(obs)
+
+    assert abs(control.steer) <= 0.061
+    assert abs(policy.last_diagnostics["stabilization"]["target_steer"]) > 0.30
+
+
 def test_tcp_lite_policy_recovers_low_speed_in_junction():
     policy = TcpLiteVisionPolicy(
         model=_StraightTcpModel(),
