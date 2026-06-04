@@ -6,7 +6,7 @@
   "ego_sensor_mode": "vision",
   "ego_control_mode": "vision_tcp_lite",
   "ego_drive_hz": 8.0,
-  "ego_target_speed_mps": 3.0,
+  "ego_target_speed_mps": 2.5,
   "ego_lookahead_m": 10.0,
   "traffic_vehicles": 0,
   "traffic_walkers": 0,

@@ -33,7 +33,7 @@ def test_stable_uav_bev_scenario_loads():
     config = ScenarioConfig.load(ROOT / "configs/scenarios/town10hd_vision_tcp_lite_yolo_uav_bev_stable.json")
 
     assert config.duration_sec == 120.0
-    assert config.ego_target_speed_mps == 3.0
+    assert config.ego_target_speed_mps == 2.5
     assert config.uav_enabled is True
     assert config.uav_control_enabled is True
     assert config.uav_bev_fusion_enabled is True
