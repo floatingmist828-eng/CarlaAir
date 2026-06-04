@@ -61,6 +61,7 @@ class ActiveAirGroundEnv:
             lambda: self.uav_sensors,
             refresh_hz=float(getattr(self.scenario, "uav_bev_refresh_hz", 2.0)),
         )
+        self._air_rpc_lock = threading.RLock()
         self._ego_driver_thread = None
         self.ox = 0.0
         self.oy = 0.0
@@ -79,11 +80,12 @@ class ActiveAirGroundEnv:
         if self.scenario.uav_enabled:
             self.air_client = connect_airsim(self.airsim_port, vehicle_name=self.scenario.uav_name)
             if bool(getattr(self.scenario, "uav_control_enabled", True)):
-                self.ox, self.oy, self.oz = calibrate_offset(
-                    self.world,
-                    self.air_client,
-                    preferred_name=self.scenario.uav_name,
-                )
+                with self._air_rpc_lock:
+                    self.ox, self.oy, self.oz = calibrate_offset(
+                        self.world,
+                        self.air_client,
+                        preferred_name=self.scenario.uav_name,
+                    )
 
     def reset(self) -> Dict[str, Any]:
         if self.client is None or self.world is None:
@@ -109,6 +111,7 @@ class ActiveAirGroundEnv:
                     self.air_client,
                     camera_name=str(getattr(self.scenario, "uav_bev_camera_name", "front_center")),
                     record_depth=False,
+                    rpc_lock=self._air_rpc_lock,
                 )
         return observation
 
@@ -241,10 +244,11 @@ class ActiveAirGroundEnv:
             and bool(getattr(self.scenario, "uav_control_enabled", True))
         ):
             try:
-                if self.scenario.uav_name:
-                    state = self.air_client.getMultirotorState(vehicle_name=self.scenario.uav_name)
-                else:
-                    state = self.air_client.getMultirotorState()
+                with self._air_rpc_lock:
+                    if self.scenario.uav_name:
+                        state = self.air_client.getMultirotorState(vehicle_name=self.scenario.uav_name)
+                    else:
+                        state = self.air_client.getMultirotorState()
                 pos = state.kinematics_estimated.position
                 vel = state.kinematics_estimated.linear_velocity
                 drone_state = {
@@ -286,14 +290,15 @@ class ActiveAirGroundEnv:
             candidate = candidates[idx]
             ego_transform = self.ego_vehicle.get_transform()
             pose = local_candidate_to_world(ego_transform, candidate)
-            move_uav_to(
-                self.air_client,
-                pose=pose,
-                ox=self.ox,
-                oy=self.oy,
-                oz=self.oz,
-                vehicle_name=self.scenario.uav_name,
-            )
+            with self._air_rpc_lock:
+                move_uav_to(
+                    self.air_client,
+                    pose=pose,
+                    ox=self.ox,
+                    oy=self.oy,
+                    oz=self.oz,
+                    vehicle_name=self.scenario.uav_name,
+                )
         if self.world.get_settings().synchronous_mode:
             self.world.tick()
         else:
@@ -325,7 +330,8 @@ class ActiveAirGroundEnv:
                 pass
         self.ego_driver = None
         if self.air_client is not None and bool(getattr(self.scenario, "uav_control_enabled", True)):
-            set_uav_hover(self.air_client, vehicle_name=self.scenario.uav_name)
+            with self._air_rpc_lock:
+                set_uav_hover(self.air_client, vehicle_name=self.scenario.uav_name)
         self.uav_sensors = None
         if self.ego_vehicle is not None:
             try:
