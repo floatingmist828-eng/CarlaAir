@@ -106,7 +106,7 @@ class ActiveAirGroundEnv:
         if self.scenario.uav_enabled and self.air_client is not None:
             if bool(getattr(self.scenario, "uav_control_enabled", True)):
                 self._place_initial_uav(observation)
-            if bool(getattr(self.scenario, "uav_bev_fusion_enabled", False)):
+            if str(getattr(self.scenario, "uav_fusion_mode", "none")).lower() != "none":
                 self.uav_sensors = UAVSensorRig(
                     self.air_client,
                     camera_name=str(getattr(self.scenario, "uav_bev_camera_name", "front_center")),
@@ -142,6 +142,13 @@ class ActiveAirGroundEnv:
                         uav_bev_max_steer_correction=float(
                             getattr(self.scenario, "uav_bev_max_steer_correction", 0.08)
                         ),
+                        uav_fusion_mode=str(getattr(self.scenario, "uav_fusion_mode", "none")),
+                        uav_fusion_planner_path=str(getattr(self.scenario, "uav_fusion_planner_path", "")),
+                        uav_fusion_planner_gain=float(getattr(self.scenario, "uav_fusion_planner_gain", 1.0)),
+                        uav_fusion_max_steer_correction=float(
+                            getattr(self.scenario, "uav_fusion_max_steer_correction", 0.08)
+                        ),
+                        uav_fusion_min_confidence=float(getattr(self.scenario, "uav_fusion_min_confidence", 0.20)),
                     )
                 self.ego_driver = VisionEgoDriver(
                     self.world,
@@ -157,7 +164,7 @@ class ActiveAirGroundEnv:
                     vision_detector_confidence=float(getattr(self.scenario, "vision_detector_confidence", 0.35)),
                     uav_bev_provider=(
                         self.uav_bev_provider.snapshot
-                        if bool(getattr(self.scenario, "uav_bev_fusion_enabled", False))
+                        if str(getattr(self.scenario, "uav_fusion_mode", "none")).lower() != "none"
                         else None
                     ),
                 )

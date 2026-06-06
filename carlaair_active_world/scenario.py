@@ -55,6 +55,14 @@ class ScenarioConfig:
     uav_bev_min_confidence: float = 0.20
     uav_bev_steer_gain: float = 0.08
     uav_bev_max_steer_correction: float = 0.08
+    uav_fusion_mode: str = "none"
+    uav_fusion_planner_path: str = ""
+    uav_fusion_planner_gain: float = 1.0
+    uav_fusion_max_steer_correction: float = 0.08
+    uav_fusion_min_confidence: float = 0.20
+    experiment_group: str = ""
+    scenario_stage: str = ""
+    scenario_complexity: List[str] = field(default_factory=list)
     candidate_offsets: List[CandidateViewpoint] = field(default_factory=list)
 
     @classmethod
@@ -72,6 +80,16 @@ class ScenarioConfig:
                     weight=float(item.get("weight", 1.0)),
                 )
             )
+        raw_mode = data.get("uav_fusion_mode")
+        if raw_mode is None or str(raw_mode).strip() == "":
+            uav_fusion_mode = "rule" if bool(data.get("uav_bev_fusion_enabled", False)) else "none"
+        else:
+            uav_fusion_mode = str(raw_mode).strip().lower()
+        if uav_fusion_mode not in {"none", "rule", "learned"}:
+            raise ValueError("uav_fusion_mode must be one of: none, rule, learned")
+        complexity = data.get("scenario_complexity", [])
+        if isinstance(complexity, str):
+            complexity = [complexity]
         return cls(
             name=str(data["name"]),
             map_name=str(data.get("map_name", "Town10HD")),
@@ -112,12 +130,30 @@ class ScenarioConfig:
             uav_back_distance=float(data.get("uav_back_distance", 8.0)),
             uav_auto_patrol_enabled=bool(data.get("uav_auto_patrol_enabled", False)),
             uav_patrol_interval_sec=float(data.get("uav_patrol_interval_sec", 4.0)),
-            uav_bev_fusion_enabled=bool(data.get("uav_bev_fusion_enabled", False)),
+            uav_bev_fusion_enabled=bool(data.get("uav_bev_fusion_enabled", uav_fusion_mode != "none")),
             uav_bev_camera_name=str(data.get("uav_bev_camera_name", "front_center")),
             uav_bev_refresh_hz=float(data.get("uav_bev_refresh_hz", 2.0)),
             uav_bev_min_confidence=float(data.get("uav_bev_min_confidence", 0.20)),
             uav_bev_steer_gain=float(data.get("uav_bev_steer_gain", 0.08)),
             uav_bev_max_steer_correction=float(data.get("uav_bev_max_steer_correction", 0.08)),
+            uav_fusion_mode=uav_fusion_mode,
+            uav_fusion_planner_path=str(data.get("uav_fusion_planner_path", "")),
+            uav_fusion_planner_gain=float(data.get("uav_fusion_planner_gain", 1.0)),
+            uav_fusion_max_steer_correction=float(
+                data.get(
+                    "uav_fusion_max_steer_correction",
+                    data.get("uav_bev_max_steer_correction", 0.08),
+                )
+            ),
+            uav_fusion_min_confidence=float(
+                data.get(
+                    "uav_fusion_min_confidence",
+                    data.get("uav_bev_min_confidence", 0.20),
+                )
+            ),
+            experiment_group=str(data.get("experiment_group", "")),
+            scenario_stage=str(data.get("scenario_stage", "")),
+            scenario_complexity=[str(item) for item in complexity],
             candidate_offsets=candidates,
         )
 
@@ -173,6 +209,14 @@ class ScenarioConfig:
             "uav_bev_min_confidence": self.uav_bev_min_confidence,
             "uav_bev_steer_gain": self.uav_bev_steer_gain,
             "uav_bev_max_steer_correction": self.uav_bev_max_steer_correction,
+            "uav_fusion_mode": self.uav_fusion_mode,
+            "uav_fusion_planner_path": self.uav_fusion_planner_path,
+            "uav_fusion_planner_gain": self.uav_fusion_planner_gain,
+            "uav_fusion_max_steer_correction": self.uav_fusion_max_steer_correction,
+            "uav_fusion_min_confidence": self.uav_fusion_min_confidence,
+            "experiment_group": self.experiment_group,
+            "scenario_stage": self.scenario_stage,
+            "scenario_complexity": list(self.scenario_complexity),
             "candidate_offsets": [c.to_dict() for c in self.candidate_offsets],
         }
 

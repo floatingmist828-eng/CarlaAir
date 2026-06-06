@@ -1,0 +1,9 @@
+{
+  "bias": 0.0,
+  "weights": {
+    "center_bias": 1.0,
+    "left_right_balance": 0.25,
+    "lane_center_offset_m": -0.15,
+    "in_junction": -0.05
+  }
+}

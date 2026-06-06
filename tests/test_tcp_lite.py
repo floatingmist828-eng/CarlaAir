@@ -169,6 +169,15 @@ def test_run_active_world_help_exposes_ego_viewer_flag():
     assert "Show the ego vehicle RGB camera" in content
 
 
+def test_run_active_world_help_exposes_artifact_dir_flag():
+    script = ROOT / "scripts" / "run_active_world.py"
+
+    content = script.read_text(encoding="utf-8")
+
+    assert "--artifact-dir" in content
+    assert "Save ego/UAV frames and control diagnostics" in content
+
+
 def test_tcp_lite_helpers_import_without_carla_dependency():
     result = subprocess.run(
         [
@@ -464,6 +473,80 @@ def test_tcp_lite_policy_ignores_uav_bev_when_disabled():
 
     assert abs(control.steer) < 0.02
     assert policy.last_diagnostics["uav_bev_fusion"]["enabled"] is False
+
+
+def test_tcp_lite_policy_ignores_uav_bev_in_none_fusion_mode():
+    policy = TcpLiteVisionPolicy(
+        model=_StraightTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        uav_bev_fusion_enabled=True,
+        uav_fusion_mode="none",
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "lane_center_offset_m": 0.0,
+            "in_junction": False,
+            "uav_bev": {
+                "available": True,
+                "road_confidence": 0.8,
+                "center_bias": 1.0,
+            },
+        }
+    )
+
+    assert abs(control.steer) < 0.02
+    assert policy.last_diagnostics["uav_bev_fusion"]["mode"] == "none"
+    assert policy.last_diagnostics["uav_bev_fusion"]["applied"] is False
+
+
+def test_tcp_lite_policy_uses_learned_uav_fusion_residual(tmp_path):
+    planner_path = tmp_path / "fusion.json"
+    planner_path.write_text(
+        json.dumps(
+            {
+                "weights": {
+                    "center_bias": 1.0,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    policy = TcpLiteVisionPolicy(
+        model=_StraightTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        uav_bev_fusion_enabled=True,
+        uav_fusion_mode="learned",
+        uav_fusion_planner_path=str(planner_path),
+        uav_fusion_planner_gain=0.5,
+        uav_fusion_max_steer_correction=0.08,
+        uav_fusion_min_confidence=0.1,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "lane_center_offset_m": 0.0,
+            "in_junction": False,
+            "uav_bev": {
+                "available": True,
+                "road_confidence": 0.8,
+                "center_bias": 1.0,
+                "forward_density": 0.5,
+                "left_right_balance": 0.0,
+            },
+        }
+    )
+
+    assert control.steer > 0.02
+    assert policy.last_diagnostics["uav_bev_fusion"]["mode"] == "learned"
+    assert policy.last_diagnostics["uav_bev_fusion"]["applied"] is True
+    assert policy.last_diagnostics["uav_bev_fusion"]["steer_correction"] == 0.08
 
 
 def test_tcp_lite_policy_rate_limits_alternating_junction_steer():
@@ -939,6 +1022,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["control_mode"] == "direct"
     assert captured["policy_kwargs"]["navigation_command"] == "right"
     assert captured["policy_kwargs"]["target_speed_mps"] == 3.5
+    assert captured["policy_kwargs"]["uav_fusion_mode"] == "none"
     assert captured["driver_policy"] is not None
     assert captured["driver_navigation_command"] == "right"
     assert captured["driver_use_depth"] is False
@@ -1030,6 +1114,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["attack_pattern_gate"] is True
     assert captured["driver_use_depth"] is False
     assert captured["policy_kwargs"]["target_speed_mps"] == 3.25
+    assert captured["policy_kwargs"]["uav_fusion_mode"] == "none"
     assert captured["driver_policy"] is captured["policy"]
     assert captured["driver_navigation_command"] == "left"
     assert captured["configure_autopilot_calls"] == 0

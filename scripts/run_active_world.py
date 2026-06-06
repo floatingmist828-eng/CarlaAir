@@ -13,6 +13,7 @@ from carlaair_active_world.env import ActiveAirGroundEnv
 from carlaair_active_world.policies import build_policy
 from carlaair_active_world.recorder import EpisodeRecorder
 from carlaair_active_world.scenario import ScenarioConfig
+from carlaair_active_world.sensors import save_numpy_image
 
 
 def show_ego_view(env: ActiveAirGroundEnv, window_name: str = "EgoVehicleRGB") -> bool:
@@ -45,6 +46,41 @@ def load_scenario(path: Path) -> ScenarioConfig:
     return ScenarioConfig.load(path)
 
 
+def save_step_artifacts(env: ActiveAirGroundEnv, step_idx: int, artifact_dir: Path) -> None:
+    step_dir = artifact_dir / f"step_{step_idx:06d}"
+    driver = getattr(env, "ego_driver", None)
+    payload = {
+        "step": int(step_idx),
+        "ego_control": dict(getattr(driver, "last_diagnostics", {}) or {}),
+    }
+
+    rig = getattr(driver, "sensor_rig", None)
+    if rig is not None:
+        try:
+            frames = rig.snapshot() or {}
+            if frames.get("rgb") is not None:
+                path = step_dir / "ego_rgb.png"
+                save_numpy_image(path, frames["rgb"])
+                payload["ego_rgb"] = str(path)
+        except Exception as exc:
+            payload["ego_rgb_error"] = f"{type(exc).__name__}: {exc}"
+
+    uav_rig = getattr(env, "uav_sensors", None)
+    if uav_rig is not None:
+        try:
+            frames = uav_rig.snapshot() or {}
+            if frames.get("rgb") is not None:
+                path = step_dir / "uav_rgb.png"
+                save_numpy_image(path, frames["rgb"])
+                payload["uav_rgb"] = str(path)
+        except Exception as exc:
+            payload["uav_rgb_error"] = f"{type(exc).__name__}: {exc}"
+
+    step_dir.mkdir(parents=True, exist_ok=True)
+    with (step_dir / "control.json").open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False, default=str)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run CarlaAir active air-ground V0.")
     parser.add_argument("--scenario", type=Path, required=True, help="Path to a scenario JSON file.")
@@ -53,6 +89,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--record", type=Path, default=None, help="Optional output JSON file.")
     parser.add_argument("--viewer", action="store_true", help="Show the ego vehicle RGB camera in an OpenCV window.")
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        default=None,
+        help="Save ego/UAV frames and control diagnostics for visual analysis.",
+    )
     args = parser.parse_args()
 
     scenario = load_scenario(args.scenario)
@@ -87,6 +129,8 @@ def main() -> None:
             if viewer_enabled:
                 viewer_enabled = show_ego_view(env)
             step_idx += 1
+            if args.artifact_dir is not None:
+                save_step_artifacts(env, step_idx, args.artifact_dir)
 
             candidate_name = scenario.candidate_offsets[action].name
             print(

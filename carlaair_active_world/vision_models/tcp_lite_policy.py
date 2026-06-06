@@ -8,6 +8,7 @@ import carla
 import numpy as np
 
 from .base import VisionPolicy
+from .fusion_planner import FusionPlannerAdapter, FusionPlannerConfig
 from .safety_gate import VisionSafetyGateConfig, evaluate_vision_safety_gate
 from .simple_lane import SimpleLaneVisionPolicy
 from .tcp_lite import command_to_index
@@ -35,6 +36,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
         uav_bev_min_confidence: float = 0.20,
         uav_bev_steer_gain: float = 0.08,
         uav_bev_max_steer_correction: float = 0.08,
+        uav_fusion_mode: str = "",
+        uav_fusion_planner_path: str = "",
+        uav_fusion_planner_gain: float = 1.0,
+        uav_fusion_max_steer_correction: Optional[float] = None,
+        uav_fusion_min_confidence: Optional[float] = None,
     ) -> None:
         self.model_path = str(model_path or "")
         self.device = str(device)
@@ -59,10 +65,32 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._junction_steer_limit = 0.34
         self._junction_low_speed_recovery_mps = 0.35
         self._junction_low_speed_recovery_throttle = 0.34
-        self.uav_bev_fusion_enabled = bool(uav_bev_fusion_enabled)
+        if not str(uav_fusion_mode or "").strip():
+            uav_fusion_mode = "rule" if bool(uav_bev_fusion_enabled) else "none"
+        self.uav_fusion_mode = str(uav_fusion_mode).strip().lower()
+        if self.uav_fusion_mode not in {"none", "rule", "learned"}:
+            raise ValueError("uav_fusion_mode must be one of: none, rule, learned")
+        self.uav_bev_fusion_enabled = self.uav_fusion_mode != "none"
         self.uav_bev_min_confidence = float(uav_bev_min_confidence)
         self.uav_bev_steer_gain = float(uav_bev_steer_gain)
         self.uav_bev_max_steer_correction = float(uav_bev_max_steer_correction)
+        self.uav_fusion_planner = FusionPlannerAdapter(
+            FusionPlannerConfig(
+                mode=self.uav_fusion_mode,
+                checkpoint_path=str(uav_fusion_planner_path or ""),
+                gain=float(uav_fusion_planner_gain),
+                max_correction=float(
+                    self.uav_bev_max_steer_correction
+                    if uav_fusion_max_steer_correction is None
+                    else uav_fusion_max_steer_correction
+                ),
+                min_confidence=float(
+                    self.uav_bev_min_confidence
+                    if uav_fusion_min_confidence is None
+                    else uav_fusion_min_confidence
+                ),
+            )
+        )
         self.fallback_policy = SimpleLaneVisionPolicy(target_speed_mps=self.target_speed_mps)
         self.safety_gate_config = VisionSafetyGateConfig(
             enabled=bool(safety_gate_enabled),
@@ -223,12 +251,22 @@ class TcpLiteVisionPolicy(VisionPolicy):
     def _uav_bev_correction(self, obs: Dict[str, Any]) -> tuple[float, Dict[str, Any]]:
         diagnostics: Dict[str, Any] = {
             "enabled": bool(self.uav_bev_fusion_enabled),
+            "mode": self.uav_fusion_mode,
             "applied": False,
             "steer_correction": 0.0,
         }
         if not self.uav_bev_fusion_enabled:
             diagnostics["reason"] = "disabled"
             return 0.0, diagnostics
+        if self.uav_fusion_mode == "learned":
+            correction, planner_diagnostics = self.uav_fusion_planner.predict(obs)
+            diagnostics.update(planner_diagnostics)
+            diagnostics["mode"] = self.uav_fusion_mode
+            if bool(obs.get("in_junction", False)) and abs(correction) >= 1.0e-4:
+                correction *= 0.5
+                diagnostics["junction_scale"] = 0.5
+                diagnostics["steer_correction"] = float(correction)
+            return float(correction), diagnostics
 
         feature = obs.get("uav_bev") or {}
         diagnostics["available"] = bool(feature.get("available", False))

@@ -1,0 +1,31 @@
+{
+  "name": "clean_learned_fusion",
+  "ego_spawn_index": 20,
+  "ego_control_mode": "vision_tcp_lite",
+  "ego_target_speed_mps": 2.5,
+  "duration_sec": 120.0,
+  "vehicle_sensor_limit": 1,
+  "traffic_vehicles": 0,
+  "traffic_walkers": 0,
+  "weather_preset": "none",
+  "vision_attack": "none",
+  "vision_detector_model_path": "models/yolo11n.pt",
+  "vision_model_path": "models/tcp_lite_combined_vehicle_traj10_control1_e40.pt",
+  "vision_model_control_mode": "trajectory_model",
+  "vision_navigation_command": "lane_follow",
+  "vision_safety_gate_enabled": true,
+  "uav_enabled": true,
+  "uav_control_enabled": true,
+  "uav_bev_fusion_enabled": true,
+  "uav_fusion_mode": "learned",
+  "uav_fusion_planner_path": "models/fusion_planner_linear.json",
+  "uav_fusion_planner_gain": 0.06,
+  "uav_fusion_max_steer_correction": 0.06,
+  "uav_fusion_min_confidence": 0.20,
+  "experiment_group": "learned_fusion",
+  "scenario_stage": "clean",
+  "scenario_complexity": ["clean"],
+  "candidate_offsets": [
+    {"name": "front_high", "x": 18.0, "y": 0.0, "z": 10.0, "weight": 1.0}
+  ]
+}
