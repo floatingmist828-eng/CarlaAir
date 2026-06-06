@@ -45,6 +45,21 @@ SEGMENT_FIELDS = [
     "path_distance_m",
 ]
 
+TIMESERIES_FIELDS = [
+    "file",
+    "scenario",
+    "experiment_group",
+    "scenario_stage",
+    "time_sec",
+    "lane_offset_m",
+    "steer",
+    "speed_mps",
+    "brake",
+    "safety_gate_blocked",
+    "uav_fusion_mode",
+    "uav_steer_correction",
+]
+
 
 def load_episode(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
@@ -163,6 +178,43 @@ def _segments(steps: List[Dict[str, Any]], segment_sec: float = 30.0) -> List[Di
     ]
 
 
+def _uav_fusion(step: Dict[str, Any]) -> Dict[str, Any]:
+    control = _nested(step.get("observation", {}), ["ego_control"], {})
+    if not isinstance(control, dict):
+        return {}
+    fusion = control.get("uav_bev_fusion")
+    if isinstance(fusion, dict):
+        return fusion
+    stabilization = control.get("stabilization")
+    if isinstance(stabilization, dict) and isinstance(stabilization.get("uav_bev_fusion"), dict):
+        return stabilization["uav_bev_fusion"]
+    return {}
+
+
+def _timeseries(path: Path, scenario: Dict[str, Any], steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for step in steps:
+        obs = step.get("observation", {})
+        fusion = _uav_fusion(step)
+        rows.append(
+            {
+                "file": str(path),
+                "scenario": str(scenario.get("name", path.stem)),
+                "experiment_group": str(scenario.get("experiment_group", "")),
+                "scenario_stage": str(scenario.get("scenario_stage", "")),
+                "time_sec": _as_float(obs.get("time"), 0.0),
+                "lane_offset_m": _lane_offset(step),
+                "steer": _control_value(step, "steer"),
+                "speed_mps": _speed(step),
+                "brake": _control_value(step, "brake"),
+                "safety_gate_blocked": _safety_gate_blocked(step),
+                "uav_fusion_mode": str(fusion.get("mode", "")),
+                "uav_steer_correction": _as_float(fusion.get("steer_correction"), 0.0),
+            }
+        )
+    return rows
+
+
 def evaluate_episode(path: Path) -> Dict[str, Any]:
     episode = load_episode(path)
     meta = episode.get("meta", {})
@@ -229,6 +281,7 @@ def evaluate_episode(path: Path) -> Dict[str, Any]:
         "safety_gate_count": sum(1 for step in steps if _safety_gate_blocked(step)),
         "scene_success": scene_success,
         "segments": _segments(steps),
+        "timeseries": _timeseries(path, scenario, steps),
     }
 
 
@@ -265,6 +318,16 @@ def _write_segments_csv(results: List[Dict[str, Any]], output_path: Path) -> Non
                 )
 
 
+def _write_timeseries_csv(results: List[Dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=TIMESERIES_FIELDS)
+        writer.writeheader()
+        for result in results:
+            for row in result.get("timeseries", []):
+                writer.writerow({field: row.get(field, "") for field in TIMESERIES_FIELDS})
+
+
 def _plot_metric(results: List[Dict[str, Any]], output_dir: Path, metric: str, title: str) -> None:
     try:
         import matplotlib.pyplot as plt
@@ -286,12 +349,74 @@ def _plot_metric(results: List[Dict[str, Any]], output_dir: Path, metric: str, t
     plt.close(fig)
 
 
+def _plot_timeseries(results: List[Dict[str, Any]], output_dir: Path, field: str, title: str, ylabel: str) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8.0, 4.0))
+    plotted = False
+    for result in results:
+        rows = result.get("timeseries", [])
+        xs = [row.get("time_sec") for row in rows if row.get(field) is not None]
+        ys = [row.get(field) for row in rows if row.get(field) is not None]
+        if not xs or not ys:
+            continue
+        label = f"{result.get('scenario_stage') or result.get('scenario')}:{result.get('experiment_group')}"
+        ax.plot(xs, ys, label=label)
+        plotted = True
+    if not plotted:
+        plt.close(fig)
+        return
+    ax.set_title(title)
+    ax.set_xlabel("time_sec")
+    ax.set_ylabel(ylabel)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(output_dir / f"{field}_curve.png")
+    plt.close(fig)
+
+
+def _plot_segments(results: List[Dict[str, Any]], output_dir: Path) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8.0, 4.0))
+    plotted = False
+    for result in results:
+        rows = result.get("segments", [])
+        xs = [row.get("segment_start_sec") for row in rows]
+        ys = [row.get("path_distance_m") for row in rows]
+        if not xs or not ys:
+            continue
+        label = f"{result.get('scenario_stage') or result.get('scenario')}:{result.get('experiment_group')}"
+        ax.plot(xs, ys, marker="o", label=label)
+        plotted = True
+    if not plotted:
+        plt.close(fig)
+        return
+    ax.set_title("30s Segment Path Distance")
+    ax.set_xlabel("segment_start_sec")
+    ax.set_ylabel("path_distance_m")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(output_dir / "segment_path_distance_curve.png")
+    plt.close(fig)
+
+
 def _write_plots(results: List[Dict[str, Any]], output_dir: Path) -> None:
     _plot_metric(results, output_dir, "collision_rate", "Collision Rate")
     _plot_metric(results, output_dir, "lane_offset_mean_abs", "Mean Lane Offset")
     _plot_metric(results, output_dir, "avg_speed_mps", "Average Speed")
     _plot_metric(results, output_dir, "path_distance_m", "Path Distance")
     _plot_metric(results, output_dir, "scene_success", "Scene Success")
+    _plot_timeseries(results, output_dir, "lane_offset_m", "Lane Offset Curve", "lane_offset_m")
+    _plot_timeseries(results, output_dir, "steer", "Steer Curve", "steer")
+    _plot_timeseries(results, output_dir, "speed_mps", "Speed Curve", "speed_mps")
+    _plot_segments(results, output_dir)
 
 
 def evaluate_directory(input_dir: Path, output_dir: Path, make_plots: bool = True) -> List[Dict[str, Any]]:
@@ -302,6 +427,7 @@ def evaluate_directory(input_dir: Path, output_dir: Path, make_plots: bool = Tru
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_summary_csv(results, output_dir / "summary.csv")
     _write_segments_csv(results, output_dir / "segments.csv")
+    _write_timeseries_csv(results, output_dir / "timeseries.csv")
     if make_plots:
         _write_plots(results, output_dir / "plots")
     return results

@@ -113,8 +113,15 @@ def test_evaluate_directory_writes_summary_and_segments_csv(tmp_path):
     assert len(results) == 2
     summary_path = output_dir / "summary.csv"
     segments_path = output_dir / "segments.csv"
+    timeseries_path = output_dir / "timeseries.csv"
     assert summary_path.exists()
     assert segments_path.exists()
+    assert timeseries_path.exists()
     with summary_path.open("r", encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert [row["experiment_group"] for row in rows] == ["no_uav", "learned_fusion"]
+    with timeseries_path.open("r", encoding="utf-8", newline="") as handle:
+        series_rows = list(csv.DictReader(handle))
+    assert series_rows[0]["time_sec"] == "0.0"
+    assert series_rows[0]["steer"] == "0.0"
+    assert series_rows[1]["lane_offset_m"] == "0.1"
