@@ -332,6 +332,44 @@ def test_vision_driver_forwards_uav_bev_context_to_policy():
     assert driver.last_diagnostics["uav_bev"]["available"] is True
 
 
+def test_vision_driver_uses_configured_junction_command_sequence(monkeypatch):
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": _lane_image(), "semantic": _semantic(), "depth": _clear_depth()}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+    now = [10.0]
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+    driver = VisionEgoDriver(
+        object(),
+        _Vehicle(),
+        junction_command_sequence=["right", "straight"],
+        junction_command_hold_sec=2.0,
+        clock=lambda: now[0],
+    )
+
+    assert driver._navigation_command_for_lane({"in_junction": False}) == "lane_follow"
+    assert driver._navigation_command_for_lane({"in_junction": True}) == "right"
+    now[0] = 11.0
+    assert driver._navigation_command_for_lane({"in_junction": True}) == "right"
+    now[0] = 13.0
+    assert driver._navigation_command_for_lane({"in_junction": False}) == "lane_follow"
+    now[0] = 14.0
+    assert driver._navigation_command_for_lane({"in_junction": True}) == "straight"
+
+
 def test_vision_driver_adds_forward_interaction_hazard(monkeypatch):
     import carla
 

@@ -31,6 +31,7 @@ class VisionEgoDriver:
         navigation_command: str = "lane_follow",
         uav_bev_provider: Optional[Callable[[], Dict[str, Any]]] = None,
         first_junction_command: str = "",
+        junction_command_sequence: Optional[list[str]] = None,
         junction_command_hold_sec: float = 4.0,
         clock: Optional[Callable[[], float]] = None,
     ) -> None:
@@ -40,10 +41,18 @@ class VisionEgoDriver:
         self.use_depth = bool(use_depth)
         self.navigation_command = navigation_command
         self.first_junction_command = self._normalize_turn_command(first_junction_command)
+        sequence = junction_command_sequence if junction_command_sequence is not None else []
+        self.junction_command_sequence = [
+            command for command in (self._normalize_turn_command(item) for item in sequence) if command
+        ]
+        if not self.junction_command_sequence and self.first_junction_command:
+            self.junction_command_sequence = [self.first_junction_command]
         self.junction_command_hold_sec = max(0.0, float(junction_command_hold_sec))
         self._clock = clock or time.monotonic
-        self._first_junction_command_until: Optional[float] = None
-        self._first_junction_command_consumed = False
+        self._junction_command_until: Optional[float] = None
+        self._junction_active_command = ""
+        self._junction_command_index = 0
+        self._was_in_junction = False
         self.sensor_rig = self.sensor_rig_class(
             world,
             ego_vehicle,
@@ -115,24 +124,30 @@ class VisionEgoDriver:
 
     def _navigation_command_for_lane(self, lane_reference: Dict[str, Any]) -> str:
         base_command = str(self.navigation_command or "lane_follow")
-        turn_command = self.first_junction_command
-        if not turn_command:
+        if not self.junction_command_sequence:
             return base_command
 
         now = float(self._clock())
-        if self._first_junction_command_until is not None:
-            if now <= self._first_junction_command_until:
-                return turn_command
-            self._first_junction_command_until = None
-            self._first_junction_command_consumed = True
+        in_junction = bool(lane_reference.get("in_junction", False))
+        if not in_junction:
+            if self._was_in_junction and self._junction_active_command:
+                self._junction_command_index += 1
+            self._was_in_junction = False
+            self._junction_command_until = None
+            self._junction_active_command = ""
             return base_command
 
-        if self._first_junction_command_consumed:
+        if not self._was_in_junction:
+            self._was_in_junction = True
+            if self._junction_command_index < len(self.junction_command_sequence):
+                self._junction_active_command = self.junction_command_sequence[self._junction_command_index]
+                self._junction_command_until = now + self.junction_command_hold_sec
+
+        if not self._junction_active_command:
             return base_command
 
-        if bool(lane_reference.get("in_junction", False)):
-            self._first_junction_command_until = now + self.junction_command_hold_sec
-            return turn_command
+        if self._junction_command_until is None or now <= self._junction_command_until:
+            return self._junction_active_command
 
         return base_command
 

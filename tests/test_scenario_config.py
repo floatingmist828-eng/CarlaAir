@@ -32,13 +32,21 @@ def test_run_uav_task_defaults_are_project_relative():
 def test_stable_uav_bev_scenario_loads():
     config = ScenarioConfig.load(ROOT / "configs/scenarios/town10hd_vision_tcp_lite_yolo_uav_bev_stable.json")
 
-    assert config.duration_sec == 120.0
+    assert config.duration_sec == 140.0
     assert config.ego_spawn_index == 86
     assert config.ego_spawn_forward_m == 0.0
-    assert config.ego_target_speed_mps == 3.0
+    assert config.ego_target_speed_mps == 2.6
     assert config.vision_navigation_command == "lane_follow"
     assert config.vision_first_junction_command == "right"
+    assert config.vision_junction_command_sequence == ["right", "straight"]
     assert config.vision_junction_command_hold_sec == 8.0
+    assert config.traffic_walkers == 4
+    assert config.walker_spawn_indices == [146, 146, 146, 146]
+    assert config.walker_spawn_delay_sec == 8.0
+    assert config.walker_crossing_offsets_m == [-2.0, -0.7, 0.7, 2.0]
+    assert config.traffic_vehicles == 4
+    assert config.traffic_spawn_indices == [25, 24, 32, 31]
+    assert config.traffic_spawn_delay_sec == 23.0
     assert config.vision_detector_confidence == 0.45
     assert config.vision_safety_gate_enabled is True
     assert config.uav_enabled is True
@@ -111,6 +119,20 @@ def test_uav_fusion_mode_preserves_legacy_boolean_default():
 
     assert disabled.uav_fusion_mode == "none"
     assert enabled.uav_fusion_mode == "rule"
+
+
+def test_scenario_config_round_trips_junction_command_sequence():
+    config = ScenarioConfig.from_dict(
+        {
+            "name": "junction_sequence",
+            "vision_first_junction_command": "right",
+            "vision_junction_command_sequence": ["right", "straight"],
+        }
+    )
+
+    assert config.vision_first_junction_command == "right"
+    assert config.vision_junction_command_sequence == ["right", "straight"]
+    assert config.to_dict()["vision_junction_command_sequence"] == ["right", "straight"]
 
 
 def test_experiment_scenario_ladder_configs_load():

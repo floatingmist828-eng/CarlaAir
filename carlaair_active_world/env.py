@@ -282,6 +282,9 @@ class ActiveAirGroundEnv:
                     use_depth=mode != "vision_tcp_lite",
                     navigation_command=self.scenario.vision_navigation_command,
                     first_junction_command=str(getattr(self.scenario, "vision_first_junction_command", "")),
+                    junction_command_sequence=list(
+                        getattr(self.scenario, "vision_junction_command_sequence", []) or []
+                    ),
                     junction_command_hold_sec=float(getattr(self.scenario, "vision_junction_command_hold_sec", 4.0)),
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),

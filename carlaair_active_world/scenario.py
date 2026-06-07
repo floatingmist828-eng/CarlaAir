@@ -54,6 +54,7 @@ class ScenarioConfig:
     vision_low_visibility_gate: bool = False
     vision_low_visibility_threshold: float = 0.12
     vision_first_junction_command: str = ""
+    vision_junction_command_sequence: List[str] = field(default_factory=list)
     vision_junction_command_hold_sec: float = 4.0
     uav_enabled: bool = True
     uav_control_enabled: bool = True
@@ -112,6 +113,11 @@ class ScenarioConfig:
         walker_crossing_offsets = data.get("walker_crossing_offsets_m", [])
         if walker_crossing_offsets is None:
             walker_crossing_offsets = []
+        junction_command_sequence = data.get("vision_junction_command_sequence", [])
+        if junction_command_sequence is None:
+            junction_command_sequence = []
+        if isinstance(junction_command_sequence, str):
+            junction_command_sequence = [junction_command_sequence]
         return cls(
             name=str(data["name"]),
             map_name=str(data.get("map_name", "Town10HD")),
@@ -157,6 +163,7 @@ class ScenarioConfig:
             vision_low_visibility_gate=bool(data.get("vision_low_visibility_gate", False)),
             vision_low_visibility_threshold=float(data.get("vision_low_visibility_threshold", 0.12)),
             vision_first_junction_command=str(data.get("vision_first_junction_command", "")),
+            vision_junction_command_sequence=[str(item) for item in junction_command_sequence],
             vision_junction_command_hold_sec=float(data.get("vision_junction_command_hold_sec", 4.0)),
             uav_enabled=bool(data.get("uav_enabled", True)),
             uav_control_enabled=bool(data.get("uav_control_enabled", True)),
@@ -243,6 +250,7 @@ class ScenarioConfig:
             "vision_low_visibility_gate": self.vision_low_visibility_gate,
             "vision_low_visibility_threshold": self.vision_low_visibility_threshold,
             "vision_first_junction_command": self.vision_first_junction_command,
+            "vision_junction_command_sequence": list(self.vision_junction_command_sequence),
             "vision_junction_command_hold_sec": self.vision_junction_command_hold_sec,
             "uav_enabled": self.uav_enabled,
             "uav_control_enabled": self.uav_control_enabled,
