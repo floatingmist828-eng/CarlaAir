@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import math
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -25,6 +26,7 @@ from .core import (
     set_uav_hover,
     spawn_ego_vehicle,
     collect_vehicle_states,
+    collect_walker_states,
 )
 from .ego_driver import EgoDriveConfig, RouteFollowingDriver
 from .adversarial import apply_weather_preset
@@ -32,6 +34,7 @@ from .geometry import CandidateViewpoint, Pose, ScenarioResult, Vector3
 from .labels import build_labels
 from .scenario import ScenarioConfig
 from .sensors import UAVSensorRig
+from .traffic import spawn_traffic_vehicles, spawn_traffic_walkers
 from .vision_driver import VisionEgoDriver
 from .vision_models import TcpLiteVisionPolicy
 from .vision_models.uav_bev import CachedUAVBEVProvider
@@ -55,6 +58,12 @@ class ActiveAirGroundEnv:
         self.world = None
         self.air_client = None
         self.ego_vehicle = None
+        self.traffic_actors = []
+        self.walker_actors = []
+        self.walker_controllers = []
+        self._walker_targets = []
+        self.collision_sensor = None
+        self.collision_events = []
         self.ego_driver = None
         self.uav_sensors = None
         self.uav_bev_provider = CachedUAVBEVProvider(
@@ -69,13 +78,15 @@ class ActiveAirGroundEnv:
         self.start_time = 0.0
         self.last_action = 0
         self._closed = False
+        self._traffic_spawned = False
+        self._walkers_spawned = False
 
     def connect(self) -> None:
         self.client, self.world = connect_carla(self.carla_host, self.carla_port)
         settings = self.world.get_settings()
         apply_weather_preset(self.world, getattr(self.scenario, "weather_preset", "none"))
         if self.destroy_old_vehicles:
-            cleanup_actors_by_role(self.world, {"ego", "task_ego", "task_traffic"})
+            cleanup_actors_by_role(self.world, {"ego", "task_ego", "task_traffic", "task_walker"})
             cleanup_old_vehicles(self.world)
         if self.scenario.uav_enabled:
             self.air_client = connect_airsim(self.airsim_port, vehicle_name=self.scenario.uav_name)
@@ -86,6 +97,31 @@ class ActiveAirGroundEnv:
                         self.air_client,
                         preferred_name=self.scenario.uav_name,
                     )
+        else:
+            self._park_disabled_uav()
+
+    def _park_disabled_uav(self) -> None:
+        try:
+            air_client = connect_airsim(self.airsim_port, vehicle_name=self.scenario.uav_name)
+        except Exception:
+            return
+
+        park_pose = Pose(position=Vector3(-1000.0, -1000.0, 120.0), roll=0.0, pitch=0.0, yaw=0.0)
+        names = [self.scenario.uav_name, None] if self.scenario.uav_name else [None]
+        for name in names:
+            try:
+                move_uav_to(
+                    air_client,
+                    park_pose,
+                    self.ox,
+                    self.oy,
+                    self.oz,
+                    vehicle_name=name,
+                )
+                set_uav_hover(air_client, vehicle_name=name)
+                return
+            except Exception:
+                continue
 
     def reset(self) -> Dict[str, Any]:
         if self.client is None or self.world is None:
@@ -96,12 +132,26 @@ class ActiveAirGroundEnv:
             self.world,
             blueprint_id=self.scenario.ego_blueprint,
             spawn_index=self.scenario.ego_spawn_index,
+            forward_m=float(getattr(self.scenario, "ego_spawn_forward_m", 0.0)),
         )
+        self.collision_events = []
+        self._attach_collision_sensor()
         self._start_ego_control()
-        set_traffic_manager_speed(self.client, 40.0)
+        self.traffic_actors = []
+        self.walker_actors = []
+        self.walker_controllers = []
+        self._walker_targets = []
+        self._traffic_spawned = max(0, int(self.scenario.traffic_vehicles)) <= 0
+        self._walkers_spawned = max(0, int(self.scenario.traffic_walkers)) <= 0
+        self.start_time = time.time()
+        if float(getattr(self.scenario, "traffic_spawn_delay_sec", 0.0)) <= 0.0:
+            self._spawn_configured_traffic()
+        if float(getattr(self.scenario, "walker_spawn_delay_sec", 0.0)) <= 0.0:
+            self._spawn_configured_walkers()
+        traffic_speed_difference = float(getattr(self.scenario, "traffic_speed_difference", 25.0))
+        set_traffic_manager_speed(self.client, traffic_speed_difference)
         if settings.synchronous_mode:
             self.world.tick()
-        self.start_time = time.time()
         observation = self.observe()
         if self.scenario.uav_enabled and self.air_client is not None:
             if bool(getattr(self.scenario, "uav_control_enabled", True)):
@@ -114,6 +164,79 @@ class ActiveAirGroundEnv:
                     rpc_lock=self._air_rpc_lock,
                 )
         return observation
+
+    def _spawn_configured_traffic(self) -> None:
+        if self._traffic_spawned or self.client is None or self.world is None:
+            return
+        traffic_start_index = int(getattr(self.scenario, "traffic_spawn_start_index", -1))
+        if traffic_start_index < 0:
+            traffic_start_index = max(1, int(self.scenario.ego_spawn_index) + 1)
+        traffic_speed_difference = float(getattr(self.scenario, "traffic_speed_difference", 25.0))
+        spawned = spawn_traffic_vehicles(
+            self.client,
+            self.world,
+            count=max(0, int(self.scenario.traffic_vehicles)),
+            start_index=traffic_start_index,
+            spawn_indices=list(getattr(self.scenario, "traffic_spawn_indices", []) or []),
+            speed_difference=traffic_speed_difference,
+        )
+        self.traffic_actors.extend(item.actor for item in spawned)
+        self._traffic_spawned = True
+
+    def _spawn_configured_walkers(self) -> None:
+        if self._walkers_spawned or self.client is None or self.world is None:
+            return
+        walker_start_index = int(getattr(self.scenario, "walker_spawn_start_index", -1))
+        if walker_start_index < 0:
+            walker_start_index = max(1, int(self.scenario.ego_spawn_index) + 5)
+        spawned_walkers = spawn_traffic_walkers(
+            self.client,
+            self.world,
+            count=max(0, int(self.scenario.traffic_walkers)),
+            start_index=walker_start_index,
+            spawn_indices=list(getattr(self.scenario, "walker_spawn_indices", []) or []),
+            crossing_distance_m=float(getattr(self.scenario, "walker_crossing_distance_m", 18.0)),
+            crossing_offsets_m=list(getattr(self.scenario, "walker_crossing_offsets_m", []) or []),
+            use_ai_controller=False,
+            speed_mps=float(getattr(self.scenario, "walker_speed_mps", 1.4)),
+        )
+        self.walker_actors.extend(item.actor for item in spawned_walkers)
+        self.walker_controllers.extend(item.controller for item in spawned_walkers if item.controller is not None)
+        for item in spawned_walkers:
+            target = getattr(item, "target", None)
+            speed_mps = float(getattr(item, "speed_mps", 0.0) or 0.0)
+            if target is not None and speed_mps > 0.0:
+                self._walker_targets.append((item.actor, target, speed_mps))
+        self._walkers_spawned = True
+
+    def _maybe_spawn_delayed_actors(self) -> None:
+        elapsed = float(time.time() - self.start_time) if self.start_time else 0.0
+        if elapsed >= float(getattr(self.scenario, "traffic_spawn_delay_sec", 0.0)):
+            self._spawn_configured_traffic()
+        if elapsed >= float(getattr(self.scenario, "walker_spawn_delay_sec", 0.0)):
+            self._spawn_configured_walkers()
+
+    def _drive_scripted_walkers(self) -> None:
+        remaining = []
+        for actor, target, speed_mps in list(self._walker_targets):
+            try:
+                loc = actor.get_location()
+                dx = float(target.x - loc.x)
+                dy = float(target.y - loc.y)
+                distance = math.hypot(dx, dy)
+                if distance <= 0.6:
+                    control = carla.WalkerControl()
+                    control.speed = 0.0
+                    actor.apply_control(control)
+                    continue
+                control = carla.WalkerControl()
+                control.direction = carla.Vector3D(dx / distance, dy / distance, 0.0)
+                control.speed = float(speed_mps)
+                actor.apply_control(control)
+                remaining.append((actor, target, speed_mps))
+            except Exception:
+                continue
+        self._walker_targets = remaining
 
     def _start_ego_control(self) -> None:
         mode = str(getattr(self.scenario, "ego_control_mode", "autopilot")).lower()
@@ -158,6 +281,8 @@ class ActiveAirGroundEnv:
                     use_semantic=mode == "vision_simple",
                     use_depth=mode != "vision_tcp_lite",
                     navigation_command=self.scenario.vision_navigation_command,
+                    first_junction_command=str(getattr(self.scenario, "vision_first_junction_command", "")),
+                    junction_command_hold_sec=float(getattr(self.scenario, "vision_junction_command_hold_sec", 4.0)),
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
                     vision_detector_model_path=str(getattr(self.scenario, "vision_detector_model_path", "")),
@@ -197,6 +322,49 @@ class ActiveAirGroundEnv:
 
         configure_autopilot(self.client, self.world, self.ego_vehicle)
 
+    def _attach_collision_sensor(self) -> None:
+        if self.world is None or self.ego_vehicle is None:
+            return
+        try:
+            bp = self.world.get_blueprint_library().find("sensor.other.collision")
+            sensor = self.world.spawn_actor(bp, carla.Transform(), attach_to=self.ego_vehicle)
+        except Exception:
+            self.collision_sensor = None
+            return
+
+        def _on_collision(event) -> None:
+            other = getattr(event, "other_actor", None)
+            impulse = getattr(event, "normal_impulse", None)
+            self.collision_events.append(
+                {
+                    "time": float(time.time() - self.start_time) if self.start_time else 0.0,
+                    "other_actor_id": int(getattr(other, "id", -1)),
+                    "other_type_id": str(getattr(other, "type_id", "")),
+                    "normal_impulse": {
+                        "x": float(getattr(impulse, "x", 0.0)),
+                        "y": float(getattr(impulse, "y", 0.0)),
+                        "z": float(getattr(impulse, "z", 0.0)),
+                    },
+                }
+            )
+
+        try:
+            sensor.listen(_on_collision)
+            self.collision_sensor = sensor
+        except Exception:
+            try:
+                sensor.destroy()
+            except Exception:
+                pass
+            self.collision_sensor = None
+
+    def _apply_collision_labels(self, label: Dict[str, Any]) -> None:
+        count = len(self.collision_events)
+        label["collision"] = count > 0
+        label["collision_count"] = count
+        if count:
+            label["collision_events"] = list(self.collision_events)
+
     def _place_initial_uav(self, observation: Dict[str, Any]) -> None:
         candidate = self.scenario.candidate_offsets[0]
         ego_transform = self.ego_vehicle.get_transform()
@@ -229,6 +397,7 @@ class ActiveAirGroundEnv:
     def observe(self) -> Dict[str, Any]:
         ego_state = get_actor_state(self.ego_vehicle)
         vehicle_states = collect_vehicle_states(self.world, include_ego=False)
+        walker_states = collect_walker_states(self.world)
         waypoint = None
         try:
             map_waypoint = self.world.get_map().get_waypoint(
@@ -275,6 +444,7 @@ class ActiveAirGroundEnv:
             "scenario": self.scenario.to_dict(),
             "ego": ego_state.to_dict(),
             "vehicles": [v.to_dict() for v in vehicle_states],
+            "walkers": [w.to_dict() for w in walker_states],
             "drone": drone_state,
             "waypoint": waypoint,
             "candidates": self.build_candidates() if self.ego_vehicle is not None else [],
@@ -287,6 +457,8 @@ class ActiveAirGroundEnv:
         self.last_action = int(action_index)
         if self.ego_vehicle is None:
             raise RuntimeError("Call reset() before step().")
+        self._maybe_spawn_delayed_actors()
+        self._drive_scripted_walkers()
         if (
             self.scenario.uav_enabled
             and self.air_client is not None
@@ -317,6 +489,7 @@ class ActiveAirGroundEnv:
             horizon_sec=self.scenario.future_horizon_sec,
             step_sec=self.scenario.step_sec,
         )
+        self._apply_collision_labels(label)
         done = observation["time"] >= self.scenario.duration_sec
         info = {
             "candidate_count": len(self.scenario.candidate_offsets),
@@ -340,6 +513,43 @@ class ActiveAirGroundEnv:
             with self._air_rpc_lock:
                 set_uav_hover(self.air_client, vehicle_name=self.scenario.uav_name)
         self.uav_sensors = None
+        if self.collision_sensor is not None:
+            try:
+                self.collision_sensor.stop()
+            except Exception:
+                pass
+            try:
+                self.collision_sensor.destroy()
+            except Exception:
+                pass
+        self.collision_sensor = None
+        for controller in self.walker_controllers:
+            try:
+                controller.stop()
+            except Exception:
+                pass
+            try:
+                controller.destroy()
+            except Exception:
+                pass
+        self.walker_controllers = []
+        self._walker_targets = []
+        for actor in self.walker_actors:
+            try:
+                actor.destroy()
+            except Exception:
+                pass
+        self.walker_actors = []
+        for actor in self.traffic_actors:
+            try:
+                actor.set_autopilot(False)
+            except Exception:
+                pass
+            try:
+                actor.destroy()
+            except Exception:
+                pass
+        self.traffic_actors = []
         if self.ego_vehicle is not None:
             try:
                 self.ego_vehicle.set_autopilot(False)

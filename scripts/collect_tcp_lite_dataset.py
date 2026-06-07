@@ -21,6 +21,10 @@ def parse_distances(value: str) -> List[float]:
     return distances
 
 
+def normalize_angle_deg(angle: float) -> float:
+    return float((float(angle) + 180.0) % 360.0 - 180.0)
+
+
 def local_xy(ego_transform: carla.Transform, location: carla.Location) -> List[float]:
     ego_loc = ego_transform.location
     yaw = math.radians(float(ego_transform.rotation.yaw))
@@ -31,10 +35,25 @@ def local_xy(ego_transform: carla.Transform, location: carla.Location) -> List[f
     return [float(local_x), float(local_y)]
 
 
+def route_candidate_cost(command: str, heading_delta: float, local_y: float) -> float:
+    route_command = str(command or "lane_follow").strip().lower()
+    if route_command not in {"left", "right"}:
+        return abs(float(heading_delta)) + 0.15 * abs(float(local_y))
+
+    sign = -1.0 if route_command == "left" else 1.0
+    lateral_alignment = sign * float(local_y)
+    heading_alignment = sign * float(heading_delta)
+    if lateral_alignment <= 0.05 and heading_alignment <= 5.0:
+        return 1000.0 + abs(float(heading_delta)) + abs(float(local_y))
+    turn_strength = max(0.0, lateral_alignment) + 0.02 * max(0.0, heading_alignment)
+    return -turn_strength + 0.02 * abs(float(local_y))
+
+
 def future_route_trajectory(
     world: Any,
     vehicle: Any,
     distances_m: Sequence[float],
+    command: str = "lane_follow",
 ) -> List[List[float]]:
     import carla
 
@@ -67,12 +86,10 @@ def future_route_trajectory(
         best_cost = None
         for candidate in candidates:
             xy = local_xy(ego_transform, candidate.transform.location)
-            heading_delta = abs(
-                (float(candidate.transform.rotation.yaw) - float(current_waypoint.transform.rotation.yaw) + 180.0)
-                % 360.0
-                - 180.0
+            heading_delta = normalize_angle_deg(
+                float(candidate.transform.rotation.yaw) - float(current_waypoint.transform.rotation.yaw)
             )
-            cost = heading_delta + 0.15 * abs(xy[1])
+            cost = route_candidate_cost(command, heading_delta, xy[1])
             if best_cost is None or cost < best_cost:
                 best = xy
                 best_waypoint = candidate
@@ -173,7 +190,7 @@ def collect_tcp_lite_dataset(
                 control = control_from_diagnostics(diagnostics)
                 if control is None:
                     continue
-                trajectory = future_route_trajectory(env.world, env.ego_vehicle, distances)
+                trajectory = future_route_trajectory(env.world, env.ego_vehicle, distances, command=command)
                 if not should_keep_tcp_lite_sample(diagnostics, trajectory):
                     continue
 

@@ -14,6 +14,7 @@ class ScenarioConfig:
     map_name: str = "Town10HD"
     ego_blueprint: str = "vehicle.tesla.model3"
     ego_spawn_index: int = 0
+    ego_spawn_forward_m: float = 0.0
     ego_sensor_mode: str = "autopilot"
     ego_control_mode: str = "autopilot"
     ego_drive_hz: float = 8.0
@@ -21,6 +22,16 @@ class ScenarioConfig:
     ego_lookahead_m: float = 10.0
     traffic_vehicles: int = 0
     traffic_walkers: int = 0
+    traffic_spawn_start_index: int = -1
+    traffic_spawn_indices: List[int] = field(default_factory=list)
+    traffic_spawn_delay_sec: float = 0.0
+    traffic_speed_difference: float = 25.0
+    walker_spawn_start_index: int = -1
+    walker_spawn_indices: List[int] = field(default_factory=list)
+    walker_spawn_delay_sec: float = 0.0
+    walker_crossing_distance_m: float = 18.0
+    walker_crossing_offsets_m: List[float] = field(default_factory=list)
+    walker_speed_mps: float = 1.4
     duration_sec: float = 30.0
     step_sec: float = 0.5
     future_horizon_sec: float = 3.0
@@ -42,6 +53,8 @@ class ScenarioConfig:
     vision_attack_pattern_threshold: float = 0.35
     vision_low_visibility_gate: bool = False
     vision_low_visibility_threshold: float = 0.12
+    vision_first_junction_command: str = ""
+    vision_junction_command_hold_sec: float = 4.0
     uav_enabled: bool = True
     uav_control_enabled: bool = True
     uav_name: str = "SimpleFlight"
@@ -90,11 +103,21 @@ class ScenarioConfig:
         complexity = data.get("scenario_complexity", [])
         if isinstance(complexity, str):
             complexity = [complexity]
+        traffic_spawn_indices = data.get("traffic_spawn_indices", [])
+        if traffic_spawn_indices is None:
+            traffic_spawn_indices = []
+        walker_spawn_indices = data.get("walker_spawn_indices", [])
+        if walker_spawn_indices is None:
+            walker_spawn_indices = []
+        walker_crossing_offsets = data.get("walker_crossing_offsets_m", [])
+        if walker_crossing_offsets is None:
+            walker_crossing_offsets = []
         return cls(
             name=str(data["name"]),
             map_name=str(data.get("map_name", "Town10HD")),
             ego_blueprint=str(data.get("ego_blueprint", "vehicle.tesla.model3")),
             ego_spawn_index=int(data.get("ego_spawn_index", 0)),
+            ego_spawn_forward_m=float(data.get("ego_spawn_forward_m", 0.0)),
             ego_sensor_mode=str(data.get("ego_sensor_mode", "autopilot")),
             ego_control_mode=str(data.get("ego_control_mode", data.get("ego_sensor_mode", "autopilot"))),
             ego_drive_hz=float(data.get("ego_drive_hz", 8.0)),
@@ -102,6 +125,16 @@ class ScenarioConfig:
             ego_lookahead_m=float(data.get("ego_lookahead_m", 10.0)),
             traffic_vehicles=int(data.get("traffic_vehicles", 0)),
             traffic_walkers=int(data.get("traffic_walkers", 0)),
+            traffic_spawn_start_index=int(data.get("traffic_spawn_start_index", -1)),
+            traffic_spawn_indices=[int(item) for item in traffic_spawn_indices],
+            traffic_spawn_delay_sec=float(data.get("traffic_spawn_delay_sec", 0.0)),
+            traffic_speed_difference=float(data.get("traffic_speed_difference", 25.0)),
+            walker_spawn_start_index=int(data.get("walker_spawn_start_index", -1)),
+            walker_spawn_indices=[int(item) for item in walker_spawn_indices],
+            walker_spawn_delay_sec=float(data.get("walker_spawn_delay_sec", 0.0)),
+            walker_crossing_distance_m=float(data.get("walker_crossing_distance_m", 18.0)),
+            walker_crossing_offsets_m=[float(item) for item in walker_crossing_offsets],
+            walker_speed_mps=float(data.get("walker_speed_mps", 1.4)),
             duration_sec=float(data.get("duration_sec", 30.0)),
             step_sec=float(data.get("step_sec", 0.5)),
             future_horizon_sec=float(data.get("future_horizon_sec", 3.0)),
@@ -123,6 +156,8 @@ class ScenarioConfig:
             vision_attack_pattern_threshold=float(data.get("vision_attack_pattern_threshold", 0.35)),
             vision_low_visibility_gate=bool(data.get("vision_low_visibility_gate", False)),
             vision_low_visibility_threshold=float(data.get("vision_low_visibility_threshold", 0.12)),
+            vision_first_junction_command=str(data.get("vision_first_junction_command", "")),
+            vision_junction_command_hold_sec=float(data.get("vision_junction_command_hold_sec", 4.0)),
             uav_enabled=bool(data.get("uav_enabled", True)),
             uav_control_enabled=bool(data.get("uav_control_enabled", True)),
             uav_name=str(data.get("uav_name", "SimpleFlight")),
@@ -168,6 +203,7 @@ class ScenarioConfig:
             "map_name": self.map_name,
             "ego_blueprint": self.ego_blueprint,
             "ego_spawn_index": self.ego_spawn_index,
+            "ego_spawn_forward_m": self.ego_spawn_forward_m,
             "ego_sensor_mode": self.ego_sensor_mode,
             "ego_control_mode": self.ego_control_mode,
             "ego_drive_hz": self.ego_drive_hz,
@@ -175,6 +211,16 @@ class ScenarioConfig:
             "ego_lookahead_m": self.ego_lookahead_m,
             "traffic_vehicles": self.traffic_vehicles,
             "traffic_walkers": self.traffic_walkers,
+            "traffic_spawn_start_index": self.traffic_spawn_start_index,
+            "traffic_spawn_indices": list(self.traffic_spawn_indices),
+            "traffic_spawn_delay_sec": self.traffic_spawn_delay_sec,
+            "traffic_speed_difference": self.traffic_speed_difference,
+            "walker_spawn_start_index": self.walker_spawn_start_index,
+            "walker_spawn_indices": list(self.walker_spawn_indices),
+            "walker_spawn_delay_sec": self.walker_spawn_delay_sec,
+            "walker_crossing_distance_m": self.walker_crossing_distance_m,
+            "walker_crossing_offsets_m": list(self.walker_crossing_offsets_m),
+            "walker_speed_mps": self.walker_speed_mps,
             "duration_sec": self.duration_sec,
             "step_sec": self.step_sec,
             "future_horizon_sec": self.future_horizon_sec,
@@ -196,6 +242,8 @@ class ScenarioConfig:
             "vision_attack_pattern_threshold": self.vision_attack_pattern_threshold,
             "vision_low_visibility_gate": self.vision_low_visibility_gate,
             "vision_low_visibility_threshold": self.vision_low_visibility_threshold,
+            "vision_first_junction_command": self.vision_first_junction_command,
+            "vision_junction_command_hold_sec": self.vision_junction_command_hold_sec,
             "uav_enabled": self.uav_enabled,
             "uav_control_enabled": self.uav_control_enabled,
             "uav_name": self.uav_name,

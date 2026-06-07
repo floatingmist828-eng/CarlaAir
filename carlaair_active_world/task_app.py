@@ -212,6 +212,7 @@ class ActiveUAVTaskApp:
             self.world,
             blueprint_id=self.scenario.ego_blueprint,
             spawn_index=self.scenario.ego_spawn_index,
+            forward_m=float(getattr(self.scenario, "ego_spawn_forward_m", 0.0)),
         )
         if self._ego_control_mode in {"route_follow", "route", "behavior", "vision_simple", "vision_rgb_only", "vision_tcp_lite"}:
             try:
@@ -254,6 +255,8 @@ class ActiveUAVTaskApp:
                     use_semantic=self._ego_control_mode == "vision_simple",
                     use_depth=self._ego_control_mode != "vision_tcp_lite",
                     navigation_command=self.scenario.vision_navigation_command,
+                    first_junction_command=str(getattr(self.scenario, "vision_first_junction_command", "")),
+                    junction_command_hold_sec=float(getattr(self.scenario, "vision_junction_command_hold_sec", 4.0)),
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
                     vision_detector_model_path=str(getattr(self.scenario, "vision_detector_model_path", "")),
@@ -286,7 +289,7 @@ class ActiveUAVTaskApp:
                 self.world,
                 count=max(0, int(self.scenario.traffic_vehicles)),
                 start_index=max(1, int(self.scenario.ego_spawn_index) + 1),
-                speed_difference=25.0,
+                speed_difference=float(getattr(self.scenario, "traffic_speed_difference", 25.0)),
             )
         ]
         if self.world.get_settings().synchronous_mode:

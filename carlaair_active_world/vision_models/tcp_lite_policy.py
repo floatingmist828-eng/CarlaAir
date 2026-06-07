@@ -18,6 +18,13 @@ def _clamp(value: float, low: float, high: float) -> float:
     return float(max(low, min(high, value)))
 
 
+def _as_optional_float(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class TcpLiteVisionPolicy(VisionPolicy):
     def __init__(
         self,
@@ -47,6 +54,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self.navigation_command = str(navigation_command)
         self.target_speed_mps = float(target_speed_mps)
         self.control_mode = str(control_mode or "trajectory").lower()
+        if self.control_mode == "trajectory_model":
+            self.control_mode = "trajectory"
         self._last_speed_error = 0.0
         self._stuck_frames = 0
         self._fallback_frames_left = 0
@@ -248,6 +257,124 @@ class TcpLiteVisionPolicy(VisionPolicy):
             throttle = max(throttle, 0.32)
         return steer, throttle, brake
 
+    @staticmethod
+    def _interaction_yield_target(
+        obs: Dict[str, Any],
+        base_target_speed: float,
+        speed_mps: float,
+    ) -> tuple[float, Dict[str, Any]]:
+        hazard = obs.get("interaction_hazard") or {}
+        diagnostics: Dict[str, Any] = {"active": False}
+        if not isinstance(hazard, dict) or not bool(hazard.get("active", False)):
+            diagnostics["reason"] = str(hazard.get("reason", "clear")) if isinstance(hazard, dict) else "clear"
+            return float(base_target_speed), diagnostics
+
+        action = str(hazard.get("action", "")).lower()
+        requested_target = _as_optional_float(hazard.get("target_speed_mps"))
+        if requested_target is None:
+            requested_target = 0.0 if action == "stop" else min(float(base_target_speed), 1.2)
+        target_speed = min(float(base_target_speed), max(0.0, float(requested_target)))
+        brake_hint = 0.0
+        if action == "stop":
+            target_speed = 0.0
+            brake_hint = max(0.55, min(1.0, 0.35 + speed_mps / 4.0))
+        elif speed_mps > target_speed + 0.25:
+            brake_hint = _clamp((speed_mps - target_speed) / max(1.0, base_target_speed), 0.15, 0.60)
+
+        diagnostics.update(
+            {
+                "active": True,
+                "action": action,
+                "actor_type": str(hazard.get("actor_type", "")),
+                "actor_id": hazard.get("actor_id"),
+                "distance_m": _as_optional_float(hazard.get("distance_m")),
+                "local_x_m": _as_optional_float(hazard.get("local_x_m")),
+                "local_y_m": _as_optional_float(hazard.get("local_y_m")),
+                "base_target_speed_mps": float(base_target_speed),
+                "target_speed_mps": float(target_speed),
+                "brake_hint": float(brake_hint),
+            }
+        )
+        return float(target_speed), diagnostics
+
+    def _route_reference_control(self, obs: Dict[str, Any]) -> tuple[Optional[carla.VehicleControl], Dict[str, Any]]:
+        x = _as_optional_float(obs.get("route_target_local_x"))
+        y = _as_optional_float(obs.get("route_target_local_y"))
+        if x is None or y is None or x <= 0.25:
+            return None, {}
+
+        speed_mps = float(obs.get("speed_mps", 0.0) or 0.0)
+        angle = math.atan2(float(y), max(0.5, float(x)))
+        route_steer = _clamp(1.05 * angle / (math.pi / 2.0), -0.55, 0.55)
+        lane_centering_correction = 0.0
+        lane_offset_value = None
+        try:
+            lane_offset_value = float(obs.get("lane_center_offset_m"))
+            if abs(lane_offset_value) > self._lane_centering_deadband_m:
+                lane_centering_correction = _clamp(
+                    -self._lane_centering_gain * lane_offset_value,
+                    -self._lane_centering_max_correction,
+                    self._lane_centering_max_correction,
+                )
+        except (TypeError, ValueError):
+            lane_offset_value = None
+        uav_bev_correction, uav_bev_diagnostics = self._uav_bev_correction(obs)
+        steer = _clamp(route_steer + lane_centering_correction + uav_bev_correction, -0.55, 0.55)
+        target_speed = float(self.target_speed_mps)
+        if abs(steer) > 0.30:
+            target_speed = min(target_speed, 1.8)
+        target_speed, interaction_diagnostics = self._interaction_yield_target(obs, target_speed, speed_mps)
+        speed_error = target_speed - speed_mps
+        throttle = _clamp(0.18 * speed_error, 0.0, 0.36)
+        brake = 0.0
+        if speed_error < -0.8:
+            brake = _clamp((-speed_error) / max(1.0, self.target_speed_mps), 0.0, 0.5)
+            throttle = 0.0
+        if interaction_diagnostics.get("active"):
+            brake = max(brake, float(interaction_diagnostics.get("brake_hint", 0.0) or 0.0))
+            if brake > 0.0:
+                throttle = 0.0
+
+        control = carla.VehicleControl()
+        control.steer = float(steer)
+        control.throttle = float(throttle)
+        control.brake = float(brake)
+        diagnostics = {
+            "reason": "route_reference_available",
+            "lane_confidence": 1.0,
+            "route_target_local_x": float(x),
+            "route_target_local_y": float(y),
+            "route_target_source": str(obs.get("route_target_source", "")),
+            "route_steer": float(route_steer),
+            "lane_center_offset_m": lane_offset_value,
+            "lane_centering_correction": float(lane_centering_correction),
+            "uav_bev_fusion": uav_bev_diagnostics,
+            "speed_mps": float(speed_mps),
+            "target_speed_mps": float(target_speed),
+            "interaction_yield": interaction_diagnostics,
+            "steer": float(control.steer),
+            "throttle": float(control.throttle),
+            "brake": float(control.brake),
+        }
+        return control, diagnostics
+
+    def _fallback_reference_control(self, obs: Dict[str, Any]) -> tuple[carla.VehicleControl, Dict[str, Any]]:
+        route_control, route_diagnostics = self._route_reference_control(obs)
+        if route_control is not None:
+            return route_control, route_diagnostics
+        control = self.fallback_policy.predict(obs)
+        return control, dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+
+    @staticmethod
+    def _allow_route_reference(obs: Dict[str, Any], in_junction: bool) -> bool:
+        if not in_junction:
+            return True
+        route_source = str(obs.get("route_target_source", "")).lower()
+        if route_source == "junction_turn_reference":
+            return True
+        command = str(obs.get("navigation_command", "")).lower()
+        return route_source == "waypoint_next" and command in {"lane_follow", "straight"}
+
     def _uav_bev_correction(self, obs: Dict[str, Any]) -> tuple[float, Dict[str, Any]]:
         diagnostics: Dict[str, Any] = {
             "enabled": bool(self.uav_bev_fusion_enabled),
@@ -396,7 +523,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
             fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
         if refresh_latch:
             self._fallback_frames_left = int(self._fallback_latch_frames)
-        _, uav_bev_diagnostics = self._uav_bev_correction(obs)
+        uav_bev_diagnostics = dict(fallback_diagnostics.get("uav_bev_fusion") or {})
+        if not uav_bev_diagnostics:
+            _, uav_bev_diagnostics = self._uav_bev_correction(obs)
         self.last_diagnostics = {
             "model_ready": True,
             "model_path": self.model_path,
@@ -421,15 +550,15 @@ class TcpLiteVisionPolicy(VisionPolicy):
         rgb = obs.get("rgb")
         speed_mps = float(obs.get("speed_mps", 0.0))
         command = str(obs.get("navigation_command", self.navigation_command))
+        in_junction = bool(obs.get("in_junction", False))
 
         if rgb is None:
             return self._brake("missing_rgb", command=command)
         if not self.model_ready or self.model is None:
             return self._brake(self._load_reason or "missing_model_path", command=command)
 
-        if self.control_mode == "trajectory" and not self.safety_gate_config.attack_pattern_gate:
-            fallback_control = self.fallback_policy.predict(obs)
-            fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+        if self.control_mode == "trajectory" and not in_junction and not self.safety_gate_config.attack_pattern_gate:
+            fallback_control, fallback_diagnostics = self._fallback_reference_control(obs)
             fallback_lane_confidence = float(fallback_diagnostics.get("lane_confidence", 0.0) or 0.0)
             if fallback_lane_confidence >= 0.01:
                 safety_gate = {
@@ -443,7 +572,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 }
                 return self._fallback_control(
                     obs,
-                    "rgb_lane_reference_available",
+                    str(fallback_diagnostics.get("reason", "rgb_lane_reference_available")),
                     safety_gate,
                     command,
                     None,
@@ -460,14 +589,13 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if safety_gate.get("blocked"):
             return self._brake(str(safety_gate.get("reason", "safety_gate")), safety_gate=safety_gate, command=command)
 
-        if self.control_mode == "trajectory":
-            fallback_control = self.fallback_policy.predict(obs)
-            fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+        if self.control_mode == "trajectory" and self._allow_route_reference(obs, in_junction):
+            fallback_control, fallback_diagnostics = self._fallback_reference_control(obs)
             fallback_lane_confidence = float(fallback_diagnostics.get("lane_confidence", 0.0) or 0.0)
             if fallback_lane_confidence >= 0.01:
                 return self._fallback_control(
                     obs,
-                    "rgb_lane_reference_available",
+                    str(fallback_diagnostics.get("reason", "rgb_lane_reference_available")),
                     safety_gate,
                     command,
                     None,
@@ -495,9 +623,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
                     obs,
                     command,
                 )
-                if self.control_mode == "trajectory":
-                    fallback_control = self.fallback_policy.predict(obs)
-                    fallback_diagnostics = dict(getattr(self.fallback_policy, "last_diagnostics", {}) or {})
+                if self.control_mode == "trajectory" and not bool(obs.get("in_junction", False)):
+                    fallback_control, fallback_diagnostics = self._fallback_reference_control(obs)
                     fallback_lane_confidence = float(fallback_diagnostics.get("lane_confidence", 0.0) or 0.0)
                     if self._fallback_frames_left > 0:
                         self._fallback_frames_left -= 1

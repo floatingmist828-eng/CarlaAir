@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -28,12 +30,20 @@ class VisionEgoDriver:
         detector: Optional[Any] = None,
         navigation_command: str = "lane_follow",
         uav_bev_provider: Optional[Callable[[], Dict[str, Any]]] = None,
+        first_junction_command: str = "",
+        junction_command_hold_sec: float = 4.0,
+        clock: Optional[Callable[[], float]] = None,
     ) -> None:
         self.world = world
         self.ego_vehicle = ego_vehicle
         self.use_semantic = bool(use_semantic)
         self.use_depth = bool(use_depth)
         self.navigation_command = navigation_command
+        self.first_junction_command = self._normalize_turn_command(first_junction_command)
+        self.junction_command_hold_sec = max(0.0, float(junction_command_hold_sec))
+        self._clock = clock or time.monotonic
+        self._first_junction_command_until: Optional[float] = None
+        self._first_junction_command_consumed = False
         self.sensor_rig = self.sensor_rig_class(
             world,
             ego_vehicle,
@@ -85,6 +95,48 @@ class VisionEgoDriver:
         return float(np.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z))
 
     @staticmethod
+    def _normalize_turn_command(command: str) -> str:
+        value = str(command or "").strip().lower()
+        return value if value in {"left", "right", "straight"} else ""
+
+    @staticmethod
+    def _angle_delta_deg(target: float, source: float) -> float:
+        return (float(target) - float(source) + 180.0) % 360.0 - 180.0
+
+    @staticmethod
+    def _local_target(vehicle_transform: carla.Transform, target: carla.Location) -> tuple[float, float]:
+        ego_loc = vehicle_transform.location
+        ego_yaw = np.deg2rad(float(vehicle_transform.rotation.yaw))
+        target_dx = float(target.x - ego_loc.x)
+        target_dy = float(target.y - ego_loc.y)
+        local_x = target_dx * np.cos(-ego_yaw) - target_dy * np.sin(-ego_yaw)
+        local_y = target_dx * np.sin(-ego_yaw) + target_dy * np.cos(-ego_yaw)
+        return float(local_x), float(local_y)
+
+    def _navigation_command_for_lane(self, lane_reference: Dict[str, Any]) -> str:
+        base_command = str(self.navigation_command or "lane_follow")
+        turn_command = self.first_junction_command
+        if not turn_command:
+            return base_command
+
+        now = float(self._clock())
+        if self._first_junction_command_until is not None:
+            if now <= self._first_junction_command_until:
+                return turn_command
+            self._first_junction_command_until = None
+            self._first_junction_command_consumed = True
+            return base_command
+
+        if self._first_junction_command_consumed:
+            return base_command
+
+        if bool(lane_reference.get("in_junction", False)):
+            self._first_junction_command_until = now + self.junction_command_hold_sec
+            return turn_command
+
+        return base_command
+
+    @staticmethod
     def _lane_reference(vehicle: carla.Actor, world: Optional[carla.World]) -> Dict[str, Any]:
         if world is None:
             return {}
@@ -100,13 +152,181 @@ class VisionEgoDriver:
             dx = float(loc.x - center.x)
             dy = float(loc.y - center.y)
             lateral_offset = -np.sin(yaw) * dx + np.cos(yaw) * dy
-            return {
+            result = {
                 "lane_center_offset_m": float(lateral_offset),
                 "lane_width_m": float(getattr(waypoint, "lane_width", 0.0) or 0.0),
                 "lane_road_id": int(getattr(waypoint, "road_id", 0) or 0),
                 "lane_id": int(getattr(waypoint, "lane_id", 0) or 0),
                 "in_junction": bool(getattr(waypoint, "is_junction", False)),
+                "_route_waypoint": waypoint,
             }
+            try:
+                ego_transform = vehicle.get_transform()
+                best = None
+                best_cost = None
+                for candidate in waypoint.next(10.0):
+                    target = candidate.transform.location
+                    local_x, local_y = VisionEgoDriver._local_target(ego_transform, target)
+                    if local_x <= 0.25:
+                        continue
+                    heading_delta = abs(
+                        ((float(candidate.transform.rotation.yaw - ego_transform.rotation.yaw) + 180.0) % 360.0)
+                        - 180.0
+                    )
+                    cost = heading_delta + 0.10 * abs(local_y)
+                    if best_cost is None or cost < best_cost:
+                        best_cost = cost
+                        best = (local_x, local_y)
+                if best is not None:
+                    result["route_target_local_x"] = float(best[0])
+                    result["route_target_local_y"] = float(best[1])
+                    result["route_target_source"] = "waypoint_next"
+            except Exception:
+                pass
+            return result
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _interaction_hazard(vehicle: carla.Actor, world: Optional[carla.World]) -> Dict[str, Any]:
+        if world is None:
+            return {"active": False, "reason": "no_world"}
+        try:
+            vehicle_transform = vehicle.get_transform()
+            ego_id = int(getattr(vehicle, "id", -1))
+            actors = world.get_actors()
+            candidates = list(actors.filter("vehicle.*")) + list(actors.filter("walker.pedestrian.*"))
+        except Exception:
+            return {"active": False, "reason": "actor_query_failed"}
+
+        best: Optional[tuple[int, float, Dict[str, Any]]] = None
+        for actor in candidates:
+            actor_id = int(getattr(actor, "id", -1))
+            if actor_id == ego_id:
+                continue
+            role_name = str(getattr(actor, "attributes", {}).get("role_name", ""))
+            if role_name in {"ego", "task_ego"}:
+                continue
+            type_id = str(getattr(actor, "type_id", ""))
+            try:
+                local_x, local_y = VisionEgoDriver._local_target(vehicle_transform, actor.get_location())
+            except Exception:
+                continue
+            if local_x < -1.5:
+                continue
+
+            actor_type = "walker" if type_id.startswith("walker.") else "vehicle"
+            abs_y = abs(float(local_y))
+            distance = math.hypot(float(local_x), float(local_y))
+            action = ""
+            target_speed = 0.0
+            priority = 0
+            if actor_type == "walker":
+                if local_x <= 9.0 and abs_y <= 5.5:
+                    action = "stop"
+                    target_speed = 0.0
+                    priority = 2
+                elif local_x <= 20.0 and abs_y <= 6.5:
+                    action = "slow"
+                    target_speed = 0.8
+                    priority = 1
+            else:
+                if local_x <= 7.5 and abs_y <= 4.8:
+                    action = "stop"
+                    target_speed = 0.0
+                    priority = 2
+                elif local_x <= 22.0 and abs_y <= 5.5:
+                    action = "slow"
+                    target_speed = 1.2
+                    priority = 1
+            if not action:
+                continue
+
+            hazard = {
+                "active": True,
+                "action": action,
+                "target_speed_mps": float(target_speed),
+                "distance_m": float(distance),
+                "local_x_m": float(local_x),
+                "local_y_m": float(local_y),
+                "actor_id": actor_id,
+                "actor_type": actor_type,
+                "type_id": type_id,
+                "role_name": role_name,
+                "source": "world_actor_proximity",
+            }
+            score = (priority, -distance)
+            if best is None or score > (best[0], best[1]):
+                best = (priority, -distance, hazard)
+
+        if best is None:
+            return {"active": False, "reason": "clear"}
+        return best[2]
+
+    @staticmethod
+    def _junction_turn_reference(
+        vehicle: carla.Actor,
+        world: Optional[carla.World],
+        command: str,
+        waypoint: Optional[carla.Waypoint] = None,
+    ) -> Dict[str, Any]:
+        turn_command = VisionEgoDriver._normalize_turn_command(command)
+        if not turn_command or world is None:
+            return {}
+        try:
+            active_waypoint = waypoint
+            if active_waypoint is None:
+                active_waypoint = world.get_map().get_waypoint(
+                    vehicle.get_location(),
+                    project_to_road=True,
+                    lane_type=carla.LaneType.Driving,
+                )
+            if active_waypoint is None or not bool(getattr(active_waypoint, "is_junction", False)):
+                return {}
+
+            vehicle_transform = vehicle.get_transform()
+            ego_loc = vehicle_transform.location
+            waypoint_yaw = float(active_waypoint.transform.rotation.yaw)
+            junction = active_waypoint.get_junction()
+            best: Optional[tuple[float, Dict[str, Any]]] = None
+            for entry, exit_waypoint in junction.get_waypoints(carla.LaneType.Driving):
+                entry_transform = entry.transform
+                exit_transform = exit_waypoint.transform
+                entry_yaw = float(entry_transform.rotation.yaw)
+                exit_yaw = float(exit_transform.rotation.yaw)
+                entry_heading_error = abs(VisionEgoDriver._angle_delta_deg(entry_yaw, waypoint_yaw))
+                if entry_heading_error > 45.0:
+                    continue
+
+                turn_delta = VisionEgoDriver._angle_delta_deg(exit_yaw, entry_yaw)
+                if turn_command == "right" and not (35.0 <= turn_delta <= 140.0):
+                    continue
+                if turn_command == "left" and not (-140.0 <= turn_delta <= -35.0):
+                    continue
+                if turn_command == "straight" and abs(turn_delta) > 35.0:
+                    continue
+
+                entry_loc = entry_transform.location
+                entry_distance = math.hypot(float(entry_loc.x - ego_loc.x), float(entry_loc.y - ego_loc.y))
+                if entry_distance > 35.0:
+                    continue
+
+                local_x, local_y = VisionEgoDriver._local_target(vehicle_transform, exit_transform.location)
+                if local_x <= 2.0:
+                    continue
+
+                score = entry_heading_error + 0.20 * entry_distance + 0.02 * abs(local_y)
+                reference = {
+                    "route_target_local_x": float(local_x),
+                    "route_target_local_y": float(local_y),
+                    "route_target_source": "junction_turn_reference",
+                    "route_target_turn_command": turn_command,
+                    "route_target_turn_delta_deg": float(turn_delta),
+                    "route_target_entry_distance_m": float(entry_distance),
+                }
+                if best is None or score < best[0]:
+                    best = (score, reference)
+            return best[1] if best is not None else {}
         except Exception:
             return {}
 
@@ -114,14 +334,23 @@ class VisionEgoDriver:
         vehicle = ego_vehicle or self.ego_vehicle
         active_world = world or self.world
         frames = self.sensor_rig.snapshot()
+        lane_reference = self._lane_reference(vehicle, active_world)
+        navigation_command = self._navigation_command_for_lane(lane_reference)
+        route_waypoint = lane_reference.pop("_route_waypoint", None)
+        if bool(lane_reference.get("in_junction", False)):
+            lane_reference.update(
+                self._junction_turn_reference(vehicle, active_world, navigation_command, waypoint=route_waypoint)
+            )
         obs = {
             "rgb": frames.get("rgb"),
             "depth": frames.get("depth") if self.use_depth else None,
             "semantic": frames.get("semantic") if self.use_semantic else None,
             "speed_mps": self._vehicle_speed_mps(vehicle),
-            "navigation_command": self.navigation_command,
+            "navigation_command": navigation_command,
+            "base_navigation_command": self.navigation_command,
+            "first_junction_command": self.first_junction_command,
         }
-        obs.update(self._lane_reference(vehicle, active_world))
+        obs.update(lane_reference)
         detector_diagnostics = dict(self._detector_diagnostics)
         vision_obstacle = False
         if self.detector is not None and obs["rgb"] is not None:
@@ -135,6 +364,7 @@ class VisionEgoDriver:
             vision_obstacle = bool(detector_diagnostics.get("obstacle", False))
         obs["vision_detector"] = detector_diagnostics
         obs["vision_obstacle"] = bool(vision_obstacle)
+        obs["interaction_hazard"] = self._interaction_hazard(vehicle, active_world)
         uav_bev: Dict[str, Any] = {"available": False, "reason": "disabled"}
         if self.uav_bev_provider is not None:
             try:

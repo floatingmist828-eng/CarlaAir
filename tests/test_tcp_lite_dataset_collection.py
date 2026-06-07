@@ -120,3 +120,49 @@ def test_future_route_trajectory_prefers_heading_continuity_at_branch():
     trajectory = future_route_trajectory(_World(), _Vehicle(), [2.0])
 
     assert trajectory == [[2.0, 0.6]]
+
+
+def test_future_route_trajectory_selects_commanded_turn_branch():
+    class _Rotation:
+        def __init__(self, yaw):
+            self.yaw = yaw
+
+    class _Transform:
+        def __init__(self, x, y, yaw):
+            self.location = carla.Location(x=x, y=y, z=0.0)
+            self.rotation = _Rotation(yaw)
+
+    class _Waypoint:
+        def __init__(self, name, x, y, yaw):
+            self.name = name
+            self.transform = _Transform(x, y, yaw)
+
+        def next(self, distance):
+            if self.name == "root":
+                return [
+                    _Waypoint("left", 2.0, -1.0, -70.0),
+                    _Waypoint("straight", 2.0, 0.0, 0.0),
+                    _Waypoint("right", 2.0, 1.0, 70.0),
+                ]
+            return [self]
+
+    class _Map:
+        def get_waypoint(self, location, project_to_road=True, lane_type=None):
+            return _Waypoint("root", 0.0, 0.0, 0.0)
+
+    class _World:
+        def get_map(self):
+            return _Map()
+
+    class _Vehicle:
+        def get_location(self):
+            return carla.Location(x=0.0, y=0.0, z=0.0)
+
+        def get_transform(self):
+            return carla.Transform(
+                carla.Location(x=0.0, y=0.0, z=0.0),
+                carla.Rotation(yaw=0.0),
+            )
+
+    assert future_route_trajectory(_World(), _Vehicle(), [2.0], command="left") == [[2.0, -1.0]]
+    assert future_route_trajectory(_World(), _Vehicle(), [2.0], command="right") == [[2.0, 1.0]]

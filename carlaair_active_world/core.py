@@ -133,6 +133,7 @@ def spawn_ego_vehicle(
     world: carla.World,
     blueprint_id: str,
     spawn_index: int = 0,
+    forward_m: float = 0.0,
 ) -> carla.Actor:
     blueprint_library = world.get_blueprint_library()
     blueprint = blueprint_library.find(blueprint_id)
@@ -143,6 +144,19 @@ def spawn_ego_vehicle(
         raise RuntimeError("No spawn points found on the current map.")
     spawn_index = max(0, min(spawn_index, len(spawn_points) - 1))
     spawn_point = spawn_points[spawn_index]
+    if forward_m > 0.0:
+        try:
+            waypoint = world.get_map().get_waypoint(
+                spawn_point.location,
+                project_to_road=True,
+                lane_type=carla.LaneType.Driving,
+            )
+            candidates = waypoint.next(float(forward_m))
+            if candidates:
+                spawn_point = candidates[0].transform
+                spawn_point.location.z += 0.2
+        except Exception:
+            pass
     actor = world.try_spawn_actor(blueprint, spawn_point)
     if actor is None:
         for point in spawn_points:
@@ -202,6 +216,16 @@ def collect_vehicle_states(world: carla.World, include_ego: bool = True) -> List
         except Exception:
             pass
     return vehicles
+
+
+def collect_walker_states(world: carla.World) -> List[ActorState]:
+    walkers: List[ActorState] = []
+    for actor in world.get_actors().filter("walker.pedestrian.*"):
+        try:
+            walkers.append(get_actor_state(actor))
+        except Exception:
+            pass
+    return walkers
 
 
 def find_drone_actor(world: carla.World, preferred_name: Optional[str] = None):

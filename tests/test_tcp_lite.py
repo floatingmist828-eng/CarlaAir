@@ -209,6 +209,8 @@ def test_tcp_lite_scenario_config_round_trips():
             "vision_attack_pattern_threshold": 0.12,
             "vision_low_visibility_gate": True,
             "vision_low_visibility_threshold": 0.09,
+            "vision_first_junction_command": "left",
+            "vision_junction_command_hold_sec": 4.0,
         }
     )
 
@@ -222,6 +224,8 @@ def test_tcp_lite_scenario_config_round_trips():
     assert scenario.vision_attack_pattern_threshold == 0.12
     assert scenario.vision_low_visibility_gate is True
     assert scenario.vision_low_visibility_threshold == 0.09
+    assert scenario.vision_first_junction_command == "left"
+    assert scenario.vision_junction_command_hold_sec == 4.0
     assert scenario.to_dict()["vision_model_path"] == "checkpoints/tcp_lite.pt"
     assert scenario.to_dict()["vision_model_device"] == "cpu"
     assert scenario.to_dict()["vision_model_control_mode"] == "direct"
@@ -231,6 +235,8 @@ def test_tcp_lite_scenario_config_round_trips():
     assert scenario.to_dict()["vision_attack_pattern_threshold"] == 0.12
     assert scenario.to_dict()["vision_low_visibility_gate"] is True
     assert scenario.to_dict()["vision_low_visibility_threshold"] == 0.09
+    assert scenario.to_dict()["vision_first_junction_command"] == "left"
+    assert scenario.to_dict()["vision_junction_command_hold_sec"] == 4.0
 
 
 def test_tcp_lite_project_scenario_loads():
@@ -382,7 +388,7 @@ def test_tcp_lite_policy_prefers_confident_rgb_lane_reference():
     assert policy.last_diagnostics["safety_gate"]["reason"] == "rgb_reference_shortcut"
 
 
-def test_tcp_lite_policy_trajectory_model_mode_skips_rgb_reference_fallback():
+def test_tcp_lite_policy_trajectory_model_mode_uses_rgb_reference_fallback_outside_junction():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),
         navigation_command="lane_follow",
@@ -390,13 +396,237 @@ def test_tcp_lite_policy_trajectory_model_mode_skips_rgb_reference_fallback():
     )
     policy.fallback_policy = _FallbackPolicy()
 
-    control = policy.predict({"rgb": np.zeros((90, 160, 3), dtype=np.uint8), "speed_mps": 1.0})
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": False,
+        }
+    )
+
+    assert control.steer == -0.5
+    assert control.throttle == 0.3
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["control_mode"] == "trajectory"
+    assert policy.last_diagnostics["fallback"]["reason"] == "rgb_lane_reference_available"
+
+
+def test_tcp_lite_policy_keeps_model_turn_control_inside_junction():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+    )
+    policy.fallback_policy = _FallbackPolicy()
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": True,
+        }
+    )
 
     assert control.steer != -0.5
-    assert control.throttle > 0.0
     assert policy.last_diagnostics["reason"] == "ok"
-    assert policy.last_diagnostics["control_mode"] == "trajectory_model"
+    assert policy.last_diagnostics["control_mode"] == "trajectory"
     assert policy.last_diagnostics["raw_control"] == [0.3, 0.4, 0.0]
+
+
+def test_tcp_lite_policy_uses_junction_route_reference_for_turn_target():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+    policy.fallback_policy = _FallbackPolicy()
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": True,
+            "route_target_source": "junction_turn_reference",
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 2.0,
+        }
+    )
+
+    assert 0.0 < control.steer <= 0.25
+    assert control.throttle > 0.0
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["fallback"]["reason"] == "route_reference_available"
+    assert policy.last_diagnostics["fallback"]["diagnostics"]["route_target_source"] == "junction_turn_reference"
+    assert policy.last_diagnostics["raw_control"] is None
+
+
+def test_tcp_lite_policy_uses_waypoint_reference_for_lane_follow_inside_junction():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+    policy.fallback_policy = _FallbackPolicy()
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "navigation_command": "lane_follow",
+            "in_junction": True,
+            "route_target_source": "waypoint_next",
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 1.0,
+        }
+    )
+
+    assert control.steer > 0.0
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["fallback"]["diagnostics"]["route_target_source"] == "waypoint_next"
+
+
+def test_tcp_lite_policy_prefers_route_reference_fallback_outside_junction():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+    policy.fallback_policy = _FallbackPolicy()
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": False,
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 2.0,
+        }
+    )
+
+    assert 0.0 < control.steer <= 0.25
+    assert control.throttle > 0.0
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["fallback"]["reason"] == "route_reference_available"
+
+
+def test_tcp_lite_policy_route_reference_applies_lane_centering():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": False,
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 0.0,
+            "lane_center_offset_m": 1.0,
+        }
+    )
+
+    assert control.steer < 0.0
+    assert policy.last_diagnostics["fallback"]["diagnostics"]["lane_centering_correction"] < 0.0
+
+
+def test_tcp_lite_policy_route_reference_applies_uav_residual():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+        uav_bev_fusion_enabled=True,
+        uav_bev_steer_gain=0.10,
+        uav_bev_max_steer_correction=0.10,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": False,
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 0.0,
+            "uav_bev": {
+                "available": True,
+                "road_confidence": 0.8,
+                "center_bias": 1.0,
+            },
+        }
+    )
+
+    assert control.steer > 0.0
+    assert policy.last_diagnostics["uav_bev_fusion"]["applied"] is True
+
+
+def test_tcp_lite_policy_slows_for_forward_interaction_hazard():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.0,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 2.4,
+            "in_junction": False,
+            "route_target_local_x": 12.0,
+            "route_target_local_y": 0.0,
+            "interaction_hazard": {
+                "active": True,
+                "action": "slow",
+                "target_speed_mps": 1.0,
+                "distance_m": 14.0,
+                "actor_type": "vehicle",
+            },
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert control.throttle == 0.0
+    assert control.brake > 0.0
+    assert diagnostics["target_speed_mps"] == 1.0
+    assert diagnostics["interaction_yield"]["action"] == "slow"
+
+
+def test_tcp_lite_policy_brakes_for_close_pedestrian_hazard():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.0,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.6,
+            "in_junction": False,
+            "route_target_local_x": 12.0,
+            "route_target_local_y": 0.0,
+            "interaction_hazard": {
+                "active": True,
+                "action": "stop",
+                "target_speed_mps": 0.0,
+                "distance_m": 4.0,
+                "actor_type": "walker",
+            },
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert control.throttle == 0.0
+    assert control.brake >= 0.5
+    assert diagnostics["target_speed_mps"] == 0.0
+    assert diagnostics["interaction_yield"]["action"] == "stop"
 
 
 def test_tcp_lite_policy_applies_lane_centering_correction():
@@ -967,6 +1197,258 @@ def test_vision_driver_forwards_navigation_command_to_policy(monkeypatch):
     assert driver.last_observation["rgb"].shape == (90, 160, 3)
 
 
+def test_vision_driver_applies_first_junction_turn_command_once(monkeypatch):
+    import carla
+    from carlaair_active_world.vision_driver import VisionEgoDriver
+
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": np.zeros((90, 160, 3), dtype=np.uint8)}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Policy:
+        def __init__(self) -> None:
+            self.commands = []
+            self.in_junction = []
+            self.last_diagnostics = {}
+
+        def predict(self, obs):
+            self.commands.append(obs["navigation_command"])
+            self.in_junction.append(obs.get("in_junction"))
+            import carla
+
+            return carla.VehicleControl()
+
+    class _Waypoint:
+        def __init__(self, is_junction: bool) -> None:
+            self.is_junction = is_junction
+            self.lane_width = 3.5
+            self.road_id = 1
+            self.lane_id = 1
+            self.transform = carla.Transform(carla.Location(), carla.Rotation())
+
+    class _Map:
+        def __init__(self) -> None:
+            self.values = [False, True, True, False]
+            self.calls = 0
+
+        def get_waypoint(self, *_args, **_kwargs):
+            value = self.values[min(self.calls, len(self.values) - 1)]
+            self.calls += 1
+            return _Waypoint(value)
+
+    class _World:
+        def __init__(self) -> None:
+            self.map = _Map()
+
+        def get_map(self):
+            return self.map
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+        def get_location(self):
+            return carla.Location()
+
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+    policy = _Policy()
+    now = [0.0]
+    driver = VisionEgoDriver(
+        _World(),
+        _Vehicle(),
+        policy=policy,
+        navigation_command="lane_follow",
+        first_junction_command="left",
+        junction_command_hold_sec=4.0,
+        clock=lambda: now[0],
+    )
+
+    driver.predict()
+    now[0] = 1.0
+    driver.predict()
+    now[0] = 2.0
+    driver.predict()
+    now[0] = 6.0
+    driver.predict()
+
+    assert policy.in_junction == [False, True, True, False]
+    assert policy.commands == ["lane_follow", "left", "left", "lane_follow"]
+
+
+def test_vision_driver_caps_first_junction_command_hold(monkeypatch):
+    import carla
+    from carlaair_active_world.vision_driver import VisionEgoDriver
+
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": np.zeros((90, 160, 3), dtype=np.uint8)}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Policy:
+        def __init__(self) -> None:
+            self.commands = []
+            self.last_diagnostics = {}
+
+        def predict(self, obs):
+            self.commands.append(obs["navigation_command"])
+            return carla.VehicleControl()
+
+    class _Waypoint:
+        def __init__(self, is_junction: bool) -> None:
+            self.is_junction = is_junction
+            self.lane_width = 3.5
+            self.road_id = 1
+            self.lane_id = 1
+            self.transform = carla.Transform(carla.Location(), carla.Rotation())
+
+    class _Map:
+        def __init__(self) -> None:
+            self.values = [False, True, True, True, False]
+            self.calls = 0
+
+        def get_waypoint(self, *_args, **_kwargs):
+            value = self.values[min(self.calls, len(self.values) - 1)]
+            self.calls += 1
+            return _Waypoint(value)
+
+    class _World:
+        def __init__(self) -> None:
+            self.map = _Map()
+
+        def get_map(self):
+            return self.map
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+        def get_location(self):
+            return carla.Location()
+
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+    now = [0.0]
+    policy = _Policy()
+    driver = VisionEgoDriver(
+        _World(),
+        _Vehicle(),
+        policy=policy,
+        navigation_command="lane_follow",
+        first_junction_command="right",
+        junction_command_hold_sec=4.0,
+        clock=lambda: now[0],
+    )
+
+    for value in [0.0, 1.0, 6.0, 10.0, 11.0]:
+        now[0] = value
+        driver.predict()
+
+    assert policy.commands == ["lane_follow", "right", "lane_follow", "lane_follow", "lane_follow"]
+
+
+def test_vision_driver_adds_junction_turn_route_reference(monkeypatch):
+    import carla
+    from carlaair_active_world.vision_driver import VisionEgoDriver
+
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": np.zeros((90, 160, 3), dtype=np.uint8)}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Policy:
+        def __init__(self) -> None:
+            self.obs = {}
+            self.last_diagnostics = {}
+
+        def predict(self, obs):
+            self.obs = dict(obs)
+            return carla.VehicleControl()
+
+    class _Junction:
+        def get_waypoints(self, _lane_type):
+            entry = carla.Transform(carla.Location(x=-28.5, y=130.0), carla.Rotation(yaw=-180.0))
+            straight_exit = carla.Transform(carla.Location(x=-70.0, y=129.0), carla.Rotation(yaw=-170.0))
+            right_exit = carla.Transform(carla.Location(x=-45.0, y=115.0), carla.Rotation(yaw=-90.0))
+            return [
+                (type("Waypoint", (), {"transform": entry})(), type("Waypoint", (), {"transform": straight_exit})()),
+                (type("Waypoint", (), {"transform": entry})(), type("Waypoint", (), {"transform": right_exit})()),
+            ]
+
+    class _Waypoint:
+        is_junction = True
+        lane_width = 3.5
+        road_id = 515
+        lane_id = -2
+        transform = carla.Transform(carla.Location(x=-29.0, y=130.0), carla.Rotation(yaw=-180.0))
+
+        def next(self, _distance):
+            return []
+
+        def get_junction(self):
+            return _Junction()
+
+    class _Map:
+        def get_waypoint(self, *_args, **_kwargs):
+            return _Waypoint()
+
+    class _World:
+        def get_map(self):
+            return _Map()
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+        def get_location(self):
+            return carla.Location(x=-29.0, y=130.0)
+
+        def get_transform(self):
+            return carla.Transform(carla.Location(x=-29.0, y=130.0), carla.Rotation(yaw=-180.0))
+
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+    policy = _Policy()
+    driver = VisionEgoDriver(
+        _World(),
+        _Vehicle(),
+        policy=policy,
+        navigation_command="lane_follow",
+        first_junction_command="right",
+        junction_command_hold_sec=4.0,
+        clock=lambda: 1.0,
+    )
+
+    driver.predict()
+
+    assert policy.obs["navigation_command"] == "right"
+    assert policy.obs["route_target_source"] == "junction_turn_reference"
+    assert policy.obs["route_target_local_x"] > 10.0
+    assert policy.obs["route_target_local_y"] > 10.0
+
+
 def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     from carlaair_active_world import env
 
@@ -980,6 +1462,8 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
         def __init__(self, world, ego_vehicle, **kwargs) -> None:
             captured["driver_policy"] = kwargs.get("policy")
             captured["driver_navigation_command"] = kwargs.get("navigation_command")
+            captured["driver_first_junction_command"] = kwargs.get("first_junction_command")
+            captured["driver_junction_command_hold_sec"] = kwargs.get("junction_command_hold_sec")
             captured["driver_use_depth"] = kwargs.get("use_depth")
 
         def predict(self, *args, **kwargs):
@@ -1005,6 +1489,8 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "vision_model_device": "cpu",
             "vision_model_control_mode": "direct",
             "vision_navigation_command": "right",
+            "vision_first_junction_command": "left",
+            "vision_junction_command_hold_sec": 4.0,
             "ego_target_speed_mps": 3.5,
         }
     )
@@ -1025,6 +1511,8 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["uav_fusion_mode"] == "none"
     assert captured["driver_policy"] is not None
     assert captured["driver_navigation_command"] == "right"
+    assert captured["driver_first_junction_command"] == "left"
+    assert captured["driver_junction_command_hold_sec"] == 4.0
     assert captured["driver_use_depth"] is False
 
 
@@ -1059,6 +1547,8 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
         def __init__(self, world, ego_vehicle, **kwargs) -> None:
             captured["driver_policy"] = kwargs.get("policy")
             captured["driver_navigation_command"] = kwargs.get("navigation_command")
+            captured["driver_first_junction_command"] = kwargs.get("first_junction_command")
+            captured["driver_junction_command_hold_sec"] = kwargs.get("junction_command_hold_sec")
             captured["driver_use_depth"] = kwargs.get("use_depth")
 
     actor = _Actor()
@@ -1091,6 +1581,8 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "vision_model_device": "cpu",
             "vision_model_control_mode": "direct",
             "vision_navigation_command": "left",
+            "vision_first_junction_command": "right",
+            "vision_junction_command_hold_sec": 3.5,
             "vision_safety_gate_enabled": False,
             "vision_attack_pattern_gate": True,
             "ego_target_speed_mps": 3.25,
@@ -1117,5 +1609,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["policy_kwargs"]["uav_fusion_mode"] == "none"
     assert captured["driver_policy"] is captured["policy"]
     assert captured["driver_navigation_command"] == "left"
+    assert captured["driver_first_junction_command"] == "right"
+    assert captured["driver_junction_command_hold_sec"] == 3.5
     assert captured["configure_autopilot_calls"] == 0
     assert captured["move_uav_calls"] == 0

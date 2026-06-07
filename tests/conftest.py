@@ -37,6 +37,18 @@ if "carla" not in sys.modules:
             self.brake = 0.0
             self.reverse = False
 
+    class _Vector3D:
+        def __init__(self, x=0.0, y=0.0, z=0.0) -> None:
+            self.x = x
+            self.y = y
+            self.z = z
+
+    class _WalkerControl:
+        def __init__(self) -> None:
+            self.direction = _Vector3D()
+            self.speed = 0.0
+            self.jump = False
+
     class _WeatherParameters:
         ClearNoon = "ClearNoon"
 
@@ -64,6 +76,8 @@ if "carla" not in sys.modules:
         Driving = "Driving"
 
     carla_stub.VehicleControl = _VehicleControl
+    carla_stub.Vector3D = _Vector3D
+    carla_stub.WalkerControl = _WalkerControl
     carla_stub.WeatherParameters = _WeatherParameters
     carla_stub.LaneType = _LaneType
     carla_stub.Actor = object
