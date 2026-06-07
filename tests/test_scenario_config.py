@@ -52,7 +52,9 @@ def test_stable_uav_bev_scenario_loads():
     assert config.uav_enabled is True
     assert config.uav_control_enabled is True
     assert config.uav_bev_fusion_enabled is True
-    assert config.candidate_offsets[0].local_offset.z == 18.0
+    assert config.candidate_offsets[0].name == "front_lead_high"
+    assert config.candidate_offsets[0].local_offset.x >= 26.0
+    assert config.candidate_offsets[0].local_offset.z >= 30.0
 
 
 def test_scenario_config_round_trips_uav_fusion_mode_and_planner():

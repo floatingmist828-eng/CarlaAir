@@ -56,32 +56,32 @@
   "uav_bev_max_steer_correction": 0.06,
   "candidate_offsets": [
     {
-      "name": "front_high",
-      "x": 18.0,
+      "name": "front_lead_high",
+      "x": 28.0,
       "y": 0.0,
-      "z": 18.0,
-      "weight": 1.0
+      "z": 32.0,
+      "weight": 1.4
     },
     {
       "name": "front_left",
-      "x": 15.0,
+      "x": 24.0,
       "y": 8.0,
-      "z": 18.0,
-      "weight": 1.0
+      "z": 30.0,
+      "weight": 1.1
     },
     {
       "name": "front_right",
-      "x": 15.0,
+      "x": 24.0,
       "y": -8.0,
-      "z": 18.0,
-      "weight": 1.0
+      "z": 30.0,
+      "weight": 1.1
     },
     {
       "name": "top",
       "x": 0.0,
       "y": 0.0,
-      "z": 26.0,
-      "weight": 0.8
+      "z": 32.0,
+      "weight": 0.1
     },
     {
       "name": "rear_high",

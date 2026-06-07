@@ -362,11 +362,14 @@ class ActiveAirGroundEnv:
             self.collision_sensor = None
 
     def _apply_collision_labels(self, label: Dict[str, Any]) -> None:
-        count = len(self.collision_events)
+        collision_events = [
+            event for event in self.collision_events if str(event.get("other_type_id", "")) != "airsim.drone"
+        ]
+        count = len(collision_events)
         label["collision"] = count > 0
         label["collision_count"] = count
         if count:
-            label["collision_events"] = list(self.collision_events)
+            label["collision_events"] = list(collision_events)
 
     def _place_initial_uav(self, observation: Dict[str, Any]) -> None:
         candidate = self.scenario.candidate_offsets[0]

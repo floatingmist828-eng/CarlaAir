@@ -331,16 +331,15 @@ class ActiveUAVTaskApp:
             and bool(getattr(self.scenario, "uav_control_enabled", True))
         ):
             self.controller.takeoff()
-            start_pose = Pose(
-                position=Vector3(
-                    float(ego_tf.location.x - 2.0),
-                    float(ego_tf.location.y),
-                    float(ego_tf.location.z + self.scenario.uav_altitude),
-                ),
-                pitch=-20.0,
-                yaw=float(ego_tf.rotation.yaw),
-                roll=0.0,
+            start_candidate = (
+                self.scenario.candidate_offsets[0]
+                if self.scenario.candidate_offsets
+                else CandidateViewpoint(
+                    "front_lead_high",
+                    Vector3(26.0, 0.0, float(max(self.scenario.uav_altitude, 30.0))),
+                )
             )
+            start_pose = local_candidate_to_world(ego_tf, start_candidate)
             with self._air_rpc_lock:
                 move_uav_to(
                     self.air_client,
@@ -352,7 +351,7 @@ class ActiveUAVTaskApp:
                 )
             self.controller.hover()
             self._current_uav_view = {
-                "name": "start_pose",
+                "name": start_candidate.name,
                 "pose": start_pose.to_dict(),
                 "index": -1,
             }

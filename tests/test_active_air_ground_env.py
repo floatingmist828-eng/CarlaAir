@@ -234,6 +234,25 @@ def test_active_env_collision_labels_come_from_collision_sensor_events():
     assert label["collision_events"] == [{"other_actor_id": 123}]
 
 
+def test_active_env_ignores_airsim_drone_collision_sensor_events():
+    scenario = ScenarioConfig.from_dict({"name": "ignore_drone_collision", "uav_enabled": True})
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app.collision_events = [
+        {"other_actor_id": 24, "other_type_id": "airsim.drone"},
+        {"other_actor_id": 123, "other_type_id": "vehicle.test"},
+    ]
+    label = {
+        "collision_proxy": False,
+        "collision_proxy_count": 0,
+    }
+
+    app._apply_collision_labels(label)
+
+    assert label["collision"] is True
+    assert label["collision_count"] == 1
+    assert label["collision_events"] == [{"other_actor_id": 123, "other_type_id": "vehicle.test"}]
+
+
 def test_active_env_passes_forward_spawn_offset(monkeypatch):
     captured = {}
     ego = _Actor(actor_id=10, role_name="ego")
