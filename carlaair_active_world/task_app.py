@@ -282,6 +282,9 @@ class ActiveUAVTaskApp:
                         getattr(self.scenario, "vision_junction_command_sequence", []) or []
                     ),
                     junction_command_hold_sec=float(getattr(self.scenario, "vision_junction_command_hold_sec", 4.0)),
+                    junction_command_hold_until_exit=bool(
+                        getattr(self.scenario, "vision_junction_command_hold_until_exit", False)
+                    ),
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
                     vision_detector_model_path=str(getattr(self.scenario, "vision_detector_model_path", "")),
@@ -407,6 +410,7 @@ class ActiveUAVTaskApp:
             count=max(0, int(self.scenario.traffic_vehicles)),
             start_index=start_index,
             spawn_indices=list(getattr(self.scenario, "traffic_spawn_indices", []) or []),
+            route_commands=list(getattr(self.scenario, "traffic_route_commands", []) or []),
             speed_difference=float(getattr(self.scenario, "traffic_speed_difference", 25.0)),
         )
         self.traffic_actors.extend(item.actor for item in spawned)
@@ -453,7 +457,7 @@ class ActiveUAVTaskApp:
                 dx = float(target.x - loc.x)
                 dy = float(target.y - loc.y)
                 distance = math.hypot(dx, dy)
-                if distance <= 0.6:
+                if distance <= 0.25:
                     control = carla.WalkerControl()
                     control.speed = 0.0
                     actor.apply_control(control)
@@ -691,6 +695,26 @@ class ActiveUAVTaskApp:
             return "UAV patrol enabled."
         return "UAV patrol disabled."
 
+    def _uav_patrol_anchor_transform(self) -> Optional[carla.Transform]:
+        if self.ego_vehicle is not None:
+            try:
+                ego_tf = self.ego_vehicle.get_transform()
+                return carla.Transform(
+                    location=carla.Location(
+                        x=float(ego_tf.location.x),
+                        y=float(ego_tf.location.y),
+                        z=float(ego_tf.location.z),
+                    ),
+                    rotation=carla.Rotation(
+                        pitch=0.0,
+                        yaw=float(ego_tf.rotation.yaw),
+                        roll=0.0,
+                    ),
+                )
+            except Exception:
+                pass
+        return self._patrol_anchor
+
     def start_uav_patrol(self) -> None:
         if self._patrol is not None:
             return
@@ -705,12 +729,13 @@ class ActiveUAVTaskApp:
                 if not self.scenario.uav_auto_patrol_enabled:
                     time.sleep(0.2)
                     continue
-                if self.air_client is None or self.controller is None or self._patrol_anchor is None:
+                anchor = self._uav_patrol_anchor_transform()
+                if self.air_client is None or self.controller is None or anchor is None:
                     time.sleep(0.5)
                     continue
                 candidate = self.scenario.candidate_offsets[self._patrol_index % len(self.scenario.candidate_offsets)]
                 try:
-                    pose = local_candidate_to_world(self._patrol_anchor, candidate)
+                    pose = local_candidate_to_world(anchor, candidate)
                     with self._air_rpc_lock:
                         move_uav_to(
                             self.air_client,

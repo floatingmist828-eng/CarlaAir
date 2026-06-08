@@ -42,10 +42,12 @@ def spawn_traffic_vehicles(
     blueprint_id: Optional[str] = None,
     start_index: int = 1,
     spawn_indices: Optional[Sequence[int]] = None,
+    route_commands: Optional[Sequence[str]] = None,
     speed_difference: float = 25.0,
     role_name: str = "task_traffic",
 ) -> List[SpawnedVehicle]:
     explicit_indices = [int(item) for item in (spawn_indices or [])]
+    route = [str(item) for item in (route_commands or [])]
     if count <= 0 and not explicit_indices:
         return []
 
@@ -94,6 +96,11 @@ def spawn_traffic_vehicles(
             configure_autopilot(client, world, item.actor, speed_percentage=speed_difference)
         except Exception:
             pass
+        if route:
+            try:
+                tm.set_route(item.actor, route)
+            except Exception:
+                pass
     return vehicles
 
 

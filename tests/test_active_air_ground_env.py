@@ -75,6 +75,7 @@ def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):
             "ego_spawn_forward_m": 20.0,
             "traffic_vehicles": 2,
             "traffic_spawn_indices": [42, 43],
+            "traffic_route_commands": ["Right", "Straight"],
             "traffic_walkers": 1,
             "traffic_spawn_start_index": 42,
             "traffic_speed_difference": 65.0,
@@ -96,6 +97,7 @@ def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):
     assert calls["vehicles"]["count"] == 2
     assert calls["vehicles"]["start_index"] == 42
     assert calls["vehicles"]["spawn_indices"] == [42, 43]
+    assert calls["vehicles"]["route_commands"] == ["Right", "Straight"]
     assert calls["vehicles"]["speed_difference"] == 65.0
     assert calls["walkers"]["count"] == 1
     assert calls["walkers"]["start_index"] == 18
@@ -344,3 +346,27 @@ def test_active_env_drives_scripted_walkers_toward_targets():
     assert walker.control.speed == 1.2
     assert round(walker.control.direction.x, 3) == 0.6
     assert round(walker.control.direction.y, 3) == 0.8
+
+
+def test_active_env_keeps_scripted_walker_moving_when_not_fully_crossed():
+    class WalkerActor:
+        def __init__(self) -> None:
+            self.control = None
+
+        def get_location(self):
+            return carla.Location(x=2.7, y=3.6, z=0.0)
+
+        def apply_control(self, control) -> None:
+            self.control = control
+
+    walker = WalkerActor()
+    target = carla.Location(x=3.0, y=4.0, z=0.0)
+    scenario = ScenarioConfig.from_dict({"name": "scripted_walker_short", "uav_enabled": False})
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app._walker_targets = [(walker, target, 1.2)]
+
+    app._drive_scripted_walkers()
+
+    assert walker.control is not None
+    assert walker.control.speed == 1.2
+    assert app._walker_targets == [(walker, target, 1.2)]

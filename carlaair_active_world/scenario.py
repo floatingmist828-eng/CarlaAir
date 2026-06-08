@@ -24,6 +24,7 @@ class ScenarioConfig:
     traffic_walkers: int = 0
     traffic_spawn_start_index: int = -1
     traffic_spawn_indices: List[int] = field(default_factory=list)
+    traffic_route_commands: List[str] = field(default_factory=list)
     traffic_spawn_delay_sec: float = 0.0
     traffic_speed_difference: float = 25.0
     walker_spawn_start_index: int = -1
@@ -56,6 +57,7 @@ class ScenarioConfig:
     vision_first_junction_command: str = ""
     vision_junction_command_sequence: List[str] = field(default_factory=list)
     vision_junction_command_hold_sec: float = 4.0
+    vision_junction_command_hold_until_exit: bool = False
     uav_enabled: bool = True
     uav_control_enabled: bool = True
     uav_name: str = "SimpleFlight"
@@ -107,6 +109,11 @@ class ScenarioConfig:
         traffic_spawn_indices = data.get("traffic_spawn_indices", [])
         if traffic_spawn_indices is None:
             traffic_spawn_indices = []
+        traffic_route_commands = data.get("traffic_route_commands", [])
+        if traffic_route_commands is None:
+            traffic_route_commands = []
+        if isinstance(traffic_route_commands, str):
+            traffic_route_commands = [traffic_route_commands]
         walker_spawn_indices = data.get("walker_spawn_indices", [])
         if walker_spawn_indices is None:
             walker_spawn_indices = []
@@ -133,6 +140,7 @@ class ScenarioConfig:
             traffic_walkers=int(data.get("traffic_walkers", 0)),
             traffic_spawn_start_index=int(data.get("traffic_spawn_start_index", -1)),
             traffic_spawn_indices=[int(item) for item in traffic_spawn_indices],
+            traffic_route_commands=[str(item) for item in traffic_route_commands],
             traffic_spawn_delay_sec=float(data.get("traffic_spawn_delay_sec", 0.0)),
             traffic_speed_difference=float(data.get("traffic_speed_difference", 25.0)),
             walker_spawn_start_index=int(data.get("walker_spawn_start_index", -1)),
@@ -165,6 +173,9 @@ class ScenarioConfig:
             vision_first_junction_command=str(data.get("vision_first_junction_command", "")),
             vision_junction_command_sequence=[str(item) for item in junction_command_sequence],
             vision_junction_command_hold_sec=float(data.get("vision_junction_command_hold_sec", 4.0)),
+            vision_junction_command_hold_until_exit=bool(
+                data.get("vision_junction_command_hold_until_exit", False)
+            ),
             uav_enabled=bool(data.get("uav_enabled", True)),
             uav_control_enabled=bool(data.get("uav_control_enabled", True)),
             uav_name=str(data.get("uav_name", "SimpleFlight")),
@@ -220,6 +231,7 @@ class ScenarioConfig:
             "traffic_walkers": self.traffic_walkers,
             "traffic_spawn_start_index": self.traffic_spawn_start_index,
             "traffic_spawn_indices": list(self.traffic_spawn_indices),
+            "traffic_route_commands": list(self.traffic_route_commands),
             "traffic_spawn_delay_sec": self.traffic_spawn_delay_sec,
             "traffic_speed_difference": self.traffic_speed_difference,
             "walker_spawn_start_index": self.walker_spawn_start_index,
@@ -252,6 +264,7 @@ class ScenarioConfig:
             "vision_first_junction_command": self.vision_first_junction_command,
             "vision_junction_command_sequence": list(self.vision_junction_command_sequence),
             "vision_junction_command_hold_sec": self.vision_junction_command_hold_sec,
+            "vision_junction_command_hold_until_exit": self.vision_junction_command_hold_until_exit,
             "uav_enabled": self.uav_enabled,
             "uav_control_enabled": self.uav_control_enabled,
             "uav_name": self.uav_name,

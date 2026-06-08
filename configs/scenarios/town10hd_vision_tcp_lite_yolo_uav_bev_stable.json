@@ -11,6 +11,7 @@
   "ego_lookahead_m": 10.0,
   "traffic_vehicles": 4,
   "traffic_spawn_indices": [25, 24, 32, 31],
+  "traffic_route_commands": ["Right", "Straight"],
   "traffic_spawn_delay_sec": 23.0,
   "traffic_speed_difference": 45.0,
   "traffic_walkers": 4,
@@ -38,6 +39,7 @@
   "vision_first_junction_command": "right",
   "vision_junction_command_sequence": ["right", "straight"],
   "vision_junction_command_hold_sec": 8.0,
+  "vision_junction_command_hold_until_exit": true,
   "vision_safety_gate_enabled": true,
   "vision_attack_pattern_gate": false,
   "vision_low_visibility_gate": false,
@@ -46,63 +48,21 @@
   "uav_name": "SimpleFlight",
   "uav_altitude": 18.0,
   "uav_back_distance": 8.0,
-  "uav_auto_patrol_enabled": false,
-  "uav_patrol_interval_sec": 4.0,
+  "uav_auto_patrol_enabled": true,
+  "uav_patrol_interval_sec": 0.5,
   "uav_bev_fusion_enabled": true,
   "uav_bev_camera_name": "front_center",
-  "uav_bev_refresh_hz": 2.0,
+  "uav_bev_refresh_hz": 3.0,
   "uav_bev_min_confidence": 0.20,
-  "uav_bev_steer_gain": 0.06,
-  "uav_bev_max_steer_correction": 0.06,
+  "uav_bev_steer_gain": 0.04,
+  "uav_bev_max_steer_correction": 0.04,
   "candidate_offsets": [
     {
       "name": "front_lead_high",
-      "x": 28.0,
+      "x": 32.0,
       "y": 0.0,
-      "z": 32.0,
+      "z": 30.0,
       "weight": 1.4
-    },
-    {
-      "name": "front_left",
-      "x": 24.0,
-      "y": 8.0,
-      "z": 30.0,
-      "weight": 1.1
-    },
-    {
-      "name": "front_right",
-      "x": 24.0,
-      "y": -8.0,
-      "z": 30.0,
-      "weight": 1.1
-    },
-    {
-      "name": "top",
-      "x": 0.0,
-      "y": 0.0,
-      "z": 32.0,
-      "weight": 0.1
-    },
-    {
-      "name": "rear_high",
-      "x": -10.0,
-      "y": 0.0,
-      "z": 20.0,
-      "weight": 0.7
-    },
-    {
-      "name": "left_high",
-      "x": 0.0,
-      "y": 14.0,
-      "z": 20.0,
-      "weight": 0.8
-    },
-    {
-      "name": "right_high",
-      "x": 0.0,
-      "y": -14.0,
-      "z": 20.0,
-      "weight": 0.8
     }
   ]
 }

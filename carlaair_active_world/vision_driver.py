@@ -33,6 +33,7 @@ class VisionEgoDriver:
         first_junction_command: str = "",
         junction_command_sequence: Optional[list[str]] = None,
         junction_command_hold_sec: float = 4.0,
+        junction_command_hold_until_exit: bool = False,
         clock: Optional[Callable[[], float]] = None,
     ) -> None:
         self.world = world
@@ -48,6 +49,7 @@ class VisionEgoDriver:
         if not self.junction_command_sequence and self.first_junction_command:
             self.junction_command_sequence = [self.first_junction_command]
         self.junction_command_hold_sec = max(0.0, float(junction_command_hold_sec))
+        self.junction_command_hold_until_exit = bool(junction_command_hold_until_exit)
         self._clock = clock or time.monotonic
         self._junction_command_until: Optional[float] = None
         self._junction_active_command = ""
@@ -145,6 +147,9 @@ class VisionEgoDriver:
 
         if not self._junction_active_command:
             return base_command
+
+        if self.junction_command_hold_until_exit and self._junction_active_command == "straight":
+            return self._junction_active_command
 
         if self._junction_command_until is None or now <= self._junction_command_until:
             return self._junction_active_command
@@ -245,11 +250,11 @@ class VisionEgoDriver:
             if actor_type == "walker":
                 if actor_speed <= 0.15 and local_x >= 8.0 and abs_y >= 3.2:
                     continue
-                if local_x <= 15.0 and abs_y <= 6.0:
+                if local_x <= 15.0 and abs_y <= 3.2:
                     action = "stop"
                     target_speed = 0.0
                     priority = 2
-                elif local_x <= 20.0 and abs_y <= 6.5:
+                elif local_x <= 20.0 and abs_y <= 6.0:
                     action = "slow"
                     target_speed = 0.8
                     priority = 1

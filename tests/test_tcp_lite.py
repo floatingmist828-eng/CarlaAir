@@ -597,6 +597,37 @@ def test_tcp_lite_policy_slows_for_forward_interaction_hazard():
     assert diagnostics["interaction_yield"]["action"] == "slow"
 
 
+def test_tcp_lite_policy_applies_throttle_for_slow_hazard_from_stop():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.0,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 0.0,
+            "in_junction": False,
+            "route_target_local_x": 12.0,
+            "route_target_local_y": 0.0,
+            "interaction_hazard": {
+                "active": True,
+                "action": "slow",
+                "target_speed_mps": 1.0,
+                "distance_m": 14.0,
+                "actor_type": "walker",
+            },
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert control.throttle > 0.0
+    assert control.brake == 0.0
+    assert diagnostics["interaction_yield"]["action"] == "slow"
+
+
 def test_tcp_lite_policy_brakes_for_close_pedestrian_hazard():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),
@@ -1464,6 +1495,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             captured["driver_navigation_command"] = kwargs.get("navigation_command")
             captured["driver_first_junction_command"] = kwargs.get("first_junction_command")
             captured["driver_junction_command_hold_sec"] = kwargs.get("junction_command_hold_sec")
+            captured["driver_junction_command_hold_until_exit"] = kwargs.get("junction_command_hold_until_exit")
             captured["driver_use_depth"] = kwargs.get("use_depth")
 
         def predict(self, *args, **kwargs):
@@ -1491,6 +1523,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "vision_navigation_command": "right",
             "vision_first_junction_command": "left",
             "vision_junction_command_hold_sec": 4.0,
+            "vision_junction_command_hold_until_exit": True,
             "ego_target_speed_mps": 3.5,
         }
     )
@@ -1513,6 +1546,7 @@ def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["driver_navigation_command"] == "right"
     assert captured["driver_first_junction_command"] == "left"
     assert captured["driver_junction_command_hold_sec"] == 4.0
+    assert captured["driver_junction_command_hold_until_exit"] is True
     assert captured["driver_use_depth"] is False
 
 
@@ -1549,6 +1583,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             captured["driver_navigation_command"] = kwargs.get("navigation_command")
             captured["driver_first_junction_command"] = kwargs.get("first_junction_command")
             captured["driver_junction_command_hold_sec"] = kwargs.get("junction_command_hold_sec")
+            captured["driver_junction_command_hold_until_exit"] = kwargs.get("junction_command_hold_until_exit")
             captured["driver_use_depth"] = kwargs.get("use_depth")
 
     actor = _Actor()
@@ -1583,6 +1618,7 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
             "vision_navigation_command": "left",
             "vision_first_junction_command": "right",
             "vision_junction_command_hold_sec": 3.5,
+            "vision_junction_command_hold_until_exit": True,
             "vision_safety_gate_enabled": False,
             "vision_attack_pattern_gate": True,
             "ego_target_speed_mps": 3.25,
@@ -1611,5 +1647,6 @@ def test_task_app_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
     assert captured["driver_navigation_command"] == "left"
     assert captured["driver_first_junction_command"] == "right"
     assert captured["driver_junction_command_hold_sec"] == 3.5
+    assert captured["driver_junction_command_hold_until_exit"] is True
     assert captured["configure_autopilot_calls"] == 0
     assert captured["move_uav_calls"] == 0

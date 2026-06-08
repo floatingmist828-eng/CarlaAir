@@ -40,6 +40,7 @@ def test_stable_uav_bev_scenario_loads():
     assert config.vision_first_junction_command == "right"
     assert config.vision_junction_command_sequence == ["right", "straight"]
     assert config.vision_junction_command_hold_sec == 8.0
+    assert config.vision_junction_command_hold_until_exit is True
     assert config.traffic_walkers == 4
     assert config.walker_spawn_indices == [146, 146, 146, 146]
     assert config.walker_spawn_delay_sec == 8.0
@@ -47,15 +48,19 @@ def test_stable_uav_bev_scenario_loads():
     assert config.walker_crossing_offsets_m == [-2.0, -0.7, 0.7, 2.0]
     assert config.traffic_vehicles == 4
     assert config.traffic_spawn_indices == [25, 24, 32, 31]
+    assert config.traffic_route_commands == ["Right", "Straight"]
     assert config.traffic_spawn_delay_sec == 23.0
     assert config.vision_detector_confidence == 0.45
     assert config.vision_safety_gate_enabled is True
     assert config.uav_enabled is True
     assert config.uav_control_enabled is True
+    assert config.uav_auto_patrol_enabled is True
+    assert config.uav_patrol_interval_sec <= 0.6
     assert config.uav_bev_fusion_enabled is True
     assert config.candidate_offsets[0].name == "front_lead_high"
-    assert config.candidate_offsets[0].local_offset.x >= 26.0
-    assert config.candidate_offsets[0].local_offset.z >= 30.0
+    assert len(config.candidate_offsets) == 1
+    assert config.candidate_offsets[0].local_offset.x >= 30.0
+    assert config.candidate_offsets[0].local_offset.z >= 28.0
 
 
 def test_scenario_config_round_trips_uav_fusion_mode_and_planner():
@@ -73,6 +78,7 @@ def test_scenario_config_round_trips_uav_fusion_mode_and_planner():
             "scenario_complexity": ["clean"],
             "traffic_spawn_start_index": 12,
             "traffic_spawn_indices": [12, 18, 24],
+            "traffic_route_commands": ["Right", "Straight"],
             "traffic_spawn_delay_sec": 3.5,
             "traffic_speed_difference": 65.0,
             "walker_spawn_start_index": 18,
@@ -95,6 +101,7 @@ def test_scenario_config_round_trips_uav_fusion_mode_and_planner():
     assert config.scenario_complexity == ["clean"]
     assert config.traffic_spawn_start_index == 12
     assert config.traffic_spawn_indices == [12, 18, 24]
+    assert config.traffic_route_commands == ["Right", "Straight"]
     assert config.traffic_spawn_delay_sec == 3.5
     assert config.traffic_speed_difference == 65.0
     assert config.walker_spawn_start_index == 18
@@ -108,6 +115,7 @@ def test_scenario_config_round_trips_uav_fusion_mode_and_planner():
     assert config.to_dict()["uav_fusion_planner_path"] == "models/fusion_planner.json"
     assert config.to_dict()["traffic_speed_difference"] == 65.0
     assert config.to_dict()["traffic_spawn_indices"] == [12, 18, 24]
+    assert config.to_dict()["traffic_route_commands"] == ["Right", "Straight"]
     assert config.to_dict()["walker_spawn_start_index"] == 18
     assert config.to_dict()["walker_spawn_indices"] == [18, 27, 95]
     assert config.to_dict()["walker_crossing_offsets_m"] == [-1.0, 0.5, 2.0]
@@ -130,12 +138,15 @@ def test_scenario_config_round_trips_junction_command_sequence():
             "name": "junction_sequence",
             "vision_first_junction_command": "right",
             "vision_junction_command_sequence": ["right", "straight"],
+            "vision_junction_command_hold_until_exit": True,
         }
     )
 
     assert config.vision_first_junction_command == "right"
     assert config.vision_junction_command_sequence == ["right", "straight"]
+    assert config.vision_junction_command_hold_until_exit is True
     assert config.to_dict()["vision_junction_command_sequence"] == ["right", "straight"]
+    assert config.to_dict()["vision_junction_command_hold_until_exit"] is True
 
 
 def test_experiment_scenario_ladder_configs_load():

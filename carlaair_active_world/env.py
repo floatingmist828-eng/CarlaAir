@@ -178,6 +178,7 @@ class ActiveAirGroundEnv:
             count=max(0, int(self.scenario.traffic_vehicles)),
             start_index=traffic_start_index,
             spawn_indices=list(getattr(self.scenario, "traffic_spawn_indices", []) or []),
+            route_commands=list(getattr(self.scenario, "traffic_route_commands", []) or []),
             speed_difference=traffic_speed_difference,
         )
         self.traffic_actors.extend(item.actor for item in spawned)
@@ -224,7 +225,7 @@ class ActiveAirGroundEnv:
                 dx = float(target.x - loc.x)
                 dy = float(target.y - loc.y)
                 distance = math.hypot(dx, dy)
-                if distance <= 0.6:
+                if distance <= 0.25:
                     control = carla.WalkerControl()
                     control.speed = 0.0
                     actor.apply_control(control)
@@ -286,6 +287,9 @@ class ActiveAirGroundEnv:
                         getattr(self.scenario, "vision_junction_command_sequence", []) or []
                     ),
                     junction_command_hold_sec=float(getattr(self.scenario, "vision_junction_command_hold_sec", 4.0)),
+                    junction_command_hold_until_exit=bool(
+                        getattr(self.scenario, "vision_junction_command_hold_until_exit", False)
+                    ),
                     vision_attack=str(getattr(self.scenario, "vision_attack", "none")),
                     vision_attack_intensity=float(getattr(self.scenario, "vision_attack_intensity", 1.0)),
                     vision_detector_model_path=str(getattr(self.scenario, "vision_detector_model_path", "")),

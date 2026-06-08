@@ -77,6 +77,7 @@ def test_task_app_spawns_configured_traffic_and_walkers(monkeypatch):
             "ego_spawn_index": 86,
             "traffic_vehicles": 4,
             "traffic_spawn_indices": [25, 24, 32, 31],
+            "traffic_route_commands": ["Right", "Straight"],
             "traffic_spawn_delay_sec": 0.0,
             "traffic_speed_difference": 45.0,
             "traffic_walkers": 4,
@@ -95,6 +96,7 @@ def test_task_app_spawns_configured_traffic_and_walkers(monkeypatch):
 
     assert calls["vehicles"]["count"] == 4
     assert calls["vehicles"]["spawn_indices"] == [25, 24, 32, 31]
+    assert calls["vehicles"]["route_commands"] == ["Right", "Straight"]
     assert calls["vehicles"]["speed_difference"] == 45.0
     assert calls["walkers"]["count"] == 4
     assert calls["walkers"]["spawn_indices"] == [146, 146, 146, 146]
@@ -120,6 +122,24 @@ def test_task_app_drives_scripted_walkers_until_target(monkeypatch):
     assert round(walker.control.direction.x, 3) == 0.6
     assert round(walker.control.direction.y, 3) == 0.8
     assert app._walker_targets == [(walker, app._walker_targets[0][1], 1.2)]
+
+
+def test_task_app_keeps_scripted_walker_moving_when_not_fully_crossed(monkeypatch):
+    class _Walker(_Actor):
+        def get_location(self):
+            return carla.Location(x=2.7, y=3.6, z=0.0)
+
+    walker = _Walker(30, type_id="walker.pedestrian.test")
+    target = carla.Location(x=3.0, y=4.0, z=0.0)
+    scenario = ScenarioConfig.from_dict({"name": "scripted_task_walker_short", "uav_enabled": False})
+    app = task_app.ActiveUAVTaskApp(scenario=scenario, output_dir=Path("recordings/test_scripted_task_walker_short"))
+    app._walker_targets = [(walker, target, 1.2)]
+
+    app._drive_scripted_walkers()
+
+    assert walker.control is not None
+    assert walker.control.speed == 1.2
+    assert app._walker_targets == [(walker, target, 1.2)]
 
 
 def test_task_app_delays_configured_traffic_and_walkers(monkeypatch):
@@ -170,3 +190,26 @@ def test_task_app_delays_configured_traffic_and_walkers(monkeypatch):
     now[0] = 110.0
     app._maybe_spawn_delayed_actors()
     assert calls == {"vehicles": 1, "walkers": 1}
+
+
+def test_task_app_uav_patrol_anchor_follows_latest_ego_transform():
+    class _Ego:
+        def __init__(self):
+            self.transform = carla.Transform(
+                carla.Location(x=10.0, y=20.0, z=0.0),
+                carla.Rotation(yaw=45.0),
+            )
+
+        def get_transform(self):
+            return self.transform
+
+    scenario = ScenarioConfig.from_dict({"name": "patrol_anchor", "uav_enabled": True})
+    app = task_app.ActiveUAVTaskApp(scenario=scenario, output_dir=Path("recordings/test_patrol_anchor"))
+    app.ego_vehicle = _Ego()
+    app._patrol_anchor = carla.Transform(carla.Location(x=-1.0, y=-2.0, z=0.0), carla.Rotation(yaw=-90.0))
+
+    anchor = app._uav_patrol_anchor_transform()
+
+    assert anchor.location.x == 10.0
+    assert anchor.location.y == 20.0
+    assert anchor.rotation.yaw == 45.0

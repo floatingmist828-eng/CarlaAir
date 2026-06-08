@@ -370,6 +370,75 @@ def test_vision_driver_uses_configured_junction_command_sequence(monkeypatch):
     assert driver._navigation_command_for_lane({"in_junction": True}) == "straight"
 
 
+def test_vision_driver_can_hold_junction_command_until_exit(monkeypatch):
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": _lane_image(), "semantic": _semantic(), "depth": _clear_depth()}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+    now = [10.0]
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+    driver = VisionEgoDriver(
+        object(),
+        _Vehicle(),
+        junction_command_sequence=["straight"],
+        junction_command_hold_sec=2.0,
+        junction_command_hold_until_exit=True,
+        clock=lambda: now[0],
+    )
+
+    assert driver._navigation_command_for_lane({"in_junction": True}) == "straight"
+    now[0] = 20.0
+    assert driver._navigation_command_for_lane({"in_junction": True}) == "straight"
+    assert driver._navigation_command_for_lane({"in_junction": False}) == "lane_follow"
+
+
+def test_vision_driver_does_not_hold_right_turn_until_exit(monkeypatch):
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": _lane_image(), "semantic": _semantic(), "depth": _clear_depth()}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Vehicle:
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+    now = [10.0]
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+    driver = VisionEgoDriver(
+        object(),
+        _Vehicle(),
+        junction_command_sequence=["right"],
+        junction_command_hold_sec=2.0,
+        junction_command_hold_until_exit=True,
+        clock=lambda: now[0],
+    )
+
+    assert driver._navigation_command_for_lane({"in_junction": True}) == "right"
+    now[0] = 20.0
+    assert driver._navigation_command_for_lane({"in_junction": True}) == "lane_follow"
+
+
 def test_vision_driver_adds_forward_interaction_hazard(monkeypatch):
     import carla
 
@@ -485,6 +554,51 @@ def test_vision_driver_stops_for_crossing_walker_before_turn_crosswalk():
     assert hazard["active"] is True
     assert hazard["action"] == "stop"
     assert hazard["target_speed_mps"] == 0.0
+
+
+def test_vision_driver_slows_for_walker_clear_of_front_path():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation())
+            self._velocity = velocity or carla.Vector3D(y=-0.8)
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", 0.0, 0.0, role_name="ego")
+    pedestrian = _Actor(2, "walker.pedestrian.test", 12.0, 4.4, role_name="task_walker")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, pedestrian]))
+
+    assert hazard["active"] is True
+    assert hazard["action"] == "slow"
+    assert hazard["target_speed_mps"] > 0.0
 
 
 def test_vision_driver_clears_stationary_walker_after_crossing():
