@@ -233,10 +233,18 @@ class VisionEgoDriver:
             actor_type = "walker" if type_id.startswith("walker.") else "vehicle"
             abs_y = abs(float(local_y))
             distance = math.hypot(float(local_x), float(local_y))
+            actor_speed = 0.0
+            try:
+                velocity = actor.get_velocity()
+                actor_speed = math.sqrt(float(velocity.x) ** 2 + float(velocity.y) ** 2 + float(velocity.z) ** 2)
+            except Exception:
+                actor_speed = 0.0
             action = ""
             target_speed = 0.0
             priority = 0
             if actor_type == "walker":
+                if actor_speed <= 0.15 and local_x >= 8.0 and abs_y >= 3.2:
+                    continue
                 if local_x <= 15.0 and abs_y <= 6.0:
                     action = "stop"
                     target_speed = 0.0
@@ -264,6 +272,7 @@ class VisionEgoDriver:
                 "distance_m": float(distance),
                 "local_x_m": float(local_x),
                 "local_y_m": float(local_y),
+                "actor_speed_mps": float(actor_speed),
                 "actor_id": actor_id,
                 "actor_type": actor_type,
                 "type_id": type_id,

@@ -446,17 +446,21 @@ def test_vision_driver_stops_for_crossing_walker_before_turn_crosswalk():
     import carla
 
     class _Actor:
-        def __init__(self, actor_id, type_id, x, y, role_name="") -> None:
+        def __init__(self, actor_id, type_id, x, y, role_name="", velocity=None) -> None:
             self.id = actor_id
             self.type_id = type_id
             self.attributes = {"role_name": role_name}
             self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation())
+            self._velocity = velocity or carla.Vector3D()
 
         def get_transform(self):
             return self._transform
 
         def get_location(self):
             return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
 
     class _Actors(list):
         def filter(self, pattern):
@@ -481,6 +485,49 @@ def test_vision_driver_stops_for_crossing_walker_before_turn_crosswalk():
     assert hazard["active"] is True
     assert hazard["action"] == "stop"
     assert hazard["target_speed_mps"] == 0.0
+
+
+def test_vision_driver_clears_stationary_walker_after_crossing():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation())
+            self._velocity = velocity or carla.Vector3D()
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", 0.0, 0.0, role_name="ego")
+    crossed = _Actor(2, "walker.pedestrian.test", 14.5, -3.6, role_name="task_walker")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, crossed]))
+
+    assert hazard["active"] is False
 
 
 def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():
