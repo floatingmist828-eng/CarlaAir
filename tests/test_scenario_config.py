@@ -39,7 +39,7 @@ def test_stable_uav_bev_scenario_loads():
     assert config.vision_navigation_command == "lane_follow"
     assert config.vision_first_junction_command == "right"
     assert config.vision_junction_command_sequence == ["right", "straight"]
-    assert config.vision_junction_command_hold_sec == 8.0
+    assert config.vision_junction_command_hold_sec == 12.0
     assert config.vision_junction_command_hold_until_exit is True
     assert config.traffic_walkers == 4
     assert config.walker_spawn_indices == [146, 146, 146, 146]

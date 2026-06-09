@@ -48,7 +48,7 @@
   "vision_navigation_command": "lane_follow",
   "vision_first_junction_command": "right",
   "vision_junction_command_sequence": ["right", "straight"],
-  "vision_junction_command_hold_sec": 8.0,
+  "vision_junction_command_hold_sec": 12.0,
   "vision_junction_command_hold_until_exit": true,
   "vision_safety_gate_enabled": true,
   "vision_attack_pattern_gate": false,
