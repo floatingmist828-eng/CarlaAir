@@ -316,12 +316,12 @@ class TcpLiteVisionPolicy(VisionPolicy):
             lane_width = _as_optional_float(obs.get("lane_width_m")) or 3.5
             requested_avoid = _as_optional_float(hazard.get("avoid_lateral_m"))
             if requested_avoid is None:
-                requested_avoid = -min(3.1, max(2.6, float(lane_width) * 0.88))
+                requested_avoid = -min(3.6, max(2.8, float(lane_width)))
             avoid_sign = -1.0 if float(requested_avoid) < 0.0 else 1.0
             avoid_magnitude = _clamp(
                 abs(float(requested_avoid)),
                 2.4,
-                min(3.2, max(2.4, float(lane_width) * 0.95)),
+                min(3.8, max(2.4, float(lane_width) * 1.08)),
             )
             avoid_lateral = avoid_sign * avoid_magnitude
             adjusted_y = min(adjusted_y, avoid_lateral) if avoid_lateral < 0.0 else max(adjusted_y, avoid_lateral)

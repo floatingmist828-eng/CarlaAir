@@ -284,7 +284,7 @@ class VisionEgoDriver:
                         priority = 3
                     elif local_x <= 34.0 and abs_y <= 5.2:
                         action = "avoid_left"
-                        target_speed = 1.8
+                        target_speed = 1.5
                         priority = 3
                 elif local_x <= 7.5 and abs_y <= 4.8:
                     action = "stop"
@@ -312,7 +312,7 @@ class VisionEgoDriver:
                 "source": "world_actor_proximity",
             }
             if action == "avoid_left":
-                hazard["avoid_lateral_m"] = -3.1
+                hazard["avoid_lateral_m"] = -3.6
             score = (priority, -distance)
             if best is None or score > (best[0], best[1]):
                 best = (priority, -distance, hazard)
