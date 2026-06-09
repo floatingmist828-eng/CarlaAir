@@ -252,9 +252,12 @@ class VisionEgoDriver:
             target_speed = 0.0
             priority = 0
             if actor_type == "walker":
+                actor_location = actor.get_location()
                 if local_y <= -2.4 and local_velocity_y <= 0.1:
                     continue
                 if role_name == "task_walker" and local_x >= 6.0 and local_y <= -0.15:
+                    continue
+                if role_name == "task_walker" and local_x >= 6.0 and actor_location.x <= vehicle_transform.location.x - 5.0:
                     continue
                 crosswalk_prebrake = actor_speed > 0.15 and local_x <= 1.5 and abs_y <= 6.0
                 if not crosswalk_prebrake and abs_y >= 4.2:
