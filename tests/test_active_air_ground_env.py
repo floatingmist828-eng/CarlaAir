@@ -46,9 +46,10 @@ class _World:
 
 
 def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):
-    calls = {"vehicles": None, "walkers": None}
+    calls = {"vehicles": None, "walkers": None, "obstacles": None}
     ego = _Actor(actor_id=10, role_name="ego")
     traffic = _Actor(actor_id=20, role_name="task_traffic")
+    obstacle = _Actor(actor_id=21, role_name="task_obstacle")
     walker = _Actor(actor_id=30, type_id="walker.pedestrian.test", role_name="task_walker")
     controller = _Actor(actor_id=31, type_id="controller.ai.walker")
 
@@ -66,6 +67,12 @@ def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):
         "spawn_traffic_walkers",
         lambda *_args, **kwargs: calls.__setitem__("walkers", kwargs) or [_Spawned(walker, controller)],
     )
+    monkeypatch.setattr(
+        env_module,
+        "spawn_static_obstacle_vehicles",
+        lambda *_args, **kwargs: calls.__setitem__("obstacles", kwargs) or [_Spawned(obstacle)],
+        raising=False,
+    )
 
     scenario = ScenarioConfig.from_dict(
         {
@@ -77,6 +84,13 @@ def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):
             "traffic_spawn_indices": [42, 43],
             "traffic_route_commands": ["Right", "Straight"],
             "traffic_walkers": 1,
+            "obstacle_vehicles": 1,
+            "obstacle_anchor_x": -41.6,
+            "obstacle_anchor_y": 58.0,
+            "obstacle_anchor_yaw_deg": -90.0,
+            "obstacle_forward_offsets_m": [0.0],
+            "obstacle_lateral_offsets_m": [0.8],
+            "obstacle_yaw_offsets_deg": [25.0],
             "traffic_spawn_start_index": 42,
             "traffic_speed_difference": 65.0,
             "walker_spawn_start_index": 18,
@@ -106,13 +120,22 @@ def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):
     assert calls["walkers"]["crossing_offsets_m"] == [-1.0, 1.0]
     assert calls["walkers"]["use_ai_controller"] is False
     assert calls["walkers"]["speed_mps"] == 1.2
+    assert calls["obstacles"]["count"] == 1
+    assert calls["obstacles"]["anchor_transform"].location.x == -41.6
+    assert calls["obstacles"]["anchor_transform"].location.y == 58.0
+    assert calls["obstacles"]["anchor_transform"].rotation.yaw == -90.0
+    assert calls["obstacles"]["forward_offsets_m"] == [0.0]
+    assert calls["obstacles"]["lateral_offsets_m"] == [0.8]
+    assert calls["obstacles"]["yaw_offsets_deg"] == [25.0]
     assert app.traffic_actors == [traffic]
+    assert app.obstacle_actors == [obstacle]
     assert app.walker_actors == [walker]
     assert app.walker_controllers == [controller]
 
     app.close()
 
     assert traffic.destroyed is True
+    assert obstacle.destroyed is True
     assert walker.destroyed is True
     assert controller.destroyed is True
 
@@ -412,3 +435,37 @@ def test_active_env_freezes_scripted_walker_at_crossing_target():
     assert walker.control.speed == 0.0
     assert walker.location.x == target.x
     assert walker.location.y == target.y
+
+
+def test_active_env_freezes_overshot_scripted_walker_without_reverse_snap():
+    class WalkerActor:
+        def __init__(self) -> None:
+            self.control = None
+            self.location = carla.Location(x=-10.3, y=0.0, z=0.0)
+
+        def get_location(self):
+            return self.location
+
+        def get_velocity(self):
+            return carla.Vector3D(x=-0.8, y=0.0, z=0.0)
+
+        def get_transform(self):
+            return carla.Transform(self.location, carla.Rotation(yaw=180.0))
+
+        def set_transform(self, transform) -> None:
+            self.location = transform.location
+
+        def apply_control(self, control) -> None:
+            self.control = control
+
+    walker = WalkerActor()
+    scenario = ScenarioConfig.from_dict({"name": "scripted_walker_overshot", "uav_enabled": False})
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app._walker_targets = [(walker, carla.Location(x=-10.0, y=0.0, z=0.0), 0.85)]
+
+    app._drive_scripted_walkers()
+
+    assert walker.control is not None
+    assert walker.control.speed == 0.0
+    assert walker.location.x == -10.3
+    assert app._walker_targets == []

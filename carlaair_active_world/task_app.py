@@ -43,7 +43,7 @@ from .labels import build_labels
 from .recorder import EpisodeRecorder
 from .scenario import ScenarioConfig
 from .sensors import UAVSensorRig, VehicleSensorRig, save_numpy_image
-from .traffic import spawn_traffic_vehicles, spawn_traffic_walkers
+from .traffic import spawn_static_obstacle_vehicles, spawn_traffic_vehicles, spawn_traffic_walkers
 from .vision_driver import VisionEgoDriver
 from .vision_models import TcpLiteVisionPolicy
 from .vision_models.uav_bev import CachedUAVBEVProvider
@@ -78,6 +78,7 @@ class ActiveUAVTaskApp:
         self.controller: Optional[UAVCommandController] = None
         self.ego_vehicle: Optional[carla.Actor] = None
         self.traffic_actors: List[carla.Actor] = []
+        self.obstacle_actors: List[carla.Actor] = []
         self.walker_actors: List[carla.Actor] = []
         self.walker_controllers: List[carla.Actor] = []
         self._walker_targets: List[tuple[carla.Actor, carla.Location, float]] = []
@@ -109,6 +110,7 @@ class ActiveUAVTaskApp:
         self._ego_driver_thread: Optional[threading.Thread] = None
         self._ego_control_mode = "autopilot"
         self._traffic_spawned = False
+        self._obstacles_spawned = False
         self._walkers_spawned = False
         self.enable_viewer = os.environ.get("CARLAAIR_ENABLE_VIEWER", "0") == "1"
 
@@ -190,6 +192,12 @@ class ActiveUAVTaskApp:
             except Exception:
                 pass
         self.traffic_actors.clear()
+        for actor in self.obstacle_actors:
+            try:
+                actor.destroy()
+            except Exception:
+                pass
+        self.obstacle_actors.clear()
         for controller in self.walker_controllers:
             try:
                 controller.stop()
@@ -228,7 +236,10 @@ class ActiveUAVTaskApp:
     def setup(self) -> None:
         if self.client is None or self.world is None:
             self.connect()
-        cleanup_actors_by_role(self.world, {"ego", "task_traffic", "task_walker", "task_ego", "task_uav"})
+        cleanup_actors_by_role(
+            self.world,
+            {"ego", "task_traffic", "task_obstacle", "task_walker", "task_ego", "task_uav"},
+        )
         cleanup_old_vehicles(self.world)
         self._ego_control_mode = str(self.scenario.ego_control_mode).lower()
         self.ego_vehicle = spawn_ego_vehicle(
@@ -313,17 +324,21 @@ class ActiveUAVTaskApp:
             z=float(ego_tf.location.z),
         )
         self.traffic_actors = []
+        self.obstacle_actors = []
         self.walker_actors = []
         self.walker_controllers = []
         self._walker_targets = []
         self._frozen_walker_targets = []
         self._traffic_spawned = max(0, int(self.scenario.traffic_vehicles)) <= 0
+        self._obstacles_spawned = max(0, int(getattr(self.scenario, "obstacle_vehicles", 0))) <= 0
         self._walkers_spawned = max(0, int(self.scenario.traffic_walkers)) <= 0
         if self.world.get_settings().synchronous_mode:
             self.world.tick()
         self.start_time = time.time()
         if float(getattr(self.scenario, "traffic_spawn_delay_sec", 0.0)) <= 0.0:
             self._spawn_configured_traffic()
+        if float(getattr(self.scenario, "obstacle_spawn_delay_sec", 0.0)) <= 0.0:
+            self._spawn_configured_obstacles()
         if float(getattr(self.scenario, "walker_spawn_delay_sec", 0.0)) <= 0.0:
             self._spawn_configured_walkers()
         self._attach_vehicle_sensors()
@@ -418,6 +433,29 @@ class ActiveUAVTaskApp:
         self.traffic_actors.extend(item.actor for item in spawned)
         self._traffic_spawned = True
 
+    def _spawn_configured_obstacles(self) -> None:
+        if self._obstacles_spawned or self.world is None:
+            return
+        anchor = carla.Transform(
+            carla.Location(
+                x=float(getattr(self.scenario, "obstacle_anchor_x", 0.0)),
+                y=float(getattr(self.scenario, "obstacle_anchor_y", 0.0)),
+                z=float(getattr(self.scenario, "obstacle_anchor_z", 0.6)),
+            ),
+            carla.Rotation(yaw=float(getattr(self.scenario, "obstacle_anchor_yaw_deg", 0.0))),
+        )
+        spawned = spawn_static_obstacle_vehicles(
+            self.world,
+            count=max(0, int(getattr(self.scenario, "obstacle_vehicles", 0))),
+            blueprint_id=str(getattr(self.scenario, "obstacle_blueprint", "vehicle.dodge.charger_police_2020")),
+            anchor_transform=anchor,
+            forward_offsets_m=list(getattr(self.scenario, "obstacle_forward_offsets_m", []) or []),
+            lateral_offsets_m=list(getattr(self.scenario, "obstacle_lateral_offsets_m", []) or []),
+            yaw_offsets_deg=list(getattr(self.scenario, "obstacle_yaw_offsets_deg", []) or []),
+        )
+        self.obstacle_actors.extend(item.actor for item in spawned)
+        self._obstacles_spawned = True
+
     def _spawn_configured_walkers(self) -> None:
         if self._walkers_spawned or self.client is None or self.world is None:
             return
@@ -448,6 +486,8 @@ class ActiveUAVTaskApp:
         elapsed = float(time.time() - self.start_time) if self.start_time else 0.0
         if elapsed >= float(getattr(self.scenario, "traffic_spawn_delay_sec", 0.0)):
             self._spawn_configured_traffic()
+        if elapsed >= float(getattr(self.scenario, "obstacle_spawn_delay_sec", 0.0)):
+            self._spawn_configured_obstacles()
         if elapsed >= float(getattr(self.scenario, "walker_spawn_delay_sec", 0.0)):
             self._spawn_configured_walkers()
 
@@ -468,9 +508,10 @@ class ActiveUAVTaskApp:
                 dx = float(target.x - loc.x)
                 dy = float(target.y - loc.y)
                 distance = math.hypot(dx, dy)
-                if distance <= 0.25:
-                    self._freeze_scripted_walker(actor, target)
-                    self._frozen_walker_targets.append((actor, target))
+                freeze_location = self._scripted_walker_freeze_location(actor, target, distance, float(speed_mps))
+                if freeze_location is not None:
+                    self._freeze_scripted_walker(actor, freeze_location)
+                    self._frozen_walker_targets.append((actor, freeze_location))
                     continue
                 control = carla.WalkerControl()
                 control.direction = carla.Vector3D(dx / distance, dy / distance, 0.0)
@@ -480,6 +521,30 @@ class ActiveUAVTaskApp:
             except Exception:
                 continue
         self._walker_targets = remaining
+
+    @staticmethod
+    def _scripted_walker_freeze_location(
+        actor: carla.Actor,
+        target: carla.Location,
+        distance: float,
+        speed_mps: float,
+    ) -> Optional[carla.Location]:
+        if distance <= 0.25:
+            return target
+        overshot_threshold = min(0.65, max(0.25, float(speed_mps) * 0.65))
+        if distance > overshot_threshold:
+            return None
+        try:
+            loc = actor.get_location()
+            velocity = actor.get_velocity()
+            to_target_x = float(target.x - loc.x)
+            to_target_y = float(target.y - loc.y)
+            closing_speed = to_target_x * float(velocity.x) + to_target_y * float(velocity.y)
+            if closing_speed < 0.0:
+                return carla.Location(x=float(loc.x), y=float(loc.y), z=float(loc.z))
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _freeze_scripted_walker(actor: carla.Actor, target: carla.Location) -> None:

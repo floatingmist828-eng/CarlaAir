@@ -32,10 +32,10 @@ def test_run_uav_task_defaults_are_project_relative():
 def test_stable_uav_bev_scenario_loads():
     config = ScenarioConfig.load(ROOT / "configs/scenarios/town10hd_vision_tcp_lite_yolo_uav_bev_stable.json")
 
-    assert config.duration_sec == 140.0
+    assert config.duration_sec == 115.0
     assert config.ego_spawn_index == 86
     assert config.ego_spawn_forward_m == 0.0
-    assert config.ego_target_speed_mps == 2.6
+    assert config.ego_target_speed_mps == 3.2
     assert config.vision_navigation_command == "lane_follow"
     assert config.vision_first_junction_command == "right"
     assert config.vision_junction_command_sequence == ["right", "straight"]
@@ -46,11 +46,17 @@ def test_stable_uav_bev_scenario_loads():
     assert config.walker_spawn_delay_sec == 8.0
     assert config.walker_crossing_distance_m == 18.0
     assert config.walker_crossing_offsets_m == [-2.0, -0.7, 0.7, 2.0]
-    assert config.traffic_vehicles == 4
-    assert config.traffic_spawn_indices == [25, 24, 32, 31]
-    assert config.traffic_route_commands == ["Right"]
-    assert config.traffic_spawn_delay_sec == 23.0
-    assert config.traffic_speed_difference == 35.0
+    assert config.traffic_vehicles == 0
+    assert config.traffic_spawn_indices == []
+    assert config.traffic_route_commands == []
+    assert config.obstacle_vehicles == 2
+    assert config.obstacle_spawn_delay_sec == 0.0
+    assert config.obstacle_anchor_x == -41.6
+    assert config.obstacle_anchor_y == 58.0
+    assert config.obstacle_anchor_yaw_deg == -90.0
+    assert config.obstacle_forward_offsets_m == [0.0, 4.2]
+    assert config.obstacle_lateral_offsets_m == [0.0, 0.8]
+    assert config.obstacle_yaw_offsets_deg == [25.0, -35.0]
     assert config.vision_detector_confidence == 0.45
     assert config.vision_safety_gate_enabled is True
     assert config.uav_enabled is True

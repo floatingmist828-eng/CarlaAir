@@ -730,6 +730,95 @@ def test_vision_driver_clears_stationary_walker_just_past_ego_lane():
     assert hazard["active"] is False
 
 
+def test_vision_driver_requests_left_avoidance_for_lane_obstacle():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation())
+            self._velocity = velocity or carla.Vector3D()
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", 0.0, 0.0, role_name="ego")
+    obstacle = _Actor(2, "vehicle.dodge.charger_police_2020", 18.0, 0.2, role_name="task_obstacle")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle]))
+
+    assert hazard["active"] is True
+    assert hazard["action"] == "avoid_left"
+    assert hazard["target_speed_mps"] > 1.0
+    assert hazard["avoid_lateral_m"] > 0.0
+
+
+def test_vision_driver_clears_lane_obstacle_after_left_lane_change():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation())
+            self._velocity = velocity or carla.Vector3D()
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", 0.0, 0.0, role_name="ego")
+    obstacle_to_right = _Actor(2, "vehicle.dodge.charger_police_2020", 12.0, -3.2, role_name="task_obstacle")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle_to_right]))
+
+    assert hazard["active"] is False
+
+
 def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():
     class _Boxes:
         cls = np.asarray([9])

@@ -27,6 +27,16 @@ class ScenarioConfig:
     traffic_route_commands: List[str] = field(default_factory=list)
     traffic_spawn_delay_sec: float = 0.0
     traffic_speed_difference: float = 25.0
+    obstacle_vehicles: int = 0
+    obstacle_spawn_delay_sec: float = 0.0
+    obstacle_blueprint: str = "vehicle.dodge.charger_police_2020"
+    obstacle_anchor_x: float = 0.0
+    obstacle_anchor_y: float = 0.0
+    obstacle_anchor_z: float = 0.6
+    obstacle_anchor_yaw_deg: float = 0.0
+    obstacle_forward_offsets_m: List[float] = field(default_factory=list)
+    obstacle_lateral_offsets_m: List[float] = field(default_factory=list)
+    obstacle_yaw_offsets_deg: List[float] = field(default_factory=list)
     walker_spawn_start_index: int = -1
     walker_spawn_indices: List[int] = field(default_factory=list)
     walker_spawn_delay_sec: float = 0.0
@@ -114,6 +124,15 @@ class ScenarioConfig:
             traffic_route_commands = []
         if isinstance(traffic_route_commands, str):
             traffic_route_commands = [traffic_route_commands]
+        obstacle_forward_offsets = data.get("obstacle_forward_offsets_m", [])
+        if obstacle_forward_offsets is None:
+            obstacle_forward_offsets = []
+        obstacle_lateral_offsets = data.get("obstacle_lateral_offsets_m", [])
+        if obstacle_lateral_offsets is None:
+            obstacle_lateral_offsets = []
+        obstacle_yaw_offsets = data.get("obstacle_yaw_offsets_deg", [])
+        if obstacle_yaw_offsets is None:
+            obstacle_yaw_offsets = []
         walker_spawn_indices = data.get("walker_spawn_indices", [])
         if walker_spawn_indices is None:
             walker_spawn_indices = []
@@ -143,6 +162,16 @@ class ScenarioConfig:
             traffic_route_commands=[str(item) for item in traffic_route_commands],
             traffic_spawn_delay_sec=float(data.get("traffic_spawn_delay_sec", 0.0)),
             traffic_speed_difference=float(data.get("traffic_speed_difference", 25.0)),
+            obstacle_vehicles=int(data.get("obstacle_vehicles", 0)),
+            obstacle_spawn_delay_sec=float(data.get("obstacle_spawn_delay_sec", 0.0)),
+            obstacle_blueprint=str(data.get("obstacle_blueprint", "vehicle.dodge.charger_police_2020")),
+            obstacle_anchor_x=float(data.get("obstacle_anchor_x", 0.0)),
+            obstacle_anchor_y=float(data.get("obstacle_anchor_y", 0.0)),
+            obstacle_anchor_z=float(data.get("obstacle_anchor_z", 0.6)),
+            obstacle_anchor_yaw_deg=float(data.get("obstacle_anchor_yaw_deg", 0.0)),
+            obstacle_forward_offsets_m=[float(item) for item in obstacle_forward_offsets],
+            obstacle_lateral_offsets_m=[float(item) for item in obstacle_lateral_offsets],
+            obstacle_yaw_offsets_deg=[float(item) for item in obstacle_yaw_offsets],
             walker_spawn_start_index=int(data.get("walker_spawn_start_index", -1)),
             walker_spawn_indices=[int(item) for item in walker_spawn_indices],
             walker_spawn_delay_sec=float(data.get("walker_spawn_delay_sec", 0.0)),
@@ -234,6 +263,16 @@ class ScenarioConfig:
             "traffic_route_commands": list(self.traffic_route_commands),
             "traffic_spawn_delay_sec": self.traffic_spawn_delay_sec,
             "traffic_speed_difference": self.traffic_speed_difference,
+            "obstacle_vehicles": self.obstacle_vehicles,
+            "obstacle_spawn_delay_sec": self.obstacle_spawn_delay_sec,
+            "obstacle_blueprint": self.obstacle_blueprint,
+            "obstacle_anchor_x": self.obstacle_anchor_x,
+            "obstacle_anchor_y": self.obstacle_anchor_y,
+            "obstacle_anchor_z": self.obstacle_anchor_z,
+            "obstacle_anchor_yaw_deg": self.obstacle_anchor_yaw_deg,
+            "obstacle_forward_offsets_m": list(self.obstacle_forward_offsets_m),
+            "obstacle_lateral_offsets_m": list(self.obstacle_lateral_offsets_m),
+            "obstacle_yaw_offsets_deg": list(self.obstacle_yaw_offsets_deg),
             "walker_spawn_start_index": self.walker_spawn_start_index,
             "walker_spawn_indices": list(self.walker_spawn_indices),
             "walker_spawn_delay_sec": self.walker_spawn_delay_sec,

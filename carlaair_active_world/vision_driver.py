@@ -252,7 +252,7 @@ class VisionEgoDriver:
             target_speed = 0.0
             priority = 0
             if actor_type == "walker":
-                if local_y <= -2.4 and local_velocity_y <= 0.1:
+                if local_y <= -1.8 and local_velocity_y <= 0.1:
                     continue
                 if abs_y >= 4.2:
                     continue
@@ -267,7 +267,18 @@ class VisionEgoDriver:
                     target_speed = 0.8
                     priority = 1
             else:
-                if local_x <= 7.5 and abs_y <= 4.8:
+                if role_name == "task_obstacle":
+                    if local_y <= -2.4:
+                        continue
+                    if local_x <= 4.5 and abs_y <= 2.4:
+                        action = "stop"
+                        target_speed = 0.0
+                        priority = 3
+                    elif local_x <= 32.0 and abs_y <= 4.6:
+                        action = "avoid_left"
+                        target_speed = 1.8
+                        priority = 3
+                elif local_x <= 7.5 and abs_y <= 4.8:
                     action = "stop"
                     target_speed = 0.0
                     priority = 2
@@ -292,6 +303,8 @@ class VisionEgoDriver:
                 "role_name": role_name,
                 "source": "world_actor_proximity",
             }
+            if action == "avoid_left":
+                hazard["avoid_lateral_m"] = 3.1
             score = (priority, -distance)
             if best is None or score > (best[0], best[1]):
                 best = (priority, -distance, hazard)

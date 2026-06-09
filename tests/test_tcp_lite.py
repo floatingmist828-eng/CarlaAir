@@ -660,6 +660,66 @@ def test_tcp_lite_policy_applies_throttle_for_slow_hazard_from_stop():
     assert diagnostics["interaction_yield"]["action"] == "slow"
 
 
+def test_tcp_lite_policy_steers_left_for_lane_obstacle_avoidance():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": False,
+            "route_target_local_x": 14.0,
+            "route_target_local_y": 0.0,
+            "lane_width_m": 3.5,
+            "interaction_hazard": {
+                "active": True,
+                "action": "avoid_left",
+                "target_speed_mps": 1.8,
+                "avoid_lateral_m": 3.1,
+                "distance_m": 18.0,
+                "actor_type": "vehicle",
+                "role_name": "task_obstacle",
+            },
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert control.steer > 0.10
+    assert control.brake == 0.0
+    assert diagnostics["route_target_local_y"] > 2.5
+    assert diagnostics["target_speed_mps"] == 1.8
+    assert diagnostics["interaction_yield"]["action"] == "avoid_left"
+    assert diagnostics["obstacle_avoidance"]["applied"] is True
+    assert diagnostics["obstacle_avoidance"]["avoid_lateral_m"] <= 3.2
+
+
+def test_tcp_lite_policy_uses_stronger_throttle_from_stop_on_clear_route():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 0.0,
+            "in_junction": False,
+            "route_target_local_x": 14.0,
+            "route_target_local_y": 0.0,
+        }
+    )
+
+    assert control.throttle >= 0.40
+    assert control.brake == 0.0
+
+
 def test_tcp_lite_policy_brakes_for_close_pedestrian_hazard():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),

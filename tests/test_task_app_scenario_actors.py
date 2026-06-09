@@ -46,8 +46,9 @@ class _World:
 
 
 def test_task_app_spawns_configured_traffic_and_walkers(monkeypatch):
-    calls = {"vehicles": None, "walkers": None}
+    calls = {"vehicles": None, "walkers": None, "obstacles": None}
     traffic = _Actor(20)
+    obstacle = _Actor(21, type_id="vehicle.obstacle")
     walker = _Actor(30, type_id="walker.pedestrian.test")
     controller = _Actor(31, type_id="controller.ai.walker")
 
@@ -69,6 +70,12 @@ def test_task_app_spawns_configured_traffic_and_walkers(monkeypatch):
         lambda *_args, **kwargs: calls.__setitem__("walkers", kwargs)
         or [_Spawned(walker, controller, carla.Location(x=3.0, y=4.0, z=0.0), 1.2)],
     )
+    monkeypatch.setattr(
+        task_app,
+        "spawn_static_obstacle_vehicles",
+        lambda *_args, **kwargs: calls.__setitem__("obstacles", kwargs) or [_Spawned(obstacle)],
+        raising=False,
+    )
 
     scenario = ScenarioConfig.from_dict(
         {
@@ -80,6 +87,13 @@ def test_task_app_spawns_configured_traffic_and_walkers(monkeypatch):
             "traffic_route_commands": ["Right", "Straight"],
             "traffic_spawn_delay_sec": 0.0,
             "traffic_speed_difference": 45.0,
+            "obstacle_vehicles": 1,
+            "obstacle_anchor_x": -41.6,
+            "obstacle_anchor_y": 58.0,
+            "obstacle_anchor_yaw_deg": -90.0,
+            "obstacle_forward_offsets_m": [0.0],
+            "obstacle_lateral_offsets_m": [0.8],
+            "obstacle_yaw_offsets_deg": [25.0],
             "traffic_walkers": 4,
             "walker_spawn_indices": [146, 146, 146, 146],
             "walker_spawn_delay_sec": 0.0,
@@ -104,7 +118,15 @@ def test_task_app_spawns_configured_traffic_and_walkers(monkeypatch):
     assert calls["walkers"]["crossing_offsets_m"] == [-2.0, -0.7, 0.7, 2.0]
     assert calls["walkers"]["use_ai_controller"] is False
     assert calls["walkers"]["speed_mps"] == 0.85
+    assert calls["obstacles"]["count"] == 1
+    assert calls["obstacles"]["anchor_transform"].location.x == -41.6
+    assert calls["obstacles"]["anchor_transform"].location.y == 58.0
+    assert calls["obstacles"]["anchor_transform"].rotation.yaw == -90.0
+    assert calls["obstacles"]["forward_offsets_m"] == [0.0]
+    assert calls["obstacles"]["lateral_offsets_m"] == [0.8]
+    assert calls["obstacles"]["yaw_offsets_deg"] == [25.0]
     assert app.traffic_actors == [traffic]
+    assert app.obstacle_actors == [obstacle]
     assert app.walker_actors == [walker]
     assert app.walker_controllers == [controller]
 
@@ -179,6 +201,37 @@ def test_task_app_freezes_scripted_walker_at_crossing_target(monkeypatch):
     assert walker.control.speed == 0.0
     assert walker.location.x == target.x
     assert walker.location.y == target.y
+
+
+def test_task_app_freezes_overshot_scripted_walker_without_reverse_snap(monkeypatch):
+    class _Walker(_Actor):
+        def __init__(self):
+            super().__init__(30, type_id="walker.pedestrian.test")
+            self.location = carla.Location(x=-10.3, y=0.0, z=0.0)
+
+        def get_location(self):
+            return self.location
+
+        def get_velocity(self):
+            return carla.Vector3D(x=-0.8, y=0.0, z=0.0)
+
+        def get_transform(self):
+            return carla.Transform(self.location, carla.Rotation(yaw=180.0))
+
+        def set_transform(self, transform):
+            self.location = transform.location
+
+    walker = _Walker()
+    scenario = ScenarioConfig.from_dict({"name": "scripted_task_walker_overshot", "uav_enabled": False})
+    app = task_app.ActiveUAVTaskApp(scenario=scenario, output_dir=Path("recordings/test_scripted_task_walker_overshot"))
+    app._walker_targets = [(walker, carla.Location(x=-10.0, y=0.0, z=0.0), 0.85)]
+
+    app._drive_scripted_walkers()
+
+    assert walker.control is not None
+    assert walker.control.speed == 0.0
+    assert walker.location.x == -10.3
+    assert app._walker_targets == []
 
 
 def test_task_app_delays_configured_traffic_and_walkers(monkeypatch):

@@ -104,6 +104,92 @@ def spawn_traffic_vehicles(
     return vehicles
 
 
+def _offset_transform(
+    anchor: carla.Transform,
+    forward_offset_m: float,
+    lateral_offset_m: float,
+    yaw_offset_deg: float,
+) -> carla.Transform:
+    yaw = math.radians(float(anchor.rotation.yaw))
+    forward_x = math.cos(yaw)
+    forward_y = math.sin(yaw)
+    lateral_x = -math.sin(yaw)
+    lateral_y = math.cos(yaw)
+    location = carla.Location(
+        x=float(anchor.location.x + forward_x * forward_offset_m + lateral_x * lateral_offset_m),
+        y=float(anchor.location.y + forward_y * forward_offset_m + lateral_y * lateral_offset_m),
+        z=float(anchor.location.z),
+    )
+    rotation = carla.Rotation(
+        pitch=float(anchor.rotation.pitch),
+        yaw=float(anchor.rotation.yaw + yaw_offset_deg),
+        roll=float(anchor.rotation.roll),
+    )
+    return carla.Transform(location, rotation)
+
+
+def spawn_static_obstacle_vehicles(
+    world: carla.World,
+    count: int,
+    blueprint_id: Optional[str] = "vehicle.dodge.charger_police_2020",
+    anchor_transform: Optional[carla.Transform] = None,
+    forward_offsets_m: Optional[Sequence[float]] = None,
+    lateral_offsets_m: Optional[Sequence[float]] = None,
+    yaw_offsets_deg: Optional[Sequence[float]] = None,
+    role_name: str = "task_obstacle",
+) -> List[SpawnedVehicle]:
+    if count <= 0:
+        return []
+    if anchor_transform is None:
+        raise ValueError("anchor_transform is required for static obstacle vehicles.")
+
+    bp_lib = world.get_blueprint_library()
+    chosen_bp = _choose_blueprint(bp_lib, blueprint_id)
+    if chosen_bp.has_attribute("role_name"):
+        chosen_bp.set_attribute("role_name", role_name)
+    if chosen_bp.has_attribute("color"):
+        try:
+            chosen_bp.set_attribute("color", "220,40,30")
+        except Exception:
+            pass
+
+    forward_offsets = [float(item) for item in (forward_offsets_m or [])]
+    lateral_offsets = [float(item) for item in (lateral_offsets_m or [])]
+    yaw_offsets = [float(item) for item in (yaw_offsets_deg or [])]
+    obstacles: List[SpawnedVehicle] = []
+    for idx in range(max(0, int(count))):
+        transform = _offset_transform(
+            anchor_transform,
+            forward_offsets[idx % len(forward_offsets)] if forward_offsets else float(idx) * 4.0,
+            lateral_offsets[idx % len(lateral_offsets)] if lateral_offsets else 0.0,
+            yaw_offsets[idx % len(yaw_offsets)] if yaw_offsets else 0.0,
+        )
+        actor = world.try_spawn_actor(chosen_bp, transform)
+        if actor is None:
+            continue
+        try:
+            actor.set_autopilot(False, TRAFFIC_MANAGER_PORT)
+        except Exception:
+            try:
+                actor.set_autopilot(False)
+            except Exception:
+                pass
+        try:
+            actor.set_simulate_physics(False)
+        except Exception:
+            pass
+        try:
+            control = carla.VehicleControl()
+            control.brake = 1.0
+            control.throttle = 0.0
+            control.hand_brake = True
+            actor.apply_control(control)
+        except Exception:
+            pass
+        obstacles.append(SpawnedVehicle(actor=actor, spawn_index=-1))
+    return obstacles
+
+
 def _choose_walker_blueprint(bp_lib: carla.BlueprintLibrary, blueprint_id: Optional[str]) -> carla.ActorBlueprint:
     if blueprint_id:
         bp = bp_lib.find(blueprint_id)

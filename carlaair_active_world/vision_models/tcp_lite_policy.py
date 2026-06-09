@@ -272,13 +272,18 @@ class TcpLiteVisionPolicy(VisionPolicy):
         action = str(hazard.get("action", "")).lower()
         requested_target = _as_optional_float(hazard.get("target_speed_mps"))
         if requested_target is None:
-            requested_target = 0.0 if action == "stop" else min(float(base_target_speed), 1.2)
+            if action == "stop":
+                requested_target = 0.0
+            elif action == "avoid_left":
+                requested_target = min(float(base_target_speed), 1.8)
+            else:
+                requested_target = min(float(base_target_speed), 1.2)
         target_speed = min(float(base_target_speed), max(0.0, float(requested_target)))
         brake_hint = 0.0
         if action == "stop":
             target_speed = 0.0
             brake_hint = max(0.55, min(1.0, 0.35 + speed_mps / 4.0))
-        elif speed_mps > target_speed + 0.75:
+        elif speed_mps > target_speed + (1.0 if action == "avoid_left" else 0.75):
             brake_hint = _clamp((speed_mps - target_speed) / max(1.0, base_target_speed), 0.10, 0.45)
 
         diagnostics.update(
@@ -304,7 +309,23 @@ class TcpLiteVisionPolicy(VisionPolicy):
             return None, {}
 
         speed_mps = float(obs.get("speed_mps", 0.0) or 0.0)
-        angle = math.atan2(float(y), max(0.5, float(x)))
+        hazard = obs.get("interaction_hazard") or {}
+        obstacle_avoidance: Dict[str, Any] = {"applied": False}
+        adjusted_y = float(y)
+        if isinstance(hazard, dict) and str(hazard.get("action", "")).lower() == "avoid_left":
+            lane_width = _as_optional_float(obs.get("lane_width_m")) or 3.5
+            requested_avoid = _as_optional_float(hazard.get("avoid_lateral_m"))
+            if requested_avoid is None:
+                requested_avoid = min(3.1, max(2.6, float(lane_width) * 0.88))
+            avoid_lateral = _clamp(float(requested_avoid), 2.4, min(3.2, max(2.4, float(lane_width) * 0.95)))
+            adjusted_y = max(adjusted_y, avoid_lateral)
+            obstacle_avoidance = {
+                "applied": True,
+                "avoid_lateral_m": float(avoid_lateral),
+                "original_route_target_local_y": float(y),
+            }
+
+        angle = math.atan2(float(adjusted_y), max(0.5, float(x)))
         route_steer = _clamp(1.05 * angle / (math.pi / 2.0), -0.55, 0.55)
         lane_centering_correction = 0.0
         lane_offset_value = None
@@ -325,7 +346,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             target_speed = min(target_speed, 1.8)
         target_speed, interaction_diagnostics = self._interaction_yield_target(obs, target_speed, speed_mps)
         speed_error = target_speed - speed_mps
-        throttle = _clamp(0.18 * speed_error, 0.0, 0.36)
+        throttle = _clamp(0.22 * speed_error, 0.0, 0.42)
         brake = 0.0
         if speed_error < -0.8:
             brake = _clamp((-speed_error) / max(1.0, self.target_speed_mps), 0.0, 0.5)
@@ -343,11 +364,12 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "reason": "route_reference_available",
             "lane_confidence": 1.0,
             "route_target_local_x": float(x),
-            "route_target_local_y": float(y),
+            "route_target_local_y": float(adjusted_y),
             "route_target_source": str(obs.get("route_target_source", "")),
             "route_steer": float(route_steer),
             "lane_center_offset_m": lane_offset_value,
             "lane_centering_correction": float(lane_centering_correction),
+            "obstacle_avoidance": obstacle_avoidance,
             "uav_bev_fusion": uav_bev_diagnostics,
             "speed_mps": float(speed_mps),
             "target_speed_mps": float(target_speed),
