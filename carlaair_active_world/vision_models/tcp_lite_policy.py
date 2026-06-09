@@ -333,6 +333,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
 
         angle = math.atan2(float(adjusted_y), max(0.5, float(x)))
         route_steer = _clamp(1.05 * angle / (math.pi / 2.0), -0.55, 0.55)
+        if obstacle_avoidance.get("applied"):
+            route_steer = _clamp(route_steer * 1.65, -0.55, 0.55)
         lane_centering_correction = 0.0
         lane_offset_value = None
         try:
