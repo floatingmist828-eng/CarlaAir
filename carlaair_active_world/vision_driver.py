@@ -312,7 +312,7 @@ class VisionEgoDriver:
                 "source": "world_actor_proximity",
             }
             if action == "avoid_left":
-                hazard["avoid_lateral_m"] = -3.6
+                hazard["avoid_lateral_m"] = -3.3
             score = (priority, -distance)
             if best is None or score > (best[0], best[1]):
                 best = (priority, -distance, hazard)

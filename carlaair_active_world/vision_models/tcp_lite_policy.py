@@ -316,12 +316,12 @@ class TcpLiteVisionPolicy(VisionPolicy):
             lane_width = _as_optional_float(obs.get("lane_width_m")) or 3.5
             requested_avoid = _as_optional_float(hazard.get("avoid_lateral_m"))
             if requested_avoid is None:
-                requested_avoid = -min(3.6, max(2.8, float(lane_width)))
+                requested_avoid = -min(3.3, max(2.8, float(lane_width) * 0.95))
             avoid_sign = -1.0 if float(requested_avoid) < 0.0 else 1.0
             avoid_magnitude = _clamp(
                 abs(float(requested_avoid)),
                 2.4,
-                min(3.8, max(2.4, float(lane_width) * 1.08)),
+                min(3.5, max(2.4, float(lane_width))),
             )
             avoid_lateral = avoid_sign * avoid_magnitude
             adjusted_y = min(adjusted_y, avoid_lateral) if avoid_lateral < 0.0 else max(adjusted_y, avoid_lateral)
@@ -334,7 +334,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         angle = math.atan2(float(adjusted_y), max(0.5, float(x)))
         route_steer = _clamp(1.05 * angle / (math.pi / 2.0), -0.55, 0.55)
         if obstacle_avoidance.get("applied"):
-            route_steer = _clamp(route_steer * 1.65, -0.55, 0.55)
+            route_steer = _clamp(route_steer * 1.40, -0.55, 0.55)
         lane_centering_correction = 0.0
         lane_offset_value = None
         try:
