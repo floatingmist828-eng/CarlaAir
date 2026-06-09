@@ -254,11 +254,12 @@ class VisionEgoDriver:
             if actor_type == "walker":
                 if local_y <= -2.4 and local_velocity_y <= 0.1:
                     continue
-                if abs_y >= 4.2:
+                crosswalk_prebrake = actor_speed > 0.15 and local_x <= 1.5 and abs_y <= 6.0
+                if not crosswalk_prebrake and abs_y >= 4.2:
                     continue
                 if actor_speed <= 0.15 and local_x >= 8.0 and abs_y >= 3.2:
                     continue
-                if (local_x <= 6.0 and abs_y <= 4.2) or (local_x <= 15.0 and abs_y <= 3.0):
+                if crosswalk_prebrake or (local_x <= 6.0 and abs_y <= 4.2) or (local_x <= 15.0 and abs_y <= 3.0):
                     action = "stop"
                     target_speed = 0.0
                     priority = 2

@@ -774,6 +774,50 @@ def test_vision_driver_stops_for_close_crossing_walker_before_crosswalk():
     assert hazard["action"] == "stop"
 
 
+def test_vision_driver_prebrakes_for_turn_crosswalk_walker():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation())
+            self._velocity = velocity or carla.Vector3D(y=-0.8)
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", 0.0, 0.0, role_name="ego")
+    crossing = _Actor(2, "walker.pedestrian.test", 0.5, 5.8, role_name="task_walker")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, crossing]))
+
+    assert hazard["active"] is True
+    assert hazard["action"] == "stop"
+
+
 def test_vision_driver_requests_left_avoidance_for_lane_obstacle():
     import carla
 
