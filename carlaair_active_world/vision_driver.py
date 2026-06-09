@@ -408,6 +408,13 @@ class VisionEgoDriver:
             "base_navigation_command": self.navigation_command,
             "first_junction_command": self.first_junction_command,
         }
+        try:
+            vehicle_transform = vehicle.get_transform()
+            obs["ego_world_x"] = float(vehicle_transform.location.x)
+            obs["ego_world_y"] = float(vehicle_transform.location.y)
+            obs["ego_world_yaw_deg"] = float(vehicle_transform.rotation.yaw)
+        except Exception:
+            pass
         obs.update(lane_reference)
         detector_diagnostics = dict(self._detector_diagnostics)
         vision_obstacle = False

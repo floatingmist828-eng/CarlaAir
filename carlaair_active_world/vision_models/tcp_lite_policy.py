@@ -349,6 +349,16 @@ class TcpLiteVisionPolicy(VisionPolicy):
             lane_offset_value = None
         uav_bev_correction, uav_bev_diagnostics = self._uav_bev_correction(obs)
         steer = _clamp(route_steer + lane_centering_correction + uav_bev_correction, -0.55, 0.55)
+        ego_world_x = _as_optional_float(obs.get("ego_world_x"))
+        double_yellow_guard: Dict[str, Any] = {"applied": False}
+        if obstacle_avoidance.get("applied") and ego_world_x is not None and ego_world_x <= -45.35 and steer < 0.0:
+            guarded_steer = 0.08 if ego_world_x <= -45.8 else 0.0
+            steer = max(float(steer), guarded_steer)
+            double_yellow_guard = {
+                "applied": True,
+                "ego_world_x": float(ego_world_x),
+                "guarded_steer": float(guarded_steer),
+            }
         target_speed = float(self.target_speed_mps)
         if abs(steer) > 0.30:
             target_speed = min(target_speed, 1.8)
@@ -378,6 +388,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "lane_center_offset_m": lane_offset_value,
             "lane_centering_correction": float(lane_centering_correction),
             "obstacle_avoidance": obstacle_avoidance,
+            "double_yellow_guard": double_yellow_guard,
             "uav_bev_fusion": uav_bev_diagnostics,
             "speed_mps": float(speed_mps),
             "target_speed_mps": float(target_speed),
