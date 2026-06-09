@@ -239,15 +239,21 @@ class VisionEgoDriver:
             abs_y = abs(float(local_y))
             distance = math.hypot(float(local_x), float(local_y))
             actor_speed = 0.0
+            local_velocity_y = 0.0
             try:
                 velocity = actor.get_velocity()
                 actor_speed = math.sqrt(float(velocity.x) ** 2 + float(velocity.y) ** 2 + float(velocity.z) ** 2)
+                yaw = math.radians(float(vehicle_transform.rotation.yaw))
+                local_velocity_y = float(velocity.x) * math.sin(-yaw) + float(velocity.y) * math.cos(-yaw)
             except Exception:
                 actor_speed = 0.0
+                local_velocity_y = 0.0
             action = ""
             target_speed = 0.0
             priority = 0
             if actor_type == "walker":
+                if local_y <= -2.4 and local_velocity_y <= 0.1:
+                    continue
                 if abs_y >= 4.2:
                     continue
                 if actor_speed <= 0.15 and local_x >= 8.0 and abs_y >= 3.2:
