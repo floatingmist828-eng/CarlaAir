@@ -32,7 +32,7 @@ def test_run_uav_task_defaults_are_project_relative():
 def test_stable_uav_bev_scenario_loads():
     config = ScenarioConfig.load(ROOT / "configs/scenarios/town10hd_vision_tcp_lite_yolo_uav_bev_stable.json")
 
-    assert config.duration_sec == 115.0
+    assert config.duration_sec == 105.0
     assert config.ego_spawn_index == 86
     assert config.ego_spawn_forward_m == 0.0
     assert config.ego_target_speed_mps == 3.2
@@ -54,8 +54,8 @@ def test_stable_uav_bev_scenario_loads():
     assert config.obstacle_anchor_x == -41.6
     assert config.obstacle_anchor_y == 58.0
     assert config.obstacle_anchor_yaw_deg == -90.0
-    assert config.obstacle_forward_offsets_m == [0.0, 4.2]
-    assert config.obstacle_lateral_offsets_m == [0.0, 0.8]
+    assert config.obstacle_forward_offsets_m == [0.0, 6.5]
+    assert config.obstacle_lateral_offsets_m == [0.0, 0.5]
     assert config.obstacle_yaw_offsets_deg == [25.0, -35.0]
     assert config.vision_detector_confidence == 0.45
     assert config.vision_safety_gate_enabled is True

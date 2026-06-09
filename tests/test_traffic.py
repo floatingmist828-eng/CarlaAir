@@ -160,8 +160,8 @@ def test_spawn_static_obstacle_vehicles_offsets_and_holds_position():
         world,
         count=2,
         anchor_transform=anchor,
-        forward_offsets_m=[0.0, 4.2],
-        lateral_offsets_m=[0.0, 0.8],
+        forward_offsets_m=[0.0, 6.5],
+        lateral_offsets_m=[0.0, 0.5],
         yaw_offsets_deg=[25.0, -35.0],
     )
 
@@ -169,8 +169,8 @@ def test_spawn_static_obstacle_vehicles_offsets_and_holds_position():
     assert world.transforms[0].location.x == -41.6
     assert world.transforms[0].location.y == 58.0
     assert world.transforms[0].rotation.yaw == -65.0
-    assert round(world.transforms[1].location.x, 2) == -40.8
-    assert round(world.transforms[1].location.y, 2) == 53.8
+    assert round(world.transforms[1].location.x, 2) == -41.1
+    assert round(world.transforms[1].location.y, 2) == 51.5
     assert world.transforms[1].rotation.yaw == -125.0
     assert all(actor.physics is False for actor in world.actors)
     assert all(actor.autopilot is False for actor in world.actors)

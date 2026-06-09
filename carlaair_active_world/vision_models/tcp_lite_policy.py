@@ -275,7 +275,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             if action == "stop":
                 requested_target = 0.0
             elif action == "avoid_left":
-                requested_target = min(float(base_target_speed), 1.8)
+                requested_target = min(float(base_target_speed), 2.2)
             else:
                 requested_target = min(float(base_target_speed), 1.2)
         target_speed = min(float(base_target_speed), max(0.0, float(requested_target)))
@@ -316,9 +316,15 @@ class TcpLiteVisionPolicy(VisionPolicy):
             lane_width = _as_optional_float(obs.get("lane_width_m")) or 3.5
             requested_avoid = _as_optional_float(hazard.get("avoid_lateral_m"))
             if requested_avoid is None:
-                requested_avoid = min(3.1, max(2.6, float(lane_width) * 0.88))
-            avoid_lateral = _clamp(float(requested_avoid), 2.4, min(3.2, max(2.4, float(lane_width) * 0.95)))
-            adjusted_y = max(adjusted_y, avoid_lateral)
+                requested_avoid = -min(3.1, max(2.6, float(lane_width) * 0.88))
+            avoid_sign = -1.0 if float(requested_avoid) < 0.0 else 1.0
+            avoid_magnitude = _clamp(
+                abs(float(requested_avoid)),
+                2.4,
+                min(3.2, max(2.4, float(lane_width) * 0.95)),
+            )
+            avoid_lateral = avoid_sign * avoid_magnitude
+            adjusted_y = min(adjusted_y, avoid_lateral) if avoid_lateral < 0.0 else max(adjusted_y, avoid_lateral)
             obstacle_avoidance = {
                 "applied": True,
                 "avoid_lateral_m": float(avoid_lateral),
