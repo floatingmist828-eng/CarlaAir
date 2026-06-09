@@ -597,6 +597,38 @@ def test_tcp_lite_policy_slows_for_forward_interaction_hazard():
     assert diagnostics["interaction_yield"]["action"] == "slow"
 
 
+def test_tcp_lite_policy_coasts_for_mild_slow_hazard_overspeed():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.0,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.4,
+            "in_junction": False,
+            "route_target_local_x": 12.0,
+            "route_target_local_y": 0.0,
+            "interaction_hazard": {
+                "active": True,
+                "action": "slow",
+                "target_speed_mps": 1.0,
+                "distance_m": 14.0,
+                "actor_type": "vehicle",
+            },
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert control.throttle == 0.0
+    assert control.brake == 0.0
+    assert diagnostics["target_speed_mps"] == 1.0
+    assert diagnostics["interaction_yield"]["brake_hint"] == 0.0
+
+
 def test_tcp_lite_policy_applies_throttle_for_slow_hazard_from_stop():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),

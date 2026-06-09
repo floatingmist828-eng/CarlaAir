@@ -248,13 +248,15 @@ class VisionEgoDriver:
             target_speed = 0.0
             priority = 0
             if actor_type == "walker":
+                if abs_y >= 4.2:
+                    continue
                 if actor_speed <= 0.15 and local_x >= 8.0 and abs_y >= 3.2:
                     continue
-                if local_x <= 15.0 and abs_y <= 3.2:
+                if local_x <= 15.0 and abs_y <= 3.0:
                     action = "stop"
                     target_speed = 0.0
                     priority = 2
-                elif local_x <= 20.0 and abs_y <= 6.0:
+                elif local_x <= 18.0 and abs_y <= 4.2:
                     action = "slow"
                     target_speed = 0.8
                     priority = 1

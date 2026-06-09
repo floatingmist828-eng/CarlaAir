@@ -48,8 +48,9 @@ def test_stable_uav_bev_scenario_loads():
     assert config.walker_crossing_offsets_m == [-2.0, -0.7, 0.7, 2.0]
     assert config.traffic_vehicles == 4
     assert config.traffic_spawn_indices == [25, 24, 32, 31]
-    assert config.traffic_route_commands == ["Right", "Straight"]
+    assert config.traffic_route_commands == ["Right"]
     assert config.traffic_spawn_delay_sec == 23.0
+    assert config.traffic_speed_difference == 35.0
     assert config.vision_detector_confidence == 0.45
     assert config.vision_safety_gate_enabled is True
     assert config.uav_enabled is True
@@ -57,10 +58,10 @@ def test_stable_uav_bev_scenario_loads():
     assert config.uav_auto_patrol_enabled is True
     assert config.uav_patrol_interval_sec <= 0.6
     assert config.uav_bev_fusion_enabled is True
-    assert config.candidate_offsets[0].name == "front_lead_high"
+    assert config.candidate_offsets[0].name == "front_lead_close"
     assert len(config.candidate_offsets) == 1
-    assert config.candidate_offsets[0].local_offset.x >= 30.0
-    assert config.candidate_offsets[0].local_offset.z >= 28.0
+    assert 22.0 <= config.candidate_offsets[0].local_offset.x <= 26.0
+    assert 20.0 <= config.candidate_offsets[0].local_offset.z <= 24.0
 
 
 def test_scenario_config_round_trips_uav_fusion_mode_and_planner():

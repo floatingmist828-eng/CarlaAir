@@ -11,9 +11,9 @@
   "ego_lookahead_m": 10.0,
   "traffic_vehicles": 4,
   "traffic_spawn_indices": [25, 24, 32, 31],
-  "traffic_route_commands": ["Right", "Straight"],
+  "traffic_route_commands": ["Right"],
   "traffic_spawn_delay_sec": 23.0,
-  "traffic_speed_difference": 45.0,
+  "traffic_speed_difference": 35.0,
   "traffic_walkers": 4,
   "walker_spawn_indices": [146, 146, 146, 146],
   "walker_spawn_delay_sec": 8.0,
@@ -54,14 +54,14 @@
   "uav_bev_camera_name": "front_center",
   "uav_bev_refresh_hz": 3.0,
   "uav_bev_min_confidence": 0.20,
-  "uav_bev_steer_gain": 0.04,
-  "uav_bev_max_steer_correction": 0.04,
+  "uav_bev_steer_gain": 0.035,
+  "uav_bev_max_steer_correction": 0.035,
   "candidate_offsets": [
     {
-      "name": "front_lead_high",
-      "x": 32.0,
+      "name": "front_lead_close",
+      "x": 24.0,
       "y": 0.0,
-      "z": 30.0,
+      "z": 22.0,
       "weight": 1.4
     }
   ]

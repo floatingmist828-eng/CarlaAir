@@ -370,3 +370,45 @@ def test_active_env_keeps_scripted_walker_moving_when_not_fully_crossed():
     assert walker.control is not None
     assert walker.control.speed == 1.2
     assert app._walker_targets == [(walker, target, 1.2)]
+
+
+def test_active_env_freezes_scripted_walker_at_crossing_target():
+    class WalkerActor:
+        def __init__(self) -> None:
+            self.control = None
+            self.location = carla.Location(x=2.92, y=3.94, z=0.0)
+            self.transforms = []
+
+        def get_location(self):
+            return self.location
+
+        def get_transform(self):
+            return carla.Transform(self.location, carla.Rotation(yaw=10.0))
+
+        def set_transform(self, transform) -> None:
+            self.transforms.append(transform)
+            self.location = transform.location
+
+        def apply_control(self, control) -> None:
+            self.control = control
+
+    walker = WalkerActor()
+    target = carla.Location(x=3.0, y=4.0, z=0.0)
+    scenario = ScenarioConfig.from_dict({"name": "scripted_walker_arrived", "uav_enabled": False})
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app._walker_targets = [(walker, target, 1.2)]
+
+    app._drive_scripted_walkers()
+
+    assert walker.control is not None
+    assert walker.control.speed == 0.0
+    assert walker.location.x == target.x
+    assert walker.location.y == target.y
+    assert app._walker_targets == []
+
+    walker.location = carla.Location(x=2.5, y=3.5, z=0.0)
+    app._drive_scripted_walkers()
+
+    assert walker.control.speed == 0.0
+    assert walker.location.x == target.x
+    assert walker.location.y == target.y

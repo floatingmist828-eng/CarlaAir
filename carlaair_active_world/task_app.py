@@ -81,6 +81,7 @@ class ActiveUAVTaskApp:
         self.walker_actors: List[carla.Actor] = []
         self.walker_controllers: List[carla.Actor] = []
         self._walker_targets: List[tuple[carla.Actor, carla.Location, float]] = []
+        self._frozen_walker_targets: List[tuple[carla.Actor, carla.Location]] = []
         self.vehicle_sensors: Dict[int, VehicleSensorRig] = {}
         self.uav_sensors: Optional[UAVSensorRig] = None
         self.uav_bev_provider = CachedUAVBEVProvider(
@@ -315,6 +316,7 @@ class ActiveUAVTaskApp:
         self.walker_actors = []
         self.walker_controllers = []
         self._walker_targets = []
+        self._frozen_walker_targets = []
         self._traffic_spawned = max(0, int(self.scenario.traffic_vehicles)) <= 0
         self._walkers_spawned = max(0, int(self.scenario.traffic_walkers)) <= 0
         if self.world.get_settings().synchronous_mode:
@@ -338,8 +340,8 @@ class ActiveUAVTaskApp:
                 self.scenario.candidate_offsets[0]
                 if self.scenario.candidate_offsets
                 else CandidateViewpoint(
-                    "front_lead_high",
-                    Vector3(26.0, 0.0, float(max(self.scenario.uav_altitude, 30.0))),
+                    "front_lead_close",
+                    Vector3(24.0, 0.0, float(max(self.scenario.uav_altitude, 22.0))),
                 )
             )
             start_pose = local_candidate_to_world(ego_tf, start_candidate)
@@ -450,6 +452,15 @@ class ActiveUAVTaskApp:
             self._spawn_configured_walkers()
 
     def _drive_scripted_walkers(self) -> None:
+        frozen = []
+        for actor, target in list(self._frozen_walker_targets):
+            try:
+                self._freeze_scripted_walker(actor, target)
+                frozen.append((actor, target))
+            except Exception:
+                continue
+        self._frozen_walker_targets = frozen
+
         remaining = []
         for actor, target, speed_mps in list(self._walker_targets):
             try:
@@ -458,9 +469,8 @@ class ActiveUAVTaskApp:
                 dy = float(target.y - loc.y)
                 distance = math.hypot(dx, dy)
                 if distance <= 0.25:
-                    control = carla.WalkerControl()
-                    control.speed = 0.0
-                    actor.apply_control(control)
+                    self._freeze_scripted_walker(actor, target)
+                    self._frozen_walker_targets.append((actor, target))
                     continue
                 control = carla.WalkerControl()
                 control.direction = carla.Vector3D(dx / distance, dy / distance, 0.0)
@@ -470,6 +480,26 @@ class ActiveUAVTaskApp:
             except Exception:
                 continue
         self._walker_targets = remaining
+
+    @staticmethod
+    def _freeze_scripted_walker(actor: carla.Actor, target: carla.Location) -> None:
+        try:
+            rotation = actor.get_transform().rotation
+            actor.set_transform(
+                carla.Transform(
+                    carla.Location(x=float(target.x), y=float(target.y), z=float(target.z)),
+                    rotation,
+                )
+            )
+        except Exception:
+            pass
+        control = carla.WalkerControl()
+        control.speed = 0.0
+        try:
+            control.direction = carla.Vector3D(0.0, 0.0, 0.0)
+        except Exception:
+            pass
+        actor.apply_control(control)
 
     def _attach_vehicle_sensors(self) -> None:
         if self.world is None:

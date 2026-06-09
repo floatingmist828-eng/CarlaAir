@@ -278,8 +278,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if action == "stop":
             target_speed = 0.0
             brake_hint = max(0.55, min(1.0, 0.35 + speed_mps / 4.0))
-        elif speed_mps > target_speed + 0.25:
-            brake_hint = _clamp((speed_mps - target_speed) / max(1.0, base_target_speed), 0.15, 0.60)
+        elif speed_mps > target_speed + 0.75:
+            brake_hint = _clamp((speed_mps - target_speed) / max(1.0, base_target_speed), 0.10, 0.45)
 
         diagnostics.update(
             {
