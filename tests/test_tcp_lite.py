@@ -1765,7 +1765,17 @@ def test_vision_driver_adds_junction_heading_hold_when_turn_reference_drops(monk
         transform = carla.Transform(carla.Location(x=-37.6, y=124.8), carla.Rotation(yaw=-142.0))
 
         def next(self, _distance):
-            return []
+            candidate = type(
+                "Waypoint",
+                (),
+                {
+                    "transform": carla.Transform(
+                        carla.Location(x=-45.0, y=124.0),
+                        carla.Rotation(yaw=-160.0),
+                    )
+                },
+            )()
+            return [candidate]
 
         def get_junction(self):
             return _Junction()

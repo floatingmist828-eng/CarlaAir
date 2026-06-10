@@ -396,10 +396,17 @@ class VisionEgoDriver:
         navigation_command = self._navigation_command_for_lane(lane_reference)
         route_waypoint = lane_reference.pop("_route_waypoint", None)
         if bool(lane_reference.get("in_junction", False)):
-            lane_reference.update(
-                self._junction_turn_reference(vehicle, active_world, navigation_command, waypoint=route_waypoint)
+            turn_reference = self._junction_turn_reference(
+                vehicle,
+                active_world,
+                navigation_command,
+                waypoint=route_waypoint,
             )
-            if "route_target_local_x" not in lane_reference or "route_target_local_y" not in lane_reference:
+            if turn_reference:
+                lane_reference.update(turn_reference)
+            elif navigation_command in {"left", "right"} or (
+                "route_target_local_x" not in lane_reference or "route_target_local_y" not in lane_reference
+            ):
                 lane_reference.update(
                     {
                         "route_target_local_x": 10.0,
