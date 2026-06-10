@@ -354,6 +354,12 @@ class TcpLiteVisionPolicy(VisionPolicy):
 
         speed_mps = float(obs.get("speed_mps", 0.0) or 0.0)
         hazard = obs.get("interaction_hazard") or {}
+        route_source = str(obs.get("route_target_source", ""))
+        junction_route_reference = bool(obs.get("in_junction", False)) and route_source.startswith("junction_")
+        junction_route_steer_guard: Dict[str, Any] = {
+            "applied": False,
+            "lane_centering_suppressed": False,
+        }
         obstacle_avoidance: Dict[str, Any] = {"applied": False}
         adjusted_y = float(y)
         if isinstance(hazard, dict) and str(hazard.get("action", "")).lower() == "avoid_left":
@@ -379,11 +385,27 @@ class TcpLiteVisionPolicy(VisionPolicy):
         route_steer = _clamp(1.05 * angle / (math.pi / 2.0), -0.55, 0.55)
         if obstacle_avoidance.get("applied"):
             route_steer = _clamp(route_steer * 1.40, -0.55, 0.55)
+        if junction_route_reference and not obstacle_avoidance.get("applied"):
+            raw_route_steer = float(route_steer)
+            route_steer = _clamp(route_steer, -self._junction_steer_limit, self._junction_steer_limit)
+            if abs(raw_route_steer - route_steer) > 1.0e-6:
+                junction_route_steer_guard.update(
+                    {
+                        "applied": True,
+                        "raw_route_steer": raw_route_steer,
+                        "guarded_route_steer": float(route_steer),
+                        "steer_limit": float(self._junction_steer_limit),
+                    }
+                )
         lane_centering_correction = 0.0
         lane_offset_value = None
         try:
             lane_offset_value = float(obs.get("lane_center_offset_m"))
-            if abs(lane_offset_value) > self._lane_centering_deadband_m:
+            if junction_route_reference:
+                junction_route_steer_guard["lane_centering_suppressed"] = (
+                    abs(lane_offset_value) > self._lane_centering_deadband_m
+                )
+            elif abs(lane_offset_value) > self._lane_centering_deadband_m:
                 lane_centering_correction = _clamp(
                     -self._lane_centering_gain * lane_offset_value,
                     -self._lane_centering_max_correction,
@@ -443,6 +465,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "route_steer": float(route_steer),
             "lane_center_offset_m": lane_offset_value,
             "lane_centering_correction": float(lane_centering_correction),
+            "junction_route_steer_guard": junction_route_steer_guard,
             "obstacle_avoidance": obstacle_avoidance,
             "double_yellow_guard": double_yellow_guard,
             "uav_bev_fusion": uav_bev_diagnostics,

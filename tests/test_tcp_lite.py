@@ -461,6 +461,56 @@ def test_tcp_lite_policy_uses_junction_route_reference_for_turn_target():
     assert policy.last_diagnostics["raw_control"] is None
 
 
+def test_tcp_lite_policy_caps_aggressive_junction_turn_reference():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 2.4,
+            "in_junction": True,
+            "route_target_source": "junction_turn_reference",
+            "route_target_local_x": 15.5,
+            "route_target_local_y": 15.0,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert 0.20 <= control.steer <= 0.34
+    assert diagnostics["junction_route_steer_guard"]["applied"] is True
+
+
+def test_tcp_lite_policy_ignores_lane_centering_during_junction_turn_reference():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 2.4,
+            "in_junction": True,
+            "route_target_source": "junction_turn_reference_cached",
+            "route_target_local_x": 14.0,
+            "route_target_local_y": 3.3,
+            "lane_center_offset_m": 1.35,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert control.steer > 0.10
+    assert diagnostics["lane_centering_correction"] == 0.0
+    assert diagnostics["junction_route_steer_guard"]["lane_centering_suppressed"] is True
+
+
 def test_tcp_lite_policy_uses_junction_heading_hold_for_turn_recovery():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),
