@@ -488,6 +488,31 @@ def test_tcp_lite_policy_uses_junction_heading_hold_for_turn_recovery():
     assert policy.last_diagnostics["raw_control"] is None
 
 
+def test_tcp_lite_policy_uses_cached_junction_turn_reference():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+    policy.fallback_policy = _FallbackPolicy()
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": True,
+            "route_target_source": "junction_turn_reference_cached",
+            "route_target_local_x": 9.0,
+            "route_target_local_y": 3.0,
+        }
+    )
+
+    assert control.steer > 0.0
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["fallback"]["diagnostics"]["route_target_source"] == "junction_turn_reference_cached"
+
+
 def test_tcp_lite_policy_uses_waypoint_reference_for_lane_follow_inside_junction():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),

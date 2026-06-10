@@ -468,7 +468,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if not in_junction:
             return True
         route_source = str(obs.get("route_target_source", "")).lower()
-        if route_source in {"junction_turn_reference", "junction_heading_hold"}:
+        if route_source in {"junction_turn_reference", "junction_turn_reference_cached", "junction_heading_hold"}:
             return True
         command = str(obs.get("navigation_command", "")).lower()
         return route_source == "waypoint_next" and command in {"lane_follow", "straight"}

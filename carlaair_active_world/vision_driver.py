@@ -55,6 +55,7 @@ class VisionEgoDriver:
         self._junction_active_command = ""
         self._junction_command_index = 0
         self._was_in_junction = False
+        self._junction_cached_turn_target: Optional[tuple[str, carla.Location]] = None
         self.sensor_rig = self.sensor_rig_class(
             world,
             ego_vehicle,
@@ -381,6 +382,9 @@ class VisionEgoDriver:
                     "route_target_turn_command": turn_command,
                     "route_target_turn_delta_deg": float(turn_delta),
                     "route_target_entry_distance_m": float(entry_distance),
+                    "route_target_world_x": float(exit_transform.location.x),
+                    "route_target_world_y": float(exit_transform.location.y),
+                    "route_target_world_z": float(exit_transform.location.z),
                 }
                 if best is None or score < best[0]:
                     best = (score, reference)
@@ -403,9 +407,43 @@ class VisionEgoDriver:
                 waypoint=route_waypoint,
             )
             if turn_reference:
+                self._junction_cached_turn_target = (
+                    navigation_command,
+                    carla.Location(
+                        x=float(turn_reference["route_target_world_x"]),
+                        y=float(turn_reference["route_target_world_y"]),
+                        z=float(turn_reference.get("route_target_world_z", 0.0) or 0.0),
+                    ),
+                )
                 lane_reference.update(turn_reference)
-            elif navigation_command in {"left", "right"} or (
-                "route_target_local_x" not in lane_reference or "route_target_local_y" not in lane_reference
+            else:
+                cached_command, cached_target = (
+                    self._junction_cached_turn_target
+                    if self._junction_cached_turn_target is not None
+                    else ("", None)
+                )
+                if cached_target is not None and cached_command == navigation_command:
+                    try:
+                        local_x, local_y = self._local_target(vehicle.get_transform(), cached_target)
+                    except Exception:
+                        local_x, local_y = 0.0, 0.0
+                    if local_x > 2.0:
+                        lane_reference.update(
+                            {
+                                "route_target_local_x": float(local_x),
+                                "route_target_local_y": float(local_y),
+                                "route_target_source": "junction_turn_reference_cached",
+                                "route_target_turn_command": navigation_command,
+                            }
+                        )
+            if (
+                bool(lane_reference.get("in_junction", False))
+                and (
+                    navigation_command in {"left", "right"}
+                    or "route_target_local_x" not in lane_reference
+                    or "route_target_local_y" not in lane_reference
+                )
+                and lane_reference.get("route_target_source") not in {"junction_turn_reference", "junction_turn_reference_cached"}
             ):
                 lane_reference.update(
                     {
@@ -415,6 +453,8 @@ class VisionEgoDriver:
                         "route_target_turn_command": navigation_command,
                     }
                 )
+        else:
+            self._junction_cached_turn_target = None
         obs = {
             "rgb": frames.get("rgb"),
             "depth": frames.get("depth") if self.use_depth else None,
