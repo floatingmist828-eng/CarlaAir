@@ -660,6 +660,37 @@ def test_tcp_lite_policy_applies_throttle_for_slow_hazard_from_stop():
     assert diagnostics["interaction_yield"]["action"] == "slow"
 
 
+def test_tcp_lite_policy_zeroes_steer_for_walker_stop_hazard():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.4,
+            "in_junction": False,
+            "route_target_local_x": 8.0,
+            "route_target_local_y": 5.0,
+            "interaction_hazard": {
+                "active": True,
+                "action": "stop",
+                "target_speed_mps": 0.0,
+                "actor_type": "walker",
+                "role_name": "task_walker",
+            },
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert control.brake >= 0.55
+    assert abs(control.steer) <= 0.02
+    assert diagnostics["pedestrian_stop_steer_guard"]["applied"] is True
+
+
 def test_tcp_lite_policy_steers_left_for_lane_obstacle_avoidance():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),

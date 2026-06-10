@@ -302,6 +302,50 @@ class TcpLiteVisionPolicy(VisionPolicy):
         )
         return float(target_speed), diagnostics
 
+    @staticmethod
+    def _is_pedestrian_stop_hazard(obs: Dict[str, Any]) -> bool:
+        hazard = obs.get("interaction_hazard") or {}
+        if not isinstance(hazard, dict) or not bool(hazard.get("active", False)):
+            return False
+        if str(hazard.get("action", "")).lower() != "stop":
+            return False
+        actor_type = str(hazard.get("actor_type", "")).lower()
+        role_name = str(hazard.get("role_name", "")).lower()
+        return actor_type == "walker" or role_name == "task_walker"
+
+    def _apply_pedestrian_stop_steer_guard(
+        self,
+        obs: Dict[str, Any],
+        control: carla.VehicleControl,
+        diagnostics: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        guard: Dict[str, Any] = {"applied": False}
+        if not self._is_pedestrian_stop_hazard(obs):
+            if diagnostics is not None:
+                diagnostics["pedestrian_stop_steer_guard"] = guard
+            return guard
+
+        previous_steer = float(control.steer)
+        previous_throttle = float(control.throttle)
+        previous_brake = float(control.brake)
+        control.steer = 0.0
+        control.throttle = 0.0
+        control.brake = max(previous_brake, 0.55)
+        self._last_steer = 0.0
+        self._has_last_steer = True
+        guard = {
+            "applied": True,
+            "previous_steer": previous_steer,
+            "previous_throttle": previous_throttle,
+            "previous_brake": previous_brake,
+        }
+        if diagnostics is not None:
+            diagnostics["pedestrian_stop_steer_guard"] = guard
+            diagnostics["steer"] = float(control.steer)
+            diagnostics["throttle"] = float(control.throttle)
+            diagnostics["brake"] = float(control.brake)
+        return guard
+
     def _route_reference_control(self, obs: Dict[str, Any]) -> tuple[Optional[carla.VehicleControl], Dict[str, Any]]:
         x = _as_optional_float(obs.get("route_target_local_x"))
         y = _as_optional_float(obs.get("route_target_local_y"))
@@ -397,6 +441,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "throttle": float(control.throttle),
             "brake": float(control.brake),
         }
+        self._apply_pedestrian_stop_steer_guard(obs, control, diagnostics)
         return control, diagnostics
 
     def _fallback_reference_control(self, obs: Dict[str, Any]) -> tuple[carla.VehicleControl, Dict[str, Any]]:
@@ -567,6 +612,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         uav_bev_diagnostics = dict(fallback_diagnostics.get("uav_bev_fusion") or {})
         if not uav_bev_diagnostics:
             _, uav_bev_diagnostics = self._uav_bev_correction(obs)
+        pedestrian_stop_steer_guard = self._apply_pedestrian_stop_steer_guard(obs, control, fallback_diagnostics)
         self.last_diagnostics = {
             "model_ready": True,
             "model_path": self.model_path,
@@ -581,6 +627,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "trajectory": trajectory,
             "raw_control": raw_control,
             "uav_bev_fusion": uav_bev_diagnostics,
+            "pedestrian_stop_steer_guard": pedestrian_stop_steer_guard,
             "steer": float(control.steer),
             "throttle": float(control.throttle),
             "brake": float(control.brake),
@@ -725,6 +772,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         control.steer = _clamp(steer, -1.0, 1.0)
         control.throttle = _clamp(throttle, 0.0, 1.0)
         control.brake = _clamp(brake, 0.0, 1.0)
+        pedestrian_stop_steer_guard = self._apply_pedestrian_stop_steer_guard(obs, control)
         self.last_diagnostics = {
             "model_ready": True,
             "model_path": self.model_path,
@@ -736,6 +784,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "trajectory": trajectory,
             "raw_control": raw_control,
             "uav_bev_fusion": stabilization_diagnostics.get("uav_bev_fusion"),
+            "pedestrian_stop_steer_guard": pedestrian_stop_steer_guard,
             "steer": float(control.steer),
             "throttle": float(control.throttle),
             "brake": float(control.brake),
