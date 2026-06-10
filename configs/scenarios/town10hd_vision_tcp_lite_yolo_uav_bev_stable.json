@@ -56,10 +56,10 @@
   "uav_enabled": true,
   "uav_control_enabled": true,
   "uav_name": "SimpleFlight",
-  "uav_altitude": 18.0,
-  "uav_back_distance": 8.0,
+  "uav_altitude": 16.0,
+  "uav_back_distance": 6.0,
   "uav_auto_patrol_enabled": true,
-  "uav_patrol_interval_sec": 0.5,
+  "uav_patrol_interval_sec": 0.8,
   "uav_bev_fusion_enabled": true,
   "uav_bev_camera_name": "front_center",
   "uav_bev_refresh_hz": 3.0,
@@ -69,9 +69,9 @@
   "candidate_offsets": [
     {
       "name": "front_lead_close",
-      "x": 24.0,
+      "x": 16.0,
       "y": 0.0,
-      "z": 22.0,
+      "z": 16.0,
       "weight": 1.4
     }
   ]
