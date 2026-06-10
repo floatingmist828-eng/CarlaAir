@@ -394,16 +394,28 @@ class TcpLiteVisionPolicy(VisionPolicy):
         uav_bev_correction, uav_bev_diagnostics = self._uav_bev_correction(obs)
         steer = _clamp(route_steer + lane_centering_correction + uav_bev_correction, -0.55, 0.55)
         ego_world_x = _as_optional_float(obs.get("ego_world_x"))
+        ego_world_y = _as_optional_float(obs.get("ego_world_y"))
         double_yellow_guard: Dict[str, Any] = {"applied": False}
-        if obstacle_avoidance.get("applied") and ego_world_x is not None and ego_world_x <= -45.35 and steer < 0.0:
-            guarded_steer = 0.08 if ego_world_x <= -45.8 else 0.0
+        boundary_speed_limit = None
+        in_obstacle_corridor = (
+            ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
+        ) or (ego_world_y is None and bool(obstacle_avoidance.get("applied")))
+        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= -45.35:
+            guarded_steer = 0.18 if ego_world_x <= -46.2 else 0.08
             steer = max(float(steer), guarded_steer)
+            if ego_world_x <= -46.2:
+                boundary_speed_limit = 1.2
             double_yellow_guard = {
                 "applied": True,
+                "reason": "obstacle_corridor_boundary",
                 "ego_world_x": float(ego_world_x),
+                "ego_world_y": None if ego_world_y is None else float(ego_world_y),
                 "guarded_steer": float(guarded_steer),
+                "speed_limit_mps": boundary_speed_limit,
             }
         target_speed = float(self.target_speed_mps)
+        if boundary_speed_limit is not None:
+            target_speed = min(target_speed, float(boundary_speed_limit))
         if abs(steer) > 0.30:
             target_speed = min(target_speed, 1.8)
         target_speed, interaction_diagnostics = self._interaction_yield_target(obs, target_speed, speed_mps)
