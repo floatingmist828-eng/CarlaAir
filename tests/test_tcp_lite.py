@@ -832,7 +832,7 @@ def test_tcp_lite_policy_guards_obstacle_avoidance_near_double_yellow():
             "route_target_local_x": 10.0,
             "route_target_local_y": 0.0,
             "lane_width_m": 3.5,
-            "ego_world_x": -45.9,
+            "ego_world_x": -46.4,
             "interaction_hazard": {
                 "active": True,
                 "action": "avoid_left",
@@ -846,7 +846,7 @@ def test_tcp_lite_policy_guards_obstacle_avoidance_near_double_yellow():
     )
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
-    assert control.steer >= 0.08
+    assert control.steer >= 0.18
     assert diagnostics["double_yellow_guard"]["applied"] is True
 
 

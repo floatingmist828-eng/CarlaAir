@@ -400,10 +400,10 @@ class TcpLiteVisionPolicy(VisionPolicy):
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
         ) or (ego_world_y is None and bool(obstacle_avoidance.get("applied")))
-        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= -45.35:
-            guarded_steer = 0.18 if ego_world_x <= -46.2 else 0.08
+        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= -46.2:
+            guarded_steer = 0.18
             steer = max(float(steer), guarded_steer)
-            if ego_world_x <= -46.2:
+            if ego_world_x <= -46.5:
                 boundary_speed_limit = 1.2
             double_yellow_guard = {
                 "applied": True,
