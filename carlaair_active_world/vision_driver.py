@@ -399,6 +399,15 @@ class VisionEgoDriver:
             lane_reference.update(
                 self._junction_turn_reference(vehicle, active_world, navigation_command, waypoint=route_waypoint)
             )
+            if "route_target_local_x" not in lane_reference or "route_target_local_y" not in lane_reference:
+                lane_reference.update(
+                    {
+                        "route_target_local_x": 10.0,
+                        "route_target_local_y": 0.0,
+                        "route_target_source": "junction_heading_hold",
+                        "route_target_turn_command": navigation_command,
+                    }
+                )
         obs = {
             "rgb": frames.get("rgb"),
             "depth": frames.get("depth") if self.use_depth else None,

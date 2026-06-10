@@ -461,6 +461,33 @@ def test_tcp_lite_policy_uses_junction_route_reference_for_turn_target():
     assert policy.last_diagnostics["raw_control"] is None
 
 
+def test_tcp_lite_policy_uses_junction_heading_hold_for_turn_recovery():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=2.5,
+    )
+    policy.fallback_policy = _FallbackPolicy()
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": True,
+            "route_target_source": "junction_heading_hold",
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 0.0,
+        }
+    )
+
+    assert abs(control.steer) <= 0.02
+    assert control.throttle > 0.0
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["fallback"]["diagnostics"]["route_target_source"] == "junction_heading_hold"
+    assert policy.last_diagnostics["raw_control"] is None
+
+
 def test_tcp_lite_policy_uses_waypoint_reference_for_lane_follow_inside_junction():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),
@@ -1670,6 +1697,98 @@ def test_vision_driver_adds_junction_turn_route_reference(monkeypatch):
     assert policy.obs["route_target_source"] == "junction_turn_reference"
     assert policy.obs["route_target_local_x"] > 10.0
     assert policy.obs["route_target_local_y"] > 10.0
+
+
+def test_vision_driver_adds_junction_heading_hold_when_turn_reference_drops(monkeypatch):
+    import carla
+    from carlaair_active_world.vision_driver import VisionEgoDriver
+
+    class _Rig:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def spawn(self) -> None:
+            pass
+
+        def snapshot(self):
+            return {"rgb": np.zeros((90, 160, 3), dtype=np.uint8)}
+
+        def destroy(self) -> None:
+            pass
+
+    class _Policy:
+        def __init__(self) -> None:
+            self.obs = {}
+            self.last_diagnostics = {}
+
+        def predict(self, obs):
+            self.obs = dict(obs)
+            return carla.VehicleControl()
+
+    class _Junction:
+        def get_waypoints(self, _lane_type):
+            return []
+
+    class _Waypoint:
+        is_junction = True
+        lane_width = 3.5
+        road_id = 476
+        lane_id = -1
+        transform = carla.Transform(carla.Location(x=-37.6, y=124.8), carla.Rotation(yaw=-142.0))
+
+        def next(self, _distance):
+            return []
+
+        def get_junction(self):
+            return _Junction()
+
+    class _Map:
+        def get_waypoint(self, *_args, **_kwargs):
+            return _Waypoint()
+
+    class _World:
+        def get_map(self):
+            return _Map()
+
+        def get_actors(self):
+            class _Actors(list):
+                def filter(self, _pattern):
+                    return []
+
+            return _Actors()
+
+    class _Vehicle:
+        id = 1
+        type_id = "vehicle.ego"
+        attributes = {"role_name": "ego"}
+
+        def get_velocity(self):
+            return type("Velocity", (), {"x": 0.0, "y": 0.0, "z": 0.0})()
+
+        def get_location(self):
+            return carla.Location(x=-37.6, y=124.8)
+
+        def get_transform(self):
+            return carla.Transform(carla.Location(x=-37.6, y=124.8), carla.Rotation(yaw=-142.0))
+
+    monkeypatch.setattr(VisionEgoDriver, "sensor_rig_class", _Rig)
+    policy = _Policy()
+    driver = VisionEgoDriver(
+        _World(),
+        _Vehicle(),
+        policy=policy,
+        navigation_command="lane_follow",
+        first_junction_command="right",
+        junction_command_hold_sec=12.0,
+        clock=lambda: 6.0,
+    )
+
+    driver.predict()
+
+    assert policy.obs["navigation_command"] == "right"
+    assert policy.obs["route_target_source"] == "junction_heading_hold"
+    assert policy.obs["route_target_local_x"] == 10.0
+    assert policy.obs["route_target_local_y"] == 0.0
 
 
 def test_env_uses_tcp_lite_policy_for_tcp_lite_mode(monkeypatch):
