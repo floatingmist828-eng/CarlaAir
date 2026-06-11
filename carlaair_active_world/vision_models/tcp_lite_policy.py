@@ -415,6 +415,33 @@ class TcpLiteVisionPolicy(VisionPolicy):
             lane_offset_value = None
         uav_bev_correction, uav_bev_diagnostics = self._uav_bev_correction(obs)
         steer = _clamp(route_steer + lane_centering_correction + uav_bev_correction, -0.55, 0.55)
+        route_reference_stabilization: Dict[str, Any] = {"applied": False}
+        navigation_command = str(obs.get("navigation_command", self.navigation_command)).lower()
+        active_turn_reference = (
+            junction_route_reference
+            and navigation_command in {"left", "right"}
+            and not bool(obstacle_avoidance.get("applied"))
+        )
+        if not active_turn_reference:
+            previous_steer = self._last_steer if self._has_last_steer else None
+            if previous_steer is not None:
+                raw_target_steer = float(steer)
+                smoothed = self._steer_smoothing * float(previous_steer) + (1.0 - self._steer_smoothing) * raw_target_steer
+                delta = _clamp(
+                    smoothed - float(previous_steer),
+                    -self._steer_rate_limit,
+                    self._steer_rate_limit,
+                )
+                steer = float(previous_steer) + float(delta)
+                if abs(float(steer)) < self._steer_deadband:
+                    steer = 0.0
+                route_reference_stabilization = {
+                    "applied": abs(float(steer) - raw_target_steer) > 1.0e-6,
+                    "previous_steer": float(previous_steer),
+                    "target_steer": raw_target_steer,
+                    "output_steer": float(steer),
+                    "steer_rate_limit": float(self._steer_rate_limit),
+                }
         ego_world_x = _as_optional_float(obs.get("ego_world_x"))
         ego_world_y = _as_optional_float(obs.get("ego_world_y"))
         double_yellow_guard: Dict[str, Any] = {"applied": False}
@@ -466,6 +493,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "lane_center_offset_m": lane_offset_value,
             "lane_centering_correction": float(lane_centering_correction),
             "junction_route_steer_guard": junction_route_steer_guard,
+            "route_reference_stabilization": route_reference_stabilization,
             "obstacle_avoidance": obstacle_avoidance,
             "double_yellow_guard": double_yellow_guard,
             "uav_bev_fusion": uav_bev_diagnostics,
@@ -477,6 +505,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "brake": float(control.brake),
         }
         self._apply_pedestrian_stop_steer_guard(obs, control, diagnostics)
+        self._last_steer = _clamp(float(control.steer), -1.0, 1.0)
+        self._has_last_steer = True
+        diagnostics["steer"] = float(control.steer)
+        diagnostics["throttle"] = float(control.throttle)
+        diagnostics["brake"] = float(control.brake)
         return control, diagnostics
 
     def _fallback_reference_control(self, obs: Dict[str, Any]) -> tuple[carla.VehicleControl, Dict[str, Any]]:

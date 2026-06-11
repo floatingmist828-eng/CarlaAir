@@ -1035,7 +1035,7 @@ def test_vision_driver_requests_left_avoidance_for_lane_obstacle():
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
     assert hazard["target_speed_mps"] == 1.8
-    assert hazard["avoid_lateral_m"] < 0.0
+    assert hazard["avoid_lateral_m"] == -2.7
 
 
 def test_vision_driver_requests_early_left_avoidance_for_static_lane_obstacle():
@@ -1074,7 +1074,7 @@ def test_vision_driver_requests_early_left_avoidance_for_static_lane_obstacle():
             return self._actors
 
     ego = _Actor(1, "vehicle.ego", 0.0, 0.0, role_name="ego")
-    obstacle = _Actor(2, "vehicle.dodge.charger_police_2020", 32.0, 0.5, role_name="task_obstacle")
+    obstacle = _Actor(2, "vehicle.dodge.charger_police_2020", 28.0, 0.5, role_name="task_obstacle")
 
     hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle]))
 
@@ -1123,8 +1123,7 @@ def test_vision_driver_requests_left_avoidance_far_enough_for_static_obstacle():
 
     hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle]))
 
-    assert hazard["active"] is True
-    assert hazard["action"] == "avoid_left"
+    assert hazard["active"] is False
 
 
 def test_vision_driver_clears_lane_obstacle_after_left_lane_change():

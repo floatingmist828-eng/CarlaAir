@@ -1207,6 +1207,40 @@ def test_tcp_lite_policy_limits_lane_follow_steer_outside_junction():
     assert abs(second.steer) <= 0.38
 
 
+def test_tcp_lite_policy_rate_limits_route_reference_steer_changes():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="lane_follow",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    first = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": False,
+            "route_target_local_x": 10.0,
+            "route_target_local_y": -3.0,
+            "route_target_source": "waypoint_next",
+        }
+    )
+    second = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": False,
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 3.0,
+            "route_target_source": "waypoint_next",
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert abs(second.steer - first.steer) <= 0.061
+    assert diagnostics["route_reference_stabilization"]["applied"] is True
+
+
 def test_tcp_lite_policy_brakes_when_model_predict_raises():
     policy = TcpLiteVisionPolicy(model=_RaisingTcpModel(), navigation_command="lane_follow")
 
