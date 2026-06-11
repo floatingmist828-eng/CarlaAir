@@ -356,6 +356,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         hazard = obs.get("interaction_hazard") or {}
         route_source = str(obs.get("route_target_source", ""))
         junction_route_reference = bool(obs.get("in_junction", False)) and route_source.startswith("junction_")
+        corridor_route_reference = route_source == "obstacle_corridor_reference"
         junction_route_steer_guard: Dict[str, Any] = {
             "applied": False,
             "lane_centering_suppressed": False,
@@ -401,7 +402,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         lane_offset_value = None
         try:
             lane_offset_value = float(obs.get("lane_center_offset_m"))
-            if junction_route_reference:
+            if junction_route_reference or corridor_route_reference:
                 junction_route_steer_guard["lane_centering_suppressed"] = (
                     abs(lane_offset_value) > self._lane_centering_deadband_m
                 )
@@ -448,12 +449,13 @@ class TcpLiteVisionPolicy(VisionPolicy):
         boundary_speed_limit = None
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
-        ) or (ego_world_y is None and bool(obstacle_avoidance.get("applied")))
-        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= -46.2:
-            guarded_steer = 0.18
+        ) or (ego_world_y is None and (bool(obstacle_avoidance.get("applied")) or corridor_route_reference))
+        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= -45.2:
+            guarded_steer = 0.22
             steer = max(float(steer), guarded_steer)
-            if ego_world_x <= -46.5:
-                boundary_speed_limit = 1.2
+            boundary_speed_limit = 1.2
+            if ego_world_x <= -46.0:
+                boundary_speed_limit = 1.0
             double_yellow_guard = {
                 "applied": True,
                 "reason": "obstacle_corridor_boundary",
@@ -462,7 +464,22 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "guarded_steer": float(guarded_steer),
                 "speed_limit_mps": boundary_speed_limit,
             }
+        elif ego_world_x is not None and ego_world_y is not None and in_obstacle_corridor and ego_world_x >= -39.2:
+            guarded_steer = -0.18
+            steer = min(float(steer), guarded_steer)
+            boundary_speed_limit = 1.4
+            double_yellow_guard = {
+                "applied": True,
+                "reason": "obstacle_corridor_right_boundary",
+                "ego_world_x": float(ego_world_x),
+                "ego_world_y": float(ego_world_y),
+                "guarded_steer": float(guarded_steer),
+                "speed_limit_mps": boundary_speed_limit,
+            }
         target_speed = float(self.target_speed_mps)
+        corridor_speed_limit = _as_optional_float(obs.get("obstacle_corridor_target_speed_mps"))
+        if corridor_route_reference and corridor_speed_limit is not None:
+            target_speed = min(target_speed, float(corridor_speed_limit))
         if boundary_speed_limit is not None:
             target_speed = min(target_speed, float(boundary_speed_limit))
         if abs(steer) > 0.30:
@@ -496,6 +513,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "route_reference_stabilization": route_reference_stabilization,
             "obstacle_avoidance": obstacle_avoidance,
             "double_yellow_guard": double_yellow_guard,
+            "obstacle_corridor": obs.get("obstacle_corridor") or {},
             "uav_bev_fusion": uav_bev_diagnostics,
             "speed_mps": float(speed_mps),
             "target_speed_mps": float(target_speed),
@@ -524,6 +542,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if not in_junction:
             return True
         route_source = str(obs.get("route_target_source", "")).lower()
+        if route_source == "obstacle_corridor_reference":
+            return True
         if route_source in {"junction_turn_reference", "junction_turn_reference_cached", "junction_heading_hold"}:
             return True
         command = str(obs.get("navigation_command", "")).lower()

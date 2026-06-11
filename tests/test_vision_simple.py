@@ -1169,6 +1169,36 @@ def test_vision_driver_clears_lane_obstacle_after_left_lane_change():
     assert hazard["active"] is False
 
 
+def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
+    import carla
+
+    class _Vehicle:
+        def __init__(self, x, y, yaw):
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation(yaw=yaw))
+
+        def get_transform(self):
+            return self._transform
+
+    driver = object.__new__(VisionEgoDriver)
+    driver._obstacle_corridor_active = False
+
+    first = driver._obstacle_corridor_reference(
+        _Vehicle(-39.98, 82.35, -93.1),
+        {"active": True, "action": "avoid_left", "target_speed_mps": 1.8},
+    )
+    assert first["route_target_source"] == "obstacle_corridor_reference"
+    assert first["route_target_local_y"] < 0.0
+
+    held = driver._obstacle_corridor_reference(_Vehicle(-45.40, 72.98, -132.3), {"active": False})
+    assert held["route_target_source"] == "obstacle_corridor_reference"
+    assert 0.0 < held["route_target_local_y"] <= 2.8
+    assert held["obstacle_corridor"]["active"] is True
+
+    released = driver._obstacle_corridor_reference(_Vehicle(-44.2, 44.5, -90.0), {"active": False})
+    assert released == {}
+    assert driver._obstacle_corridor_active is False
+
+
 def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():
     class _Boxes:
         cls = np.asarray([9])

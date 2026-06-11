@@ -56,6 +56,7 @@ class VisionEgoDriver:
         self._junction_command_index = 0
         self._was_in_junction = False
         self._junction_cached_turn_target: Optional[tuple[str, carla.Location]] = None
+        self._obstacle_corridor_active = False
         self.sensor_rig = self.sensor_rig_class(
             world,
             ego_vehicle,
@@ -114,6 +115,10 @@ class VisionEgoDriver:
     @staticmethod
     def _angle_delta_deg(target: float, source: float) -> float:
         return (float(target) - float(source) + 180.0) % 360.0 - 180.0
+
+    @staticmethod
+    def _clamp(value: float, low: float, high: float) -> float:
+        return max(float(low), min(float(high), float(value)))
 
     @staticmethod
     def _local_target(vehicle_transform: carla.Transform, target: carla.Location) -> tuple[float, float]:
@@ -322,6 +327,67 @@ class VisionEgoDriver:
             return {"active": False, "reason": "clear"}
         return best[2]
 
+    def _obstacle_corridor_reference(self, vehicle: carla.Actor, hazard: Dict[str, Any]) -> Dict[str, Any]:
+        hazard_active = (
+            isinstance(hazard, dict)
+            and bool(hazard.get("active", False))
+            and str(hazard.get("action", "")).lower() == "avoid_left"
+        )
+        try:
+            vehicle_transform = vehicle.get_transform()
+            ego_x = float(vehicle_transform.location.x)
+            ego_y = float(vehicle_transform.location.y)
+        except Exception:
+            return {}
+
+        corridor_active = bool(getattr(self, "_obstacle_corridor_active", False) or hazard_active)
+        if not corridor_active:
+            return {}
+
+        if ego_y <= 45.0 or ego_y > 90.0 or ego_x < -56.0 or ego_x > -35.0:
+            self._obstacle_corridor_active = False
+            return {}
+
+        self._obstacle_corridor_active = True
+        if ego_y >= 58.0:
+            target_x = -45.0
+            lookahead_y = 18.0
+            target_speed = 1.8
+        elif ego_y >= 50.0:
+            target_x = -45.0
+            lookahead_y = 14.0
+            target_speed = 1.5
+        else:
+            target_x = -44.2
+            lookahead_y = 12.0
+            target_speed = 1.5
+
+        target = carla.Location(x=target_x, y=ego_y - lookahead_y, z=float(vehicle_transform.location.z))
+        local_x, local_y = self._local_target(vehicle_transform, target)
+        local_x = self._clamp(local_x, 8.0, 22.0)
+        local_y = self._clamp(local_y, -2.6, 2.6)
+        if ego_x <= -47.0:
+            local_y = max(local_y, 2.0)
+        elif ego_x <= -45.4:
+            local_y = max(local_y, 1.2)
+        elif ego_x >= -40.5 and ego_y >= 58.0:
+            local_y = min(local_y, -1.4)
+
+        return {
+            "route_target_local_x": float(local_x),
+            "route_target_local_y": float(local_y),
+            "route_target_source": "obstacle_corridor_reference",
+            "obstacle_corridor_target_speed_mps": float(target_speed),
+            "obstacle_corridor": {
+                "active": True,
+                "hazard_latched": bool(hazard_active),
+                "target_world_x": float(target_x),
+                "target_world_y": float(target.y),
+                "ego_world_x": float(ego_x),
+                "ego_world_y": float(ego_y),
+            },
+        }
+
     @staticmethod
     def _junction_turn_reference(
         vehicle: carla.Actor,
@@ -486,6 +552,10 @@ class VisionEgoDriver:
         obs["vision_detector"] = detector_diagnostics
         obs["vision_obstacle"] = bool(vision_obstacle)
         obs["interaction_hazard"] = self._interaction_hazard(vehicle, active_world)
+        obstacle_corridor_reference = self._obstacle_corridor_reference(vehicle, obs["interaction_hazard"])
+        if obstacle_corridor_reference:
+            self._junction_cached_turn_target = None
+            obs.update(obstacle_corridor_reference)
         uav_bev: Dict[str, Any] = {"available": False, "reason": "disabled"}
         if self.uav_bev_provider is not None:
             try:
