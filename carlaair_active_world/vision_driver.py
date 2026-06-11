@@ -285,7 +285,7 @@ class VisionEgoDriver:
                         priority = 3
                     elif local_x <= 44.0 and abs_y <= 5.5:
                         action = "avoid_left"
-                        target_speed = 1.5
+                        target_speed = 1.8
                         priority = 3
                 elif local_x <= 7.5 and abs_y <= 4.8:
                     action = "stop"

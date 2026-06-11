@@ -1034,7 +1034,7 @@ def test_vision_driver_requests_left_avoidance_for_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] > 1.0
+    assert hazard["target_speed_mps"] == 1.8
     assert hazard["avoid_lateral_m"] < 0.0
 
 
@@ -1080,7 +1080,7 @@ def test_vision_driver_requests_early_left_avoidance_for_static_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] <= 2.0
+    assert hazard["target_speed_mps"] == 1.8
 
 
 def test_vision_driver_requests_left_avoidance_far_enough_for_static_obstacle():
