@@ -959,6 +959,37 @@ def test_tcp_lite_policy_uses_obstacle_corridor_reference_with_boundary_guard():
     assert control.steer >= 0.20
 
 
+def test_tcp_lite_policy_uses_post_turn_straight_reference_in_junction():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="straight",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 2.0,
+            "in_junction": True,
+            "route_target_source": "post_turn_straight_reference",
+            "route_target_local_x": 16.0,
+            "route_target_local_y": -2.2,
+            "lane_center_offset_m": -2.0,
+            "ego_world_x": -34.8,
+            "ego_world_y": 92.0,
+            "post_turn_corridor_target_speed_mps": 2.2,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["route_target_source"] == "post_turn_straight_reference"
+    assert diagnostics["lane_centering_correction"] == 0.0
+    assert diagnostics["double_yellow_guard"]["reason"] == "obstacle_corridor_right_boundary"
+    assert diagnostics["target_speed_mps"] <= 1.4
+    assert control.steer <= -0.18
+
+
 def test_tcp_lite_policy_uses_stronger_throttle_from_stop_on_clear_route():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),

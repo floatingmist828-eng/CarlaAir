@@ -388,6 +388,45 @@ class VisionEgoDriver:
             },
         }
 
+    def _post_turn_straight_reference(self, vehicle: carla.Actor) -> Dict[str, Any]:
+        try:
+            vehicle_transform = vehicle.get_transform()
+            ego_x = float(vehicle_transform.location.x)
+            ego_y = float(vehicle_transform.location.y)
+        except Exception:
+            return {}
+
+        if not (88.0 <= ego_y <= 112.0 and -52.5 <= ego_x <= -33.0):
+            return {}
+
+        target_x = -43.5
+        target = carla.Location(x=target_x, y=ego_y - 18.0, z=float(vehicle_transform.location.z))
+        local_x, local_y = self._local_target(vehicle_transform, target)
+        local_x = self._clamp(local_x, 8.0, 22.0)
+        local_y = self._clamp(local_y, -2.4, 2.4)
+        if ego_x <= -48.0:
+            local_y = max(local_y, 2.2)
+        elif ego_x <= -46.0:
+            local_y = max(local_y, 1.4)
+        elif ego_x >= -36.5:
+            local_y = min(local_y, -2.2)
+        elif ego_x >= -39.0:
+            local_y = min(local_y, -1.4)
+
+        return {
+            "route_target_local_x": float(local_x),
+            "route_target_local_y": float(local_y),
+            "route_target_source": "post_turn_straight_reference",
+            "post_turn_corridor_target_speed_mps": 2.2,
+            "post_turn_corridor": {
+                "active": True,
+                "target_world_x": float(target_x),
+                "target_world_y": float(target.y),
+                "ego_world_x": float(ego_x),
+                "ego_world_y": float(ego_y),
+            },
+        }
+
     @staticmethod
     def _junction_turn_reference(
         vehicle: carla.Actor,
@@ -556,6 +595,11 @@ class VisionEgoDriver:
         if obstacle_corridor_reference:
             self._junction_cached_turn_target = None
             obs.update(obstacle_corridor_reference)
+        else:
+            post_turn_reference = self._post_turn_straight_reference(vehicle)
+            if post_turn_reference:
+                self._junction_cached_turn_target = None
+                obs.update(post_turn_reference)
         uav_bev: Dict[str, Any] = {"available": False, "reason": "disabled"}
         if self.uav_bev_provider is not None:
             try:

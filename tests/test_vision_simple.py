@@ -1199,6 +1199,29 @@ def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
     assert driver._obstacle_corridor_active is False
 
 
+def test_vision_driver_adds_post_turn_straight_corridor_reference():
+    import carla
+
+    class _Vehicle:
+        def __init__(self, x, y, yaw):
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation(yaw=yaw))
+
+        def get_transform(self):
+            return self._transform
+
+    driver = object.__new__(VisionEgoDriver)
+
+    left_drift = driver._post_turn_straight_reference(_Vehicle(-49.0, 95.0, -113.0))
+    assert left_drift["route_target_source"] == "post_turn_straight_reference"
+    assert left_drift["route_target_local_y"] > 0.0
+
+    right_drift = driver._post_turn_straight_reference(_Vehicle(-34.5, 91.5, 11.0))
+    assert right_drift["route_target_source"] == "post_turn_straight_reference"
+    assert right_drift["route_target_local_y"] < 0.0
+
+    assert driver._post_turn_straight_reference(_Vehicle(-43.5, 120.0, -90.0)) == {}
+
+
 def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():
     class _Boxes:
         cls = np.asarray([9])

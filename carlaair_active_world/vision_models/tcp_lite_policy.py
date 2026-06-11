@@ -356,7 +356,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         hazard = obs.get("interaction_hazard") or {}
         route_source = str(obs.get("route_target_source", ""))
         junction_route_reference = bool(obs.get("in_junction", False)) and route_source.startswith("junction_")
-        corridor_route_reference = route_source == "obstacle_corridor_reference"
+        corridor_route_reference = route_source in {"obstacle_corridor_reference", "post_turn_straight_reference"}
         junction_route_steer_guard: Dict[str, Any] = {
             "applied": False,
             "lane_centering_suppressed": False,
@@ -477,7 +477,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "speed_limit_mps": boundary_speed_limit,
             }
         target_speed = float(self.target_speed_mps)
-        corridor_speed_limit = _as_optional_float(obs.get("obstacle_corridor_target_speed_mps"))
+        corridor_speed_limit = _as_optional_float(
+            obs.get("obstacle_corridor_target_speed_mps", obs.get("post_turn_corridor_target_speed_mps"))
+        )
         if corridor_route_reference and corridor_speed_limit is not None:
             target_speed = min(target_speed, float(corridor_speed_limit))
         if boundary_speed_limit is not None:
@@ -514,6 +516,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "obstacle_avoidance": obstacle_avoidance,
             "double_yellow_guard": double_yellow_guard,
             "obstacle_corridor": obs.get("obstacle_corridor") or {},
+            "post_turn_corridor": obs.get("post_turn_corridor") or {},
             "uav_bev_fusion": uav_bev_diagnostics,
             "speed_mps": float(speed_mps),
             "target_speed_mps": float(target_speed),
@@ -542,7 +545,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if not in_junction:
             return True
         route_source = str(obs.get("route_target_source", "")).lower()
-        if route_source == "obstacle_corridor_reference":
+        if route_source in {"obstacle_corridor_reference", "post_turn_straight_reference"}:
             return True
         if route_source in {"junction_turn_reference", "junction_turn_reference_cached", "junction_heading_hold"}:
             return True
