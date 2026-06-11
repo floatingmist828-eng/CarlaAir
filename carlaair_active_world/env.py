@@ -288,11 +288,6 @@ class ActiveAirGroundEnv:
         distance: float,
         speed_mps: float,
     ) -> Optional[carla.Location]:
-        if distance <= 0.25:
-            return target
-        overshot_threshold = min(0.65, max(0.25, float(speed_mps) * 0.65))
-        if distance > overshot_threshold:
-            return None
         try:
             loc = actor.get_location()
             velocity = actor.get_velocity()
@@ -303,6 +298,11 @@ class ActiveAirGroundEnv:
                 return carla.Location(x=float(loc.x), y=float(loc.y), z=float(loc.z))
         except Exception:
             pass
+        if distance <= 0.25:
+            return target
+        overshot_threshold = min(0.65, max(0.25, float(speed_mps) * 0.65))
+        if distance > overshot_threshold:
+            return None
         return None
 
     @staticmethod

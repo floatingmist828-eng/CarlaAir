@@ -441,7 +441,7 @@ def test_active_env_freezes_overshot_scripted_walker_without_reverse_snap():
     class WalkerActor:
         def __init__(self) -> None:
             self.control = None
-            self.location = carla.Location(x=-10.3, y=0.0, z=0.0)
+            self.location = carla.Location(x=-11.0, y=0.0, z=0.0)
 
         def get_location(self):
             return self.location
@@ -467,5 +467,5 @@ def test_active_env_freezes_overshot_scripted_walker_without_reverse_snap():
 
     assert walker.control is not None
     assert walker.control.speed == 0.0
-    assert walker.location.x == -10.3
+    assert walker.location.x == -11.0
     assert app._walker_targets == []
