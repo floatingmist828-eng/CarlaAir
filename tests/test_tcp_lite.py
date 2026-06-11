@@ -975,7 +975,7 @@ def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
             "route_target_source": "obstacle_corridor_reference",
             "route_target_local_x": 11.0,
             "route_target_local_y": -2.3,
-            "ego_world_x": -43.6,
+            "ego_world_x": -44.3,
             "ego_world_y": 58.7,
             "obstacle_corridor_target_speed_mps": 1.0,
         }

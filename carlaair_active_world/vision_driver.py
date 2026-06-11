@@ -370,7 +370,7 @@ class VisionEgoDriver:
         local_x, local_y = self._local_target(vehicle_transform, target)
         local_x = self._clamp(local_x, 8.0, 22.0)
         local_y = self._clamp(local_y, -2.0, 2.0)
-        if 50.0 <= ego_y <= 66.0 and ego_x >= -43.8:
+        if 50.0 <= ego_y <= 66.0 and ego_x >= -44.5:
             local_y = min(local_y, -2.0)
         elif ego_x <= -45.8:
             local_y = max(local_y, 1.6)

@@ -471,7 +471,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             and ego_world_y is not None
             and in_obstacle_corridor
             and 50.0 <= float(ego_world_y) <= 66.0
-            and ego_world_x >= -43.8
+            and ego_world_x >= -44.5
         ):
             guarded_steer = -0.24
             steer = min(float(steer), guarded_steer)
