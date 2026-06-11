@@ -369,14 +369,14 @@ class VisionEgoDriver:
         target = carla.Location(x=target_x, y=ego_y - lookahead_y, z=float(vehicle_transform.location.z))
         local_x, local_y = self._local_target(vehicle_transform, target)
         local_x = self._clamp(local_x, 8.0, 22.0)
-        local_y = self._clamp(local_y, -2.6, 2.6)
+        local_y = self._clamp(local_y, -2.0, 2.0)
         if 50.0 <= ego_y <= 63.0 and ego_x >= -42.8:
-            local_y = min(local_y, -2.4)
-        elif ego_x <= -47.2:
-            local_y = max(local_y, 2.0)
-        elif ego_x <= -46.0:
+            local_y = min(local_y, -2.0)
+        elif ego_x <= -45.8:
+            local_y = max(local_y, 1.6)
+        elif ego_x <= -45.2:
             local_y = max(local_y, 1.2)
-        elif ego_x >= -40.5 and ego_y >= 58.0:
+        elif ego_x >= -42.5 and ego_y >= 58.0:
             local_y = min(local_y, -1.4)
 
         return {
