@@ -450,17 +450,37 @@ class TcpLiteVisionPolicy(VisionPolicy):
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
         ) or (ego_world_y is None and (bool(obstacle_avoidance.get("applied")) or corridor_route_reference))
-        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= -45.2:
+        left_boundary_x = -47.0 if corridor_route_reference else -46.2
+        hard_left_boundary_x = -47.6 if corridor_route_reference else -46.5
+        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= left_boundary_x:
             guarded_steer = 0.22
             steer = max(float(steer), guarded_steer)
             boundary_speed_limit = 1.2
-            if ego_world_x <= -46.0:
+            if ego_world_x <= hard_left_boundary_x:
                 boundary_speed_limit = 1.0
             double_yellow_guard = {
                 "applied": True,
                 "reason": "obstacle_corridor_boundary",
                 "ego_world_x": float(ego_world_x),
                 "ego_world_y": None if ego_world_y is None else float(ego_world_y),
+                "guarded_steer": float(guarded_steer),
+                "speed_limit_mps": boundary_speed_limit,
+            }
+        elif (
+            ego_world_x is not None
+            and ego_world_y is not None
+            and in_obstacle_corridor
+            and 50.0 <= float(ego_world_y) <= 63.0
+            and ego_world_x >= -42.8
+        ):
+            guarded_steer = -0.24
+            steer = min(float(steer), guarded_steer)
+            boundary_speed_limit = 0.8
+            double_yellow_guard = {
+                "applied": True,
+                "reason": "obstacle_corridor_roadside_boundary",
+                "ego_world_x": float(ego_world_x),
+                "ego_world_y": float(ego_world_y),
                 "guarded_steer": float(guarded_steer),
                 "speed_limit_mps": boundary_speed_limit,
             }

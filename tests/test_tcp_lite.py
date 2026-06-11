@@ -945,7 +945,7 @@ def test_tcp_lite_policy_uses_obstacle_corridor_reference_with_boundary_guard():
             "route_target_local_x": 14.0,
             "route_target_local_y": 2.4,
             "lane_center_offset_m": 2.0,
-            "ego_world_x": -45.7,
+            "ego_world_x": -47.2,
             "ego_world_y": 70.0,
             "obstacle_corridor_target_speed_mps": 1.8,
         }
@@ -957,6 +957,34 @@ def test_tcp_lite_policy_uses_obstacle_corridor_reference_with_boundary_guard():
     assert diagnostics["double_yellow_guard"]["applied"] is True
     assert diagnostics["target_speed_mps"] <= 1.2
     assert control.steer >= 0.20
+
+
+def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="straight",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.4,
+            "in_junction": True,
+            "route_target_source": "obstacle_corridor_reference",
+            "route_target_local_x": 11.0,
+            "route_target_local_y": -2.3,
+            "ego_world_x": -42.2,
+            "ego_world_y": 58.7,
+            "obstacle_corridor_target_speed_mps": 1.0,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["double_yellow_guard"]["reason"] == "obstacle_corridor_roadside_boundary"
+    assert diagnostics["target_speed_mps"] <= 0.8
+    assert control.steer <= -0.22
 
 
 def test_tcp_lite_policy_uses_post_turn_straight_reference_in_junction():

@@ -349,26 +349,32 @@ class VisionEgoDriver:
             return {}
 
         self._obstacle_corridor_active = True
-        if ego_y >= 58.0:
+        if ego_y >= 68.0:
             target_x = -45.0
             lookahead_y = 18.0
-            target_speed = 1.8
+            target_speed = 1.5
+        elif ego_y >= 63.0:
+            target_x = -45.2
+            lookahead_y = 16.0
+            target_speed = 1.2
         elif ego_y >= 50.0:
-            target_x = -45.0
-            lookahead_y = 14.0
-            target_speed = 1.5
-        else:
-            target_x = -44.2
+            target_x = -45.3
             lookahead_y = 12.0
-            target_speed = 1.5
+            target_speed = 0.8
+        else:
+            target_x = -44.8
+            lookahead_y = 12.0
+            target_speed = 0.8
 
         target = carla.Location(x=target_x, y=ego_y - lookahead_y, z=float(vehicle_transform.location.z))
         local_x, local_y = self._local_target(vehicle_transform, target)
         local_x = self._clamp(local_x, 8.0, 22.0)
         local_y = self._clamp(local_y, -2.6, 2.6)
-        if ego_x <= -47.0:
+        if 50.0 <= ego_y <= 63.0 and ego_x >= -42.8:
+            local_y = min(local_y, -2.4)
+        elif ego_x <= -47.2:
             local_y = max(local_y, 2.0)
-        elif ego_x <= -45.4:
+        elif ego_x <= -46.0:
             local_y = max(local_y, 1.2)
         elif ego_x >= -40.5 and ego_y >= 58.0:
             local_y = min(local_y, -1.4)

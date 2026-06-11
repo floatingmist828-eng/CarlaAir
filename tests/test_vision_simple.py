@@ -1199,6 +1199,26 @@ def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
     assert driver._obstacle_corridor_active is False
 
 
+def test_vision_driver_keeps_left_in_obstacle_corridor_tail():
+    import carla
+
+    class _Vehicle:
+        def __init__(self, x, y, yaw):
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation(yaw=yaw))
+
+        def get_transform(self):
+            return self._transform
+
+    driver = object.__new__(VisionEgoDriver)
+    driver._obstacle_corridor_active = True
+
+    reference = driver._obstacle_corridor_reference(_Vehicle(-42.0, 58.7, -60.8), {"active": False})
+
+    assert reference["route_target_source"] == "obstacle_corridor_reference"
+    assert reference["route_target_local_y"] <= -2.0
+    assert reference["obstacle_corridor_target_speed_mps"] <= 1.0
+
+
 def test_vision_driver_adds_post_turn_straight_corridor_reference():
     import carla
 
