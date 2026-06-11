@@ -312,6 +312,22 @@ def move_uav_to(
         air_client.simSetVehiclePose(air_pose, True, vehicle_name=vehicle_name)
     else:
         air_client.simSetVehiclePose(air_pose, True)
+    if hasattr(air_client, "simSetKinematics") and hasattr(airsim, "KinematicsState"):
+        try:
+            zero = airsim.Vector3r(0.0, 0.0, 0.0)
+            state = airsim.KinematicsState()
+            state.position = air_pose.position
+            state.orientation = air_pose.orientation
+            state.linear_velocity = zero
+            state.angular_velocity = airsim.Vector3r(0.0, 0.0, 0.0)
+            state.linear_acceleration = airsim.Vector3r(0.0, 0.0, 0.0)
+            state.angular_acceleration = airsim.Vector3r(0.0, 0.0, 0.0)
+            if vehicle_name:
+                air_client.simSetKinematics(state, True, vehicle_name=vehicle_name)
+            else:
+                air_client.simSetKinematics(state, True)
+        except Exception:
+            pass
 
 
 def set_uav_hover(
