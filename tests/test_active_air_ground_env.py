@@ -238,7 +238,7 @@ def test_active_env_configures_sync_timing_and_restores_on_close(monkeypatch):
     monkeypatch.setattr(env_module, "set_traffic_manager_speed", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(env_module.ActiveAirGroundEnv, "_park_disabled_uav", lambda self: None)
 
-    scenario = ScenarioConfig.from_dict({"name": "timed_world", "uav_enabled": False, "step_sec": 0.25})
+    scenario = ScenarioConfig.from_dict({"name": "timed_world", "uav_enabled": False, "step_sec": 0.05})
     app = env_module.ActiveAirGroundEnv(scenario)
     app.client = object()
     app.world = _TimedWorld(synchronous_mode=False, fixed_delta_seconds=None)
@@ -246,9 +246,9 @@ def test_active_env_configures_sync_timing_and_restores_on_close(monkeypatch):
 
     app.reset()
 
-    assert app.world.applied_settings[0] == (True, 0.1)
+    assert app.world.applied_settings[0] == (True, 0.05)
     assert app.world.get_settings().synchronous_mode is True
-    assert app.world.get_settings().fixed_delta_seconds == 0.1
+    assert app.world.get_settings().fixed_delta_seconds == 0.05
 
     app.close()
 
@@ -276,7 +276,7 @@ def test_active_env_uses_inline_ego_control_in_synchronous_mode(monkeypatch):
     monkeypatch.setattr(env_module, "RouteFollowingDriver", _Driver)
 
     scenario = ScenarioConfig.from_dict(
-        {"name": "sync_inline_control", "uav_enabled": False, "ego_control_mode": "route_follow", "step_sec": 0.5}
+        {"name": "sync_inline_control", "uav_enabled": False, "ego_control_mode": "route_follow", "step_sec": 0.05}
     )
     app = env_module.ActiveAirGroundEnv(scenario)
     app.client = object()
@@ -292,7 +292,7 @@ def test_active_env_uses_inline_ego_control_in_synchronous_mode(monkeypatch):
 
     assert calls["predict"] == 1
     assert ego.controls == ["control"]
-    assert app.world.ticks == 6
+    assert app.world.ticks == 2
 
     app.close()
 

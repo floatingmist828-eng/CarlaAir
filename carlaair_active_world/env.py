@@ -111,6 +111,8 @@ class ActiveAirGroundEnv:
         apply_settings = getattr(self.world, "apply_settings", None)
         if apply_settings is None:
             return settings
+        if float(self.scenario.step_sec) > 0.1:
+            return settings
         try:
             if self._original_world_settings is None:
                 self._original_world_settings = {
