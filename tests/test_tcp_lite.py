@@ -813,7 +813,7 @@ def test_tcp_lite_policy_steers_left_for_lane_obstacle_avoidance():
                 "active": True,
                 "action": "avoid_left",
                 "target_speed_mps": 1.8,
-                "avoid_lateral_m": -3.1,
+                "avoid_lateral_m": -2.1,
                 "distance_m": 18.0,
                 "actor_type": "vehicle",
                 "role_name": "task_obstacle",
@@ -824,11 +824,11 @@ def test_tcp_lite_policy_steers_left_for_lane_obstacle_avoidance():
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert control.steer < -0.10
     assert control.brake == 0.0
-    assert diagnostics["route_target_local_y"] < -2.5
+    assert diagnostics["route_target_local_y"] < -1.8
     assert diagnostics["target_speed_mps"] == 1.8
     assert diagnostics["interaction_yield"]["action"] == "avoid_left"
     assert diagnostics["obstacle_avoidance"]["applied"] is True
-    assert diagnostics["obstacle_avoidance"]["avoid_lateral_m"] >= -3.2
+    assert diagnostics["obstacle_avoidance"]["avoid_lateral_m"] >= -2.2
 
 
 def test_tcp_lite_policy_obstacle_avoidance_overrides_lane_center_pull():
@@ -852,7 +852,7 @@ def test_tcp_lite_policy_obstacle_avoidance_overrides_lane_center_pull():
                 "active": True,
                 "action": "avoid_left",
                 "target_speed_mps": 1.8,
-                "avoid_lateral_m": -3.1,
+                "avoid_lateral_m": -2.1,
                 "distance_m": 10.0,
                 "actor_type": "vehicle",
                 "role_name": "task_obstacle",
@@ -863,7 +863,7 @@ def test_tcp_lite_policy_obstacle_avoidance_overrides_lane_center_pull():
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert control.steer < -0.05
     assert diagnostics["obstacle_avoidance"]["applied"] is True
-    assert diagnostics["route_target_local_y"] < -2.5
+    assert diagnostics["route_target_local_y"] < -1.8
 
 
 def test_tcp_lite_policy_guards_obstacle_avoidance_near_double_yellow():
@@ -955,8 +955,8 @@ def test_tcp_lite_policy_uses_obstacle_corridor_reference_with_boundary_guard():
     assert diagnostics["route_target_source"] == "obstacle_corridor_reference"
     assert diagnostics["lane_centering_correction"] == 0.0
     assert diagnostics["double_yellow_guard"]["applied"] is True
-    assert diagnostics["target_speed_mps"] <= 0.9
-    assert control.steer >= 0.28
+    assert diagnostics["target_speed_mps"] <= 0.7
+    assert control.steer >= 0.26
 
 
 def test_tcp_lite_policy_caps_first_turn_crosswalk_approach():
@@ -1061,7 +1061,7 @@ def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
             "route_target_source": "obstacle_corridor_reference",
             "route_target_local_x": 11.0,
             "route_target_local_y": -2.3,
-            "ego_world_x": -44.3,
+            "ego_world_x": -43.2,
             "ego_world_y": 58.7,
             "obstacle_corridor_target_speed_mps": 1.0,
         }

@@ -1034,8 +1034,8 @@ def test_vision_driver_requests_left_avoidance_for_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] == 1.8
-    assert hazard["avoid_lateral_m"] == -2.7
+    assert hazard["target_speed_mps"] == 1.4
+    assert hazard["avoid_lateral_m"] == -2.1
 
 
 def test_vision_driver_requests_early_left_avoidance_for_static_lane_obstacle():
@@ -1080,7 +1080,7 @@ def test_vision_driver_requests_early_left_avoidance_for_static_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] == 1.8
+    assert hazard["target_speed_mps"] == 1.4
 
 
 def test_vision_driver_requests_left_avoidance_far_enough_for_static_obstacle():
@@ -1169,6 +1169,51 @@ def test_vision_driver_clears_lane_obstacle_after_left_lane_change():
     assert hazard["active"] is False
 
 
+def test_vision_driver_stops_for_close_lane_obstacle_before_contact():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation())
+            self._velocity = velocity or carla.Vector3D()
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", 0.0, 0.0, role_name="ego")
+    obstacle = _Actor(2, "vehicle.dodge.charger_police_2020", 6.3, 1.2, role_name="task_obstacle")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle]))
+
+    assert hazard["active"] is True
+    assert hazard["action"] == "stop"
+    assert hazard["target_speed_mps"] == 0.0
+
+
 def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
     import carla
 
@@ -1215,8 +1260,8 @@ def test_vision_driver_keeps_left_in_obstacle_corridor_tail():
     reference = driver._obstacle_corridor_reference(_Vehicle(-42.0, 58.7, -60.8), {"active": False})
 
     assert reference["route_target_source"] == "obstacle_corridor_reference"
-    assert reference["route_target_local_y"] <= -2.0
-    assert reference["obstacle_corridor_target_speed_mps"] >= 1.4
+    assert reference["route_target_local_y"] <= -1.6
+    assert reference["obstacle_corridor_target_speed_mps"] <= 1.2
 
 
 def test_vision_driver_adds_post_turn_straight_corridor_reference():

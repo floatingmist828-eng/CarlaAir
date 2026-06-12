@@ -371,8 +371,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
             avoid_sign = -1.0 if float(requested_avoid) < 0.0 else 1.0
             avoid_magnitude = _clamp(
                 abs(float(requested_avoid)),
-                2.4,
-                min(3.5, max(2.4, float(lane_width))),
+                1.8,
+                min(3.2, max(1.8, float(lane_width) * 0.9)),
             )
             avoid_lateral = avoid_sign * avoid_magnitude
             adjusted_y = min(adjusted_y, avoid_lateral) if avoid_lateral < 0.0 else max(adjusted_y, avoid_lateral)
@@ -451,14 +451,14 @@ class TcpLiteVisionPolicy(VisionPolicy):
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
         ) or (ego_world_y is None and (bool(obstacle_avoidance.get("applied")) or corridor_route_reference))
-        left_boundary_x = -45.2 if corridor_route_reference else -46.2
-        hard_left_boundary_x = -45.8 if corridor_route_reference else -46.5
+        left_boundary_x = -44.6 if corridor_route_reference else -46.2
+        hard_left_boundary_x = -45.0 if corridor_route_reference else -46.5
         if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= left_boundary_x:
-            guarded_steer = 0.28 if corridor_route_reference else 0.22
+            guarded_steer = 0.26 if corridor_route_reference else 0.22
             steer = max(float(steer), guarded_steer)
-            boundary_speed_limit = 1.4 if corridor_route_reference else 1.2
+            boundary_speed_limit = 1.0 if corridor_route_reference else 1.2
             if ego_world_x <= hard_left_boundary_x:
-                boundary_speed_limit = 0.9 if corridor_route_reference else 1.0
+                boundary_speed_limit = 0.7 if corridor_route_reference else 1.0
             double_yellow_guard = {
                 "applied": True,
                 "reason": "obstacle_corridor_boundary",
@@ -472,11 +472,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
             and ego_world_y is not None
             and in_obstacle_corridor
             and 50.0 <= float(ego_world_y) <= 66.0
-            and ego_world_x >= -44.5
+            and ego_world_x >= -43.4
         ):
-            guarded_steer = -0.24
+            guarded_steer = -0.22
             steer = min(float(steer), guarded_steer)
-            boundary_speed_limit = 1.2
+            boundary_speed_limit = 1.0
             double_yellow_guard = {
                 "applied": True,
                 "reason": "obstacle_corridor_roadside_boundary",
