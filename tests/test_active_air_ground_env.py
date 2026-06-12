@@ -207,6 +207,64 @@ def test_active_env_delays_configured_traffic_and_walkers(monkeypatch):
     app.close()
 
 
+def test_active_env_starts_episode_clock_after_uav_setup(monkeypatch):
+    calls = {"vehicles": 0, "uav_observation_times": []}
+    ego = _Actor(actor_id=10, role_name="ego")
+    traffic = _Actor(actor_id=20, role_name="task_traffic")
+
+    monkeypatch.setattr(env_module, "spawn_ego_vehicle", lambda *_args, **_kwargs: ego)
+    monkeypatch.setattr(env_module, "configure_autopilot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "set_traffic_manager_speed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "move_uav_to", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "set_uav_hover", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "build_labels", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        env_module,
+        "spawn_traffic_vehicles",
+        lambda *_args, **kwargs: calls.__setitem__("vehicles", calls["vehicles"] + 1) or [_Spawned(traffic)],
+    )
+
+    now = [100.0]
+    monkeypatch.setattr(env_module.time, "time", lambda: now[0])
+
+    def _place_initial_uav(self, observation):
+        calls["uav_observation_times"].append(observation["time"])
+        now[0] += 30.0
+
+    monkeypatch.setattr(env_module.ActiveAirGroundEnv, "_place_initial_uav", _place_initial_uav)
+
+    scenario = ScenarioConfig.from_dict(
+        {
+            "name": "delayed_after_uav_setup",
+            "uav_enabled": True,
+            "traffic_vehicles": 1,
+            "traffic_spawn_delay_sec": 3.0,
+            "traffic_spawn_start_index": 138,
+            "candidate_offsets": [{"name": "front", "x": 10.0, "y": 0.0, "z": 12.0}],
+        }
+    )
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app.client = object()
+    app.air_client = object()
+    app.world = _World()
+    app.observe = lambda: {"time": now[0] - app.start_time}
+
+    observation = app.reset()
+    assert observation["time"] == 0.0
+    assert calls == {"vehicles": 0, "uav_observation_times": [0.0]}
+    assert app.start_time == 130.0
+
+    now[0] = 132.0
+    app.step(0)
+    assert calls["vehicles"] == 0
+
+    now[0] = 133.1
+    app.step(0)
+    assert calls["vehicles"] == 1
+
+    app.close()
+
+
 def test_active_env_observe_records_walker_states(monkeypatch):
     ego = _Actor(actor_id=10, role_name="ego")
     walker_state = ActorState(

@@ -149,7 +149,7 @@ class ActiveAirGroundEnv:
         self._traffic_spawned = max(0, int(self.scenario.traffic_vehicles)) <= 0
         self._obstacles_spawned = max(0, int(getattr(self.scenario, "obstacle_vehicles", 0))) <= 0
         self._walkers_spawned = max(0, int(self.scenario.traffic_walkers)) <= 0
-        self.start_time = time.time()
+        self.start_time = 0.0
         if float(getattr(self.scenario, "traffic_spawn_delay_sec", 0.0)) <= 0.0:
             self._spawn_configured_traffic()
         if float(getattr(self.scenario, "obstacle_spawn_delay_sec", 0.0)) <= 0.0:
@@ -160,6 +160,7 @@ class ActiveAirGroundEnv:
         set_traffic_manager_speed(self.client, traffic_speed_difference)
         if settings.synchronous_mode:
             self.world.tick()
+        self.start_time = time.time()
         observation = self.observe()
         if self.scenario.uav_enabled and self.air_client is not None:
             if bool(getattr(self.scenario, "uav_control_enabled", True)):
@@ -171,6 +172,9 @@ class ActiveAirGroundEnv:
                     record_depth=False,
                     rpc_lock=self._air_rpc_lock,
                 )
+        self.start_time = time.time()
+        observation = self.observe()
+        observation["time"] = 0.0
         return observation
 
     def _spawn_configured_traffic(self) -> None:
