@@ -32,7 +32,7 @@ def test_run_uav_task_defaults_are_project_relative():
 def test_stable_uav_bev_scenario_loads():
     config = ScenarioConfig.load(ROOT / "configs/scenarios/town10hd_vision_tcp_lite_yolo_uav_bev_stable.json")
 
-    assert config.duration_sec == 95.0
+    assert config.duration_sec == 40.0
     assert config.ego_spawn_index == 86
     assert config.ego_spawn_forward_m == 0.0
     assert config.ego_target_speed_mps == 3.2
@@ -43,7 +43,7 @@ def test_stable_uav_bev_scenario_loads():
     assert config.vision_junction_command_hold_until_exit is True
     assert config.traffic_walkers == 4
     assert config.walker_spawn_indices == [146, 146, 146, 146]
-    assert config.walker_spawn_delay_sec == 8.0
+    assert config.walker_spawn_delay_sec == 4.0
     assert config.walker_crossing_distance_m == 18.0
     assert config.walker_crossing_offsets_m == [-2.0, -0.7, 0.7, 2.0]
     assert config.traffic_vehicles == 0

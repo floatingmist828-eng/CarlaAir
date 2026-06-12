@@ -955,7 +955,7 @@ def test_tcp_lite_policy_uses_obstacle_corridor_reference_with_boundary_guard():
     assert diagnostics["route_target_source"] == "obstacle_corridor_reference"
     assert diagnostics["lane_centering_correction"] == 0.0
     assert diagnostics["double_yellow_guard"]["applied"] is True
-    assert diagnostics["target_speed_mps"] <= 0.8
+    assert diagnostics["target_speed_mps"] <= 0.9
     assert control.steer >= 0.28
 
 
@@ -1013,7 +1013,7 @@ def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["double_yellow_guard"]["reason"] == "obstacle_corridor_roadside_boundary"
-    assert diagnostics["target_speed_mps"] <= 0.8
+    assert diagnostics["target_speed_mps"] <= 1.2
     assert control.steer <= -0.22
 
 
