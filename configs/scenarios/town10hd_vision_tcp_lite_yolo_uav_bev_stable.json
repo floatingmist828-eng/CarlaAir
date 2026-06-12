@@ -26,7 +26,7 @@
   "obstacle_yaw_offsets_deg": [25.0, -35.0],
   "traffic_walkers": 4,
   "walker_spawn_indices": [146, 146, 146, 146],
-  "walker_spawn_delay_sec": 3.0,
+  "walker_spawn_delay_sec": 2.0,
   "walker_crossing_distance_m": 18.0,
   "walker_crossing_offsets_m": [-2.0, -0.7, 0.7, 2.0],
   "walker_speed_mps": 0.85,

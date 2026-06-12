@@ -446,6 +446,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         ego_world_x = _as_optional_float(obs.get("ego_world_x"))
         ego_world_y = _as_optional_float(obs.get("ego_world_y"))
         double_yellow_guard: Dict[str, Any] = {"applied": False}
+        first_turn_crosswalk_guard: Dict[str, Any] = {"applied": False}
         boundary_speed_limit = None
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
@@ -514,6 +515,27 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "guarded_steer": float(guarded_steer),
                 "speed_limit_mps": boundary_speed_limit,
             }
+        first_turn_reference = route_source in {"junction_turn_reference", "junction_turn_reference_cached"}
+        if (
+            ego_world_x is not None
+            and ego_world_y is not None
+            and first_turn_reference
+            and -46.5 <= float(ego_world_x) <= -33.0
+            and 115.0 <= float(ego_world_y) <= 128.5
+        ):
+            crosswalk_speed_limit = 0.65 if float(ego_world_y) <= 123.0 else 1.2
+            boundary_speed_limit = (
+                crosswalk_speed_limit
+                if boundary_speed_limit is None
+                else min(float(boundary_speed_limit), crosswalk_speed_limit)
+            )
+            first_turn_crosswalk_guard = {
+                "applied": True,
+                "reason": "first_turn_crosswalk_approach",
+                "ego_world_x": float(ego_world_x),
+                "ego_world_y": float(ego_world_y),
+                "speed_limit_mps": float(crosswalk_speed_limit),
+            }
         target_speed = float(self.target_speed_mps)
         corridor_speed_limit = _as_optional_float(
             obs.get("obstacle_corridor_target_speed_mps", obs.get("post_turn_corridor_target_speed_mps"))
@@ -553,6 +575,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "route_reference_stabilization": route_reference_stabilization,
             "obstacle_avoidance": obstacle_avoidance,
             "double_yellow_guard": double_yellow_guard,
+            "first_turn_crosswalk_guard": first_turn_crosswalk_guard,
             "obstacle_corridor": obs.get("obstacle_corridor") or {},
             "post_turn_corridor": obs.get("post_turn_corridor") or {},
             "uav_bev_fusion": uav_bev_diagnostics,

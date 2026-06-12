@@ -959,6 +959,34 @@ def test_tcp_lite_policy_uses_obstacle_corridor_reference_with_boundary_guard():
     assert control.steer >= 0.28
 
 
+def test_tcp_lite_policy_caps_first_turn_crosswalk_approach():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 3.0,
+            "in_junction": True,
+            "route_target_source": "junction_turn_reference",
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 1.8,
+            "ego_world_x": -36.8,
+            "ego_world_y": 126.8,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
+    assert diagnostics["target_speed_mps"] <= 1.2
+    assert control.throttle == 0.0
+    assert control.brake > 0.0
+
+
 def test_tcp_lite_policy_lets_obstacle_corridor_reference_override_detector_brake():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),
