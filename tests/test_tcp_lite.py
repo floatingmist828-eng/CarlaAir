@@ -959,6 +959,36 @@ def test_tcp_lite_policy_uses_obstacle_corridor_reference_with_boundary_guard():
     assert control.steer >= 0.28
 
 
+def test_tcp_lite_policy_lets_obstacle_corridor_reference_override_detector_brake():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="straight",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 0.5,
+            "in_junction": True,
+            "route_target_source": "obstacle_corridor_reference",
+            "route_target_local_x": 12.0,
+            "route_target_local_y": -2.7,
+            "ego_world_x": -38.7,
+            "ego_world_y": 64.2,
+            "obstacle_corridor_target_speed_mps": 0.8,
+            "vision_detector": {"obstacle": True, "label": "car", "confidence": 0.93},
+        }
+    )
+
+    assert control.brake < 1.0
+    assert policy.last_diagnostics["reason"] == "fallback_confidence_gate"
+    assert policy.last_diagnostics["safety_gate"]["reason"] == "rgb_reference_shortcut"
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["route_target_source"] == "obstacle_corridor_reference"
+
+
 def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),

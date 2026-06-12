@@ -750,13 +750,19 @@ class TcpLiteVisionPolicy(VisionPolicy):
         speed_mps = float(obs.get("speed_mps", 0.0))
         command = str(obs.get("navigation_command", self.navigation_command))
         in_junction = bool(obs.get("in_junction", False))
+        route_source = str(obs.get("route_target_source", "")).lower()
+        corridor_route_reference = route_source in {"obstacle_corridor_reference", "post_turn_straight_reference"}
 
         if rgb is None:
             return self._brake("missing_rgb", command=command)
         if not self.model_ready or self.model is None:
             return self._brake(self._load_reason or "missing_model_path", command=command)
 
-        if self.control_mode == "trajectory" and not in_junction and not self.safety_gate_config.attack_pattern_gate:
+        if (
+            self.control_mode == "trajectory"
+            and (not in_junction or corridor_route_reference)
+            and not self.safety_gate_config.attack_pattern_gate
+        ):
             fallback_control, fallback_diagnostics = self._fallback_reference_control(obs)
             fallback_lane_confidence = float(fallback_diagnostics.get("lane_confidence", 0.0) or 0.0)
             if fallback_lane_confidence >= 0.01:
