@@ -78,6 +78,8 @@ class ActiveAirGroundEnv:
         self.oy = 0.0
         self.oz = 0.0
         self.start_time = 0.0
+        self._episode_elapsed_sec = 0.0
+        self._world_fixed_delta_sec = 0.1
         self.last_action = 0
         self._closed = False
         self._traffic_spawned = False
@@ -115,8 +117,9 @@ class ActiveAirGroundEnv:
                     "fixed_delta_seconds": getattr(settings, "fixed_delta_seconds", None),
                 }
             settings.synchronous_mode = True
+            self._world_fixed_delta_sec = min(0.1, max(0.01, float(self.scenario.step_sec)))
             if hasattr(settings, "fixed_delta_seconds"):
-                settings.fixed_delta_seconds = float(self.scenario.step_sec)
+                settings.fixed_delta_seconds = self._world_fixed_delta_sec
             apply_settings(settings)
             settings = self.world.get_settings()
         except Exception:
@@ -187,6 +190,7 @@ class ActiveAirGroundEnv:
         self._traffic_spawned = max(0, int(self.scenario.traffic_vehicles)) <= 0
         self._obstacles_spawned = max(0, int(getattr(self.scenario, "obstacle_vehicles", 0))) <= 0
         self._walkers_spawned = max(0, int(self.scenario.traffic_walkers)) <= 0
+        self._episode_elapsed_sec = 0.0
         self.start_time = 0.0
         if float(getattr(self.scenario, "traffic_spawn_delay_sec", 0.0)) <= 0.0:
             self._spawn_configured_traffic()
@@ -284,7 +288,7 @@ class ActiveAirGroundEnv:
         self._walkers_spawned = True
 
     def _maybe_spawn_delayed_actors(self) -> None:
-        elapsed = float(time.time() - self.start_time) if self.start_time else 0.0
+        elapsed = float(self._episode_elapsed_sec)
         if elapsed >= float(getattr(self.scenario, "traffic_spawn_delay_sec", 0.0)):
             self._spawn_configured_traffic()
         if elapsed >= float(getattr(self.scenario, "obstacle_spawn_delay_sec", 0.0)):
@@ -578,7 +582,7 @@ class ActiveAirGroundEnv:
             }
 
         observation = {
-            "time": float(time.time() - self.start_time),
+            "time": float(self._episode_elapsed_sec),
             "scenario": self.scenario.to_dict(),
             "ego": ego_state.to_dict(),
             "vehicles": [v.to_dict() for v in vehicle_states],
@@ -617,9 +621,12 @@ class ActiveAirGroundEnv:
                     vehicle_name=self.scenario.uav_name,
                 )
         if self.world.get_settings().synchronous_mode:
-            self.world.tick()
+            tick_count = max(1, int(round(float(self.scenario.step_sec) / max(self._world_fixed_delta_sec, 1e-6))))
+            for _ in range(tick_count):
+                self.world.tick()
         else:
             time.sleep(self.scenario.step_sec)
+        self._episode_elapsed_sec += float(self.scenario.step_sec)
         observation = self.observe()
         label = build_labels(
             self.world,

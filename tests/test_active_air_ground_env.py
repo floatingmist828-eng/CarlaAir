@@ -183,8 +183,6 @@ def test_active_env_delays_configured_traffic_and_walkers(monkeypatch):
         lambda *_args, **kwargs: calls.__setitem__("walkers", calls["walkers"] + 1) or [_Spawned(walker, controller)],
     )
 
-    now = [100.0]
-    monkeypatch.setattr(env_module.time, "time", lambda: now[0])
     scenario = ScenarioConfig.from_dict(
         {
             "name": "delayed_actors",
@@ -200,27 +198,28 @@ def test_active_env_delays_configured_traffic_and_walkers(monkeypatch):
     app = env_module.ActiveAirGroundEnv(scenario)
     app.client = object()
     app.world = _World()
-    app.observe = lambda: {"time": now[0] - app.start_time}
+    app.observe = lambda: {"time": app._episode_elapsed_sec}
 
     app.reset()
     assert calls == {"vehicles": 0, "walkers": 0}
 
-    now[0] = 102.0
-    app.step(0)
+    for _ in range(6):
+        app.step(0)
     assert calls == {"vehicles": 0, "walkers": 0}
 
-    now[0] = 103.1
     app.step(0)
     assert calls == {"vehicles": 1, "walkers": 0}
     assert app.traffic_actors == [traffic]
 
-    now[0] = 105.1
+    for _ in range(3):
+        app.step(0)
+    assert calls == {"vehicles": 1, "walkers": 0}
+
     app.step(0)
     assert calls == {"vehicles": 1, "walkers": 1}
     assert app.walker_actors == [walker]
     assert app.walker_controllers == [controller]
 
-    now[0] = 110.0
     app.step(0)
     assert calls == {"vehicles": 1, "walkers": 1}
 
@@ -243,9 +242,9 @@ def test_active_env_configures_sync_timing_and_restores_on_close(monkeypatch):
 
     app.reset()
 
-    assert app.world.applied_settings[0] == (True, 0.25)
+    assert app.world.applied_settings[0] == (True, 0.1)
     assert app.world.get_settings().synchronous_mode is True
-    assert app.world.get_settings().fixed_delta_seconds == 0.25
+    assert app.world.get_settings().fixed_delta_seconds == 0.1
 
     app.close()
 
@@ -294,18 +293,17 @@ def test_active_env_starts_episode_clock_after_uav_setup(monkeypatch):
     app.client = object()
     app.air_client = object()
     app.world = _World()
-    app.observe = lambda: {"time": now[0] - app.start_time}
+    app.observe = lambda: {"time": app._episode_elapsed_sec}
 
     observation = app.reset()
     assert observation["time"] == 0.0
     assert calls == {"vehicles": 0, "uav_observation_times": [0.0]}
     assert app.start_time == 130.0
 
-    now[0] = 132.0
-    app.step(0)
+    for _ in range(6):
+        app.step(0)
     assert calls["vehicles"] == 0
 
-    now[0] = 133.1
     app.step(0)
     assert calls["vehicles"] == 1
 
