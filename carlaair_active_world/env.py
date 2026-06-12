@@ -74,6 +74,7 @@ class ActiveAirGroundEnv:
         )
         self._air_rpc_lock = threading.RLock()
         self._ego_driver_thread = None
+        self._ego_control_inline = False
         self.ox = 0.0
         self.oy = 0.0
         self.oz = 0.0
@@ -372,6 +373,7 @@ class ActiveAirGroundEnv:
         actor.apply_control(control)
 
     def _start_ego_control(self) -> None:
+        self._ego_control_inline = False
         mode = str(getattr(self.scenario, "ego_control_mode", "autopilot")).lower()
         if mode in {"route_follow", "route", "behavior", "vision_simple", "vision_rgb_only", "vision_tcp_lite"}:
             try:
@@ -440,19 +442,18 @@ class ActiveAirGroundEnv:
                     )
                 )
 
+            try:
+                synchronous_mode = bool(self.world.get_settings().synchronous_mode)
+            except Exception:
+                synchronous_mode = False
+            if synchronous_mode:
+                self._ego_control_inline = True
+                return
+
             def _loop():
                 interval = 1.0 / max(0.1, float(getattr(self.scenario, "ego_drive_hz", 8.0)))
                 while not self._closed and self.ego_vehicle is not None and self.world is not None:
-                    try:
-                        control = self.ego_driver.predict(self.ego_vehicle, self.world)
-                        self.ego_vehicle.apply_control(control)
-                    except Exception:
-                        try:
-                            brake = carla.VehicleControl()
-                            brake.brake = 1.0
-                            self.ego_vehicle.apply_control(brake)
-                        except Exception:
-                            pass
+                    self._apply_ego_control_once()
                     time.sleep(interval)
 
             self._ego_driver_thread = threading.Thread(target=_loop, daemon=True)
@@ -460,6 +461,20 @@ class ActiveAirGroundEnv:
             return
 
         configure_autopilot(self.client, self.world, self.ego_vehicle)
+
+    def _apply_ego_control_once(self) -> None:
+        if self.ego_driver is None or self.ego_vehicle is None or self.world is None:
+            return
+        try:
+            control = self.ego_driver.predict(self.ego_vehicle, self.world)
+            self.ego_vehicle.apply_control(control)
+        except Exception:
+            try:
+                brake = carla.VehicleControl()
+                brake.brake = 1.0
+                self.ego_vehicle.apply_control(brake)
+            except Exception:
+                pass
 
     def _attach_collision_sensor(self) -> None:
         if self.world is None or self.ego_vehicle is None:
@@ -621,6 +636,8 @@ class ActiveAirGroundEnv:
                     vehicle_name=self.scenario.uav_name,
                 )
         if self.world.get_settings().synchronous_mode:
+            if self._ego_control_inline:
+                self._apply_ego_control_once()
             tick_count = max(1, int(round(float(self.scenario.step_sec) / max(self._world_fixed_delta_sec, 1e-6))))
             for _ in range(tick_count):
                 self.world.tick()
@@ -654,6 +671,7 @@ class ActiveAirGroundEnv:
             except Exception:
                 pass
         self.ego_driver = None
+        self._ego_control_inline = False
         if self.air_client is not None and bool(getattr(self.scenario, "uav_control_enabled", True)):
             with self._air_rpc_lock:
                 set_uav_hover(self.air_client, vehicle_name=self.scenario.uav_name)

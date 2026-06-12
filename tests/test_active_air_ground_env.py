@@ -14,12 +14,16 @@ class _Actor:
         self.attributes = {"role_name": role_name} if role_name else {}
         self.destroyed = False
         self.autopilot = None
+        self.controls = []
 
     def destroy(self) -> None:
         self.destroyed = True
 
     def set_autopilot(self, value, *_args) -> None:
         self.autopilot = value
+
+    def apply_control(self, control) -> None:
+        self.controls.append(control)
 
     def get_transform(self):
         return carla.Transform(carla.Location(), carla.Rotation())
@@ -251,6 +255,46 @@ def test_active_env_configures_sync_timing_and_restores_on_close(monkeypatch):
     assert app.world.applied_settings[-1] == (False, None)
     assert app.world.get_settings().synchronous_mode is False
     assert app.world.get_settings().fixed_delta_seconds is None
+
+
+def test_active_env_uses_inline_ego_control_in_synchronous_mode(monkeypatch):
+    ego = _Actor(actor_id=10, role_name="ego")
+    calls = {"predict": 0}
+
+    class _Driver:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.last_diagnostics = {}
+
+        def predict(self, *_args, **_kwargs):
+            calls["predict"] += 1
+            return "control"
+
+    monkeypatch.setattr(env_module, "spawn_ego_vehicle", lambda *_args, **_kwargs: ego)
+    monkeypatch.setattr(env_module, "set_traffic_manager_speed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "build_labels", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(env_module.ActiveAirGroundEnv, "_park_disabled_uav", lambda self: None)
+    monkeypatch.setattr(env_module, "RouteFollowingDriver", _Driver)
+
+    scenario = ScenarioConfig.from_dict(
+        {"name": "sync_inline_control", "uav_enabled": False, "ego_control_mode": "route_follow", "step_sec": 0.5}
+    )
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app.client = object()
+    app.world = _TimedWorld(synchronous_mode=False, fixed_delta_seconds=None)
+    app.observe = lambda: {"time": app._episode_elapsed_sec}
+
+    app.reset()
+
+    assert app._ego_control_inline is True
+    assert app._ego_driver_thread is None
+
+    app.step(0)
+
+    assert calls["predict"] == 1
+    assert ego.controls == ["control"]
+    assert app.world.ticks == 6
+
+    app.close()
 
 
 def test_active_env_starts_episode_clock_after_uav_setup(monkeypatch):
