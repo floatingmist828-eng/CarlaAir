@@ -636,10 +636,13 @@ class ActiveAirGroundEnv:
                     vehicle_name=self.scenario.uav_name,
                 )
         if self.world.get_settings().synchronous_mode:
-            if self._ego_control_inline:
-                self._apply_ego_control_once()
             tick_count = max(1, int(round(float(self.scenario.step_sec) / max(self._world_fixed_delta_sec, 1e-6))))
-            for _ in range(tick_count):
+            warmup_ticks = 0
+            if self._ego_control_inline:
+                self.world.tick()
+                warmup_ticks = 1
+                self._apply_ego_control_once()
+            for _ in range(max(0, tick_count - warmup_ticks)):
                 self.world.tick()
         else:
             time.sleep(self.scenario.step_sec)
