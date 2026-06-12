@@ -83,10 +83,10 @@ class ActiveAirGroundEnv:
         self._traffic_spawned = False
         self._obstacles_spawned = False
         self._walkers_spawned = False
+        self._original_world_settings = None
 
     def connect(self) -> None:
         self.client, self.world = connect_carla(self.carla_host, self.carla_port)
-        settings = self.world.get_settings()
         apply_weather_preset(self.world, getattr(self.scenario, "weather_preset", "none"))
         if self.destroy_old_vehicles:
             cleanup_actors_by_role(self.world, {"ego", "task_ego", "task_traffic", "task_obstacle", "task_walker"})
@@ -102,6 +102,44 @@ class ActiveAirGroundEnv:
                     )
         else:
             self._park_disabled_uav()
+
+    def _configure_world_timing(self):
+        settings = self.world.get_settings()
+        apply_settings = getattr(self.world, "apply_settings", None)
+        if apply_settings is None:
+            return settings
+        try:
+            if self._original_world_settings is None:
+                self._original_world_settings = {
+                    "synchronous_mode": bool(getattr(settings, "synchronous_mode", False)),
+                    "fixed_delta_seconds": getattr(settings, "fixed_delta_seconds", None),
+                }
+            settings.synchronous_mode = True
+            if hasattr(settings, "fixed_delta_seconds"):
+                settings.fixed_delta_seconds = float(self.scenario.step_sec)
+            apply_settings(settings)
+            settings = self.world.get_settings()
+        except Exception:
+            pass
+        return settings
+
+    def _restore_world_timing(self) -> None:
+        original = self._original_world_settings
+        self._original_world_settings = None
+        if original is None or self.world is None:
+            return
+        apply_settings = getattr(self.world, "apply_settings", None)
+        if apply_settings is None:
+            return
+        try:
+            settings = self.world.get_settings()
+            if hasattr(settings, "synchronous_mode"):
+                settings.synchronous_mode = bool(original.get("synchronous_mode", False))
+            if hasattr(settings, "fixed_delta_seconds"):
+                settings.fixed_delta_seconds = original.get("fixed_delta_seconds")
+            apply_settings(settings)
+        except Exception:
+            pass
 
     def _park_disabled_uav(self) -> None:
         try:
@@ -130,7 +168,7 @@ class ActiveAirGroundEnv:
         if self.client is None or self.world is None:
             self.connect()
         self._closed = False
-        settings = self.world.get_settings()
+        settings = self._configure_world_timing()
         self.ego_vehicle = spawn_ego_vehicle(
             self.world,
             blueprint_id=self.scenario.ego_blueprint,
@@ -665,4 +703,5 @@ class ActiveAirGroundEnv:
                 self.ego_vehicle.destroy()
             except Exception:
                 pass
+        self._restore_world_timing()
         self._closed = True

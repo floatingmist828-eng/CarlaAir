@@ -45,6 +45,26 @@ class _World:
         self.ticks += 1
 
 
+class _TimedSettings:
+    def __init__(self, synchronous_mode=False, fixed_delta_seconds=None) -> None:
+        self.synchronous_mode = synchronous_mode
+        self.fixed_delta_seconds = fixed_delta_seconds
+
+
+class _TimedWorld(_World):
+    def __init__(self, synchronous_mode=False, fixed_delta_seconds=None) -> None:
+        super().__init__()
+        self.settings = _TimedSettings(synchronous_mode, fixed_delta_seconds)
+        self.applied_settings = []
+
+    def get_settings(self):
+        return self.settings
+
+    def apply_settings(self, settings):
+        self.settings = settings
+        self.applied_settings.append((settings.synchronous_mode, settings.fixed_delta_seconds))
+
+
 def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):
     calls = {"vehicles": None, "walkers": None, "obstacles": None}
     ego = _Actor(actor_id=10, role_name="ego")
@@ -205,6 +225,33 @@ def test_active_env_delays_configured_traffic_and_walkers(monkeypatch):
     assert calls == {"vehicles": 1, "walkers": 1}
 
     app.close()
+
+
+def test_active_env_configures_sync_timing_and_restores_on_close(monkeypatch):
+    ego = _Actor(actor_id=10, role_name="ego")
+
+    monkeypatch.setattr(env_module, "spawn_ego_vehicle", lambda *_args, **_kwargs: ego)
+    monkeypatch.setattr(env_module, "configure_autopilot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "set_traffic_manager_speed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module.ActiveAirGroundEnv, "_park_disabled_uav", lambda self: None)
+
+    scenario = ScenarioConfig.from_dict({"name": "timed_world", "uav_enabled": False, "step_sec": 0.25})
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app.client = object()
+    app.world = _TimedWorld(synchronous_mode=False, fixed_delta_seconds=None)
+    app.observe = lambda: {"time": 0.0}
+
+    app.reset()
+
+    assert app.world.applied_settings[0] == (True, 0.25)
+    assert app.world.get_settings().synchronous_mode is True
+    assert app.world.get_settings().fixed_delta_seconds == 0.25
+
+    app.close()
+
+    assert app.world.applied_settings[-1] == (False, None)
+    assert app.world.get_settings().synchronous_mode is False
+    assert app.world.get_settings().fixed_delta_seconds is None
 
 
 def test_active_env_starts_episode_clock_after_uav_setup(monkeypatch):
