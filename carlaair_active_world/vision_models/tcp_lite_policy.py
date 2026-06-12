@@ -496,6 +496,24 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "guarded_steer": float(guarded_steer),
                 "speed_limit_mps": boundary_speed_limit,
             }
+        elif (
+            ego_world_x is not None
+            and ego_world_y is not None
+            and route_source == "post_turn_straight_reference"
+            and 88.0 <= float(ego_world_y) <= 112.0
+            and ego_world_x >= -40.8
+        ):
+            guarded_steer = -0.30 if ego_world_x >= -39.0 else -0.24
+            steer = min(float(steer), guarded_steer)
+            boundary_speed_limit = 0.9 if ego_world_x >= -39.0 else 1.2
+            double_yellow_guard = {
+                "applied": True,
+                "reason": "post_turn_roadside_boundary",
+                "ego_world_x": float(ego_world_x),
+                "ego_world_y": float(ego_world_y),
+                "guarded_steer": float(guarded_steer),
+                "speed_limit_mps": boundary_speed_limit,
+            }
         target_speed = float(self.target_speed_mps)
         corridor_speed_limit = _as_optional_float(
             obs.get("obstacle_corridor_target_speed_mps", obs.get("post_turn_corridor_target_speed_mps"))
