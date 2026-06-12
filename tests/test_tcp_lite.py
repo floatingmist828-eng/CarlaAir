@@ -975,14 +975,42 @@ def test_tcp_lite_policy_caps_first_turn_crosswalk_approach():
             "route_target_source": "junction_turn_reference",
             "route_target_local_x": 10.0,
             "route_target_local_y": 1.8,
-            "ego_world_x": -36.8,
-            "ego_world_y": 126.8,
+            "ego_world_x": -31.8,
+            "ego_world_y": 129.9,
         }
     )
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
-    assert diagnostics["target_speed_mps"] <= 1.2
+    assert diagnostics["target_speed_mps"] <= 1.0
+    assert control.throttle == 0.0
+    assert control.brake > 0.0
+
+
+def test_tcp_lite_policy_caps_waypoint_release_inside_first_turn_crosswalk():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 4.5,
+            "in_junction": False,
+            "route_target_source": "waypoint_next",
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 1.5,
+            "ego_world_x": -38.2,
+            "ego_world_y": 122.6,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
+    assert diagnostics["target_speed_mps"] <= 0.75
     assert control.throttle == 0.0
     assert control.brake > 0.0
 

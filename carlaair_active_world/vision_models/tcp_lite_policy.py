@@ -515,15 +515,20 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "guarded_steer": float(guarded_steer),
                 "speed_limit_mps": boundary_speed_limit,
             }
-        first_turn_reference = route_source in {"junction_turn_reference", "junction_turn_reference_cached"}
+        first_turn_reference = route_source in {"junction_turn_reference", "junction_turn_reference_cached", "waypoint_next"}
         if (
             ego_world_x is not None
             and ego_world_y is not None
             and first_turn_reference
-            and -46.5 <= float(ego_world_x) <= -33.0
-            and 115.0 <= float(ego_world_y) <= 128.5
+            and -45.0 <= float(ego_world_x) <= -28.0
+            and 112.0 <= float(ego_world_y) <= 131.0
         ):
-            crosswalk_speed_limit = 0.65 if float(ego_world_y) <= 123.0 else 1.2
+            if float(ego_world_y) >= 126.5:
+                crosswalk_speed_limit = 1.0
+            elif float(ego_world_y) >= 121.0:
+                crosswalk_speed_limit = 0.75
+            else:
+                crosswalk_speed_limit = 1.0
             boundary_speed_limit = (
                 crosswalk_speed_limit
                 if boundary_speed_limit is None
