@@ -43,7 +43,7 @@ def test_stable_uav_bev_scenario_loads():
     assert config.vision_junction_command_hold_until_exit is True
     assert config.traffic_walkers == 4
     assert config.walker_spawn_indices == [146, 146, 146, 146]
-    assert config.walker_spawn_delay_sec == 4.0
+    assert config.walker_spawn_delay_sec == 3.0
     assert config.walker_crossing_distance_m == 18.0
     assert config.walker_crossing_offsets_m == [-2.0, -0.7, 0.7, 2.0]
     assert config.traffic_vehicles == 0

@@ -265,8 +265,8 @@ class VisionEgoDriver:
                     continue
                 if role_name == "task_walker" and local_x >= 6.0 and actor_location.x <= vehicle_transform.location.x - 5.0:
                     continue
-                crosswalk_prebrake = (
-                    role_name == "task_walker" and actor_speed > 0.15 and local_x <= 10.0 and abs_y <= 9.0
+                crosswalk_prebrake = role_name == "task_walker" and actor_speed > 0.15 and (
+                    (local_x <= 10.0 and abs_y <= 9.0) or (local_x <= 14.0 and 5.0 <= abs_y <= 9.5)
                 )
                 if not crosswalk_prebrake and abs_y >= 4.2:
                     continue
