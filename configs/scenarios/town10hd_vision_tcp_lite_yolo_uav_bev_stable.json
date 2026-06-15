@@ -17,7 +17,7 @@
   "obstacle_vehicles": 2,
   "obstacle_spawn_delay_sec": 0.0,
   "obstacle_blueprint": "vehicle.dodge.charger_police_2020",
-  "obstacle_anchor_x": -41.0,
+  "obstacle_anchor_x": -40.5,
   "obstacle_anchor_y": 58.0,
   "obstacle_anchor_z": 0.6,
   "obstacle_anchor_yaw_deg": -90.0,
