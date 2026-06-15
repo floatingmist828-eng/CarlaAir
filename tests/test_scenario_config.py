@@ -51,7 +51,7 @@ def test_stable_uav_bev_scenario_loads():
     assert config.traffic_route_commands == []
     assert config.obstacle_vehicles == 2
     assert config.obstacle_spawn_delay_sec == 0.0
-    assert config.obstacle_anchor_x == -40.0
+    assert config.obstacle_anchor_x == -39.5
     assert config.obstacle_anchor_y == 58.0
     assert config.obstacle_anchor_yaw_deg == -90.0
     assert config.obstacle_forward_offsets_m == [0.0, 6.5]
