@@ -1214,6 +1214,51 @@ def test_vision_driver_stops_for_close_lane_obstacle_before_contact():
     assert hazard["target_speed_mps"] == 0.0
 
 
+def test_vision_driver_creeps_past_close_obstacle_when_already_offset_left():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, yaw=0.0, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation(yaw=yaw))
+            self._velocity = velocity or carla.Vector3D()
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", -43.65, 65.3, yaw=-73.0, role_name="ego")
+    obstacle = _Actor(2, "vehicle.dodge.charger_police_2020", -41.0, 58.0, role_name="task_obstacle")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle]))
+
+    assert hazard["active"] is True
+    assert hazard["action"] == "avoid_left"
+    assert hazard["target_speed_mps"] == 0.6
+
+
 def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
     import carla
 
@@ -1284,6 +1329,9 @@ def test_vision_driver_adds_post_turn_straight_corridor_reference():
     assert right_drift["route_target_source"] == "post_turn_straight_reference"
     assert right_drift["route_target_local_y"] <= -2.4
     assert right_drift["post_turn_corridor_target_speed_mps"] == 2.4
+
+    lower_approach = driver._post_turn_straight_reference(_Vehicle(-43.0, 82.0, -90.0))
+    assert lower_approach["route_target_source"] == "post_turn_straight_reference"
 
     assert driver._post_turn_straight_reference(_Vehicle(-43.5, 120.0, -90.0)) == {}
 

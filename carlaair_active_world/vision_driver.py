@@ -285,9 +285,15 @@ class VisionEgoDriver:
                     if local_x <= 8.0 and local_y >= 2.25:
                         continue
                     if local_x <= 8.0 and abs_y <= 1.8:
-                        action = "stop"
-                        target_speed = 0.0
-                        priority = 3
+                        ego_loc = vehicle_transform.location
+                        if float(ego_loc.y) >= 58.0 and float(ego_loc.x) <= -43.0:
+                            action = "avoid_left"
+                            target_speed = 0.6
+                            priority = 3
+                        else:
+                            action = "stop"
+                            target_speed = 0.0
+                            priority = 3
                     elif local_x <= 30.0 and abs_y <= 5.5:
                         action = "avoid_left"
                         target_speed = 1.6
@@ -405,7 +411,7 @@ class VisionEgoDriver:
         except Exception:
             return {}
 
-        if not (88.0 <= ego_y <= 112.0 and -52.5 <= ego_x <= -33.0):
+        if not (78.0 <= ego_y <= 112.0 and -52.5 <= ego_x <= -33.0):
             return {}
 
         target_x = -43.8
