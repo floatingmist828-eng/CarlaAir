@@ -350,7 +350,7 @@ class VisionEgoDriver:
         if not corridor_active:
             return {}
 
-        if ego_y <= 45.0 or ego_y > 92.0 or ego_x < -56.0 or ego_x > -31.0:
+        if ego_y <= 20.0 or ego_y > 92.0 or ego_x < -56.0 or ego_x > -31.0:
             self._obstacle_corridor_active = False
             return {}
 

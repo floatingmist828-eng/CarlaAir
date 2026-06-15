@@ -1284,7 +1284,11 @@ def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
     assert 0.0 < held["route_target_local_y"] <= 2.8
     assert held["obstacle_corridor"]["active"] is True
 
-    released = driver._obstacle_corridor_reference(_Vehicle(-44.2, 44.5, -90.0), {"active": False})
+    lower_held = driver._obstacle_corridor_reference(_Vehicle(-44.2, 44.5, -90.0), {"active": False})
+    assert lower_held["route_target_source"] == "obstacle_corridor_reference"
+    assert lower_held["obstacle_corridor"]["active"] is True
+
+    released = driver._obstacle_corridor_reference(_Vehicle(-44.2, 19.5, -90.0), {"active": False})
     assert released == {}
     assert driver._obstacle_corridor_active is False
 
