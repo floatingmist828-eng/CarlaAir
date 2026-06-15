@@ -456,9 +456,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
         if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= left_boundary_x:
             guarded_steer = 0.22
             steer = max(float(steer), guarded_steer)
-            boundary_speed_limit = 0.9 if corridor_route_reference else 1.2
+            boundary_speed_limit = 1.2 if corridor_route_reference else 1.2
             if ego_world_x <= hard_left_boundary_x:
-                boundary_speed_limit = 0.6 if corridor_route_reference else 1.0
+                boundary_speed_limit = 0.8 if corridor_route_reference else 1.0
             double_yellow_guard = {
                 "applied": True,
                 "reason": "obstacle_corridor_boundary",

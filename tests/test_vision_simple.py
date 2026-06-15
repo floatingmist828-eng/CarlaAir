@@ -1310,7 +1310,7 @@ def test_vision_driver_keeps_left_in_obstacle_corridor_tail():
 
     assert reference["route_target_source"] == "obstacle_corridor_reference"
     assert reference["route_target_local_y"] <= -1.6
-    assert reference["obstacle_corridor_target_speed_mps"] <= 1.2
+    assert reference["obstacle_corridor_target_speed_mps"] <= 1.3
 
 
 def test_vision_driver_adds_post_turn_straight_corridor_reference():
