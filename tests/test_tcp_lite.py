@@ -982,7 +982,7 @@ def test_tcp_lite_policy_caps_first_turn_crosswalk_approach():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
-    assert diagnostics["target_speed_mps"] <= 1.0
+    assert diagnostics["target_speed_mps"] <= 1.1
     assert control.throttle == 0.0
     assert control.brake > 0.0
 
@@ -1010,7 +1010,7 @@ def test_tcp_lite_policy_caps_waypoint_release_inside_first_turn_crosswalk():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
-    assert diagnostics["target_speed_mps"] <= 0.75
+    assert diagnostics["target_speed_mps"] <= 1.35
     assert control.throttle == 0.0
     assert control.brake > 0.0
 

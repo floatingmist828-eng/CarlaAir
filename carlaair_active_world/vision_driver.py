@@ -290,7 +290,7 @@ class VisionEgoDriver:
                         priority = 3
                     elif local_x <= 30.0 and abs_y <= 5.5:
                         action = "avoid_left"
-                        target_speed = 1.4
+                        target_speed = 1.6
                         priority = 3
                 elif local_x <= 7.5 and abs_y <= 4.8:
                     action = "stop"
@@ -352,7 +352,7 @@ class VisionEgoDriver:
         if ego_y >= 68.0:
             target_x = -44.4
             lookahead_y = 18.0
-            target_speed = 1.4
+            target_speed = 1.6
         elif ego_y >= 63.0:
             target_x = -44.4
             lookahead_y = 16.0
@@ -428,7 +428,7 @@ class VisionEgoDriver:
             "route_target_local_x": float(local_x),
             "route_target_local_y": float(local_y),
             "route_target_source": "post_turn_straight_reference",
-            "post_turn_corridor_target_speed_mps": 2.0,
+            "post_turn_corridor_target_speed_mps": 2.4,
             "post_turn_corridor": {
                 "active": True,
                 "target_world_x": float(target_x),

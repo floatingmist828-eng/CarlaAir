@@ -1034,7 +1034,7 @@ def test_vision_driver_requests_left_avoidance_for_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] == 1.4
+    assert hazard["target_speed_mps"] == 1.6
     assert hazard["avoid_lateral_m"] == -2.1
 
 
@@ -1080,7 +1080,7 @@ def test_vision_driver_requests_early_left_avoidance_for_static_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] == 1.4
+    assert hazard["target_speed_mps"] == 1.6
 
 
 def test_vision_driver_requests_left_avoidance_far_enough_for_static_obstacle():
@@ -1283,7 +1283,7 @@ def test_vision_driver_adds_post_turn_straight_corridor_reference():
     right_drift = driver._post_turn_straight_reference(_Vehicle(-34.5, 91.5, 11.0))
     assert right_drift["route_target_source"] == "post_turn_straight_reference"
     assert right_drift["route_target_local_y"] <= -2.4
-    assert right_drift["post_turn_corridor_target_speed_mps"] == 2.0
+    assert right_drift["post_turn_corridor_target_speed_mps"] == 2.4
 
     assert driver._post_turn_straight_reference(_Vehicle(-43.5, 120.0, -90.0)) == {}
 

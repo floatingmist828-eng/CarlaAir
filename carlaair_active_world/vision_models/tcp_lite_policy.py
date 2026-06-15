@@ -524,11 +524,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
             and 112.0 <= float(ego_world_y) <= 131.0
         ):
             if float(ego_world_y) >= 126.5:
-                crosswalk_speed_limit = 1.0
+                crosswalk_speed_limit = 1.1
             elif float(ego_world_y) >= 121.0:
-                crosswalk_speed_limit = 0.75
+                crosswalk_speed_limit = 1.35
             else:
-                crosswalk_speed_limit = 1.0
+                crosswalk_speed_limit = 1.9
             boundary_speed_limit = (
                 crosswalk_speed_limit
                 if boundary_speed_limit is None
