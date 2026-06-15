@@ -344,40 +344,43 @@ class VisionEgoDriver:
         if not corridor_active:
             return {}
 
-        if ego_y <= 45.0 or ego_y > 90.0 or ego_x < -56.0 or ego_x > -35.0:
+        if ego_y <= 45.0 or ego_y > 92.0 or ego_x < -56.0 or ego_x > -31.0:
             self._obstacle_corridor_active = False
             return {}
 
         self._obstacle_corridor_active = True
         if ego_y >= 68.0:
-            target_x = -43.7
+            target_x = -44.4
             lookahead_y = 18.0
             target_speed = 1.4
         elif ego_y >= 63.0:
-            target_x = -43.8
+            target_x = -44.4
             lookahead_y = 16.0
-            target_speed = 1.2
+            target_speed = 1.1
         elif ego_y >= 50.0:
-            target_x = -43.8
+            target_x = -44.2
             lookahead_y = 12.0
             target_speed = 1.0
         else:
-            target_x = -43.5
+            target_x = -43.8
             lookahead_y = 12.0
             target_speed = 1.2
 
         target = carla.Location(x=target_x, y=ego_y - lookahead_y, z=float(vehicle_transform.location.z))
         local_x, local_y = self._local_target(vehicle_transform, target)
         local_x = self._clamp(local_x, 8.0, 22.0)
-        local_y = self._clamp(local_y, -1.8, 1.8)
-        if 50.0 <= ego_y <= 66.0 and ego_x >= -43.4:
-            local_y = min(local_y, -1.6)
-        elif ego_x <= -44.6:
-            local_y = max(local_y, 1.6)
-        elif ego_x <= -44.2:
-            local_y = max(local_y, 1.0)
-        elif ego_x >= -41.8 and ego_y >= 58.0:
+        local_y = self._clamp(local_y, -2.0, 2.0)
+        if 50.0 <= ego_y <= 66.0 and ego_x >= -39.2:
+            local_y = min(local_y, -1.8)
+            target_speed = min(target_speed, 0.8)
+        elif ego_x <= -45.4:
+            local_y = max(local_y, 1.4)
+            target_speed = min(target_speed, 1.0)
+        elif ego_x <= -45.0:
+            local_y = max(local_y, 0.8)
+        elif ego_x >= -40.6 and ego_y >= 58.0:
             local_y = min(local_y, -1.2)
+            target_speed = min(target_speed, 1.0)
 
         return {
             "route_target_local_x": float(local_x),

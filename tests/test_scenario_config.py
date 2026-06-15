@@ -51,11 +51,11 @@ def test_stable_uav_bev_scenario_loads():
     assert config.traffic_route_commands == []
     assert config.obstacle_vehicles == 2
     assert config.obstacle_spawn_delay_sec == 0.0
-    assert config.obstacle_anchor_x == -40.0
+    assert config.obstacle_anchor_x == -41.0
     assert config.obstacle_anchor_y == 58.0
     assert config.obstacle_anchor_yaw_deg == -90.0
     assert config.obstacle_forward_offsets_m == [0.0, 6.5]
-    assert config.obstacle_lateral_offsets_m == [0.0, 0.6]
+    assert config.obstacle_lateral_offsets_m == [0.0, 0.8]
     assert config.obstacle_yaw_offsets_deg == [25.0, -35.0]
     assert config.vision_detector_confidence == 0.45
     assert config.vision_safety_gate_enabled is True
@@ -66,8 +66,8 @@ def test_stable_uav_bev_scenario_loads():
     assert config.uav_bev_fusion_enabled is True
     assert config.candidate_offsets[0].name == "front_lead_close"
     assert len(config.candidate_offsets) == 1
-    assert 14.0 <= config.candidate_offsets[0].local_offset.x <= 18.0
-    assert 14.0 <= config.candidate_offsets[0].local_offset.z <= 18.0
+    assert 10.0 <= config.candidate_offsets[0].local_offset.x <= 14.0
+    assert 12.0 <= config.candidate_offsets[0].local_offset.z <= 16.0
 
 
 def test_scenario_config_round_trips_uav_fusion_mode_and_planner():
