@@ -411,7 +411,7 @@ class VisionEgoDriver:
         except Exception:
             return {}
 
-        if not (78.0 <= ego_y <= 112.0 and -52.5 <= ego_x <= -33.0):
+        if not (78.0 <= ego_y <= 118.0 and -52.5 <= ego_x <= -33.0):
             return {}
 
         target_x = -43.8

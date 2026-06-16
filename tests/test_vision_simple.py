@@ -1334,6 +1334,10 @@ def test_vision_driver_adds_post_turn_straight_corridor_reference():
     assert right_drift["route_target_local_y"] <= -2.4
     assert right_drift["post_turn_corridor_target_speed_mps"] == 2.4
 
+    early_release = driver._post_turn_straight_reference(_Vehicle(-42.2, 116.0, -88.0))
+    assert early_release["route_target_source"] == "post_turn_straight_reference"
+    assert early_release["route_target_local_y"] < 0.0
+
     lower_approach = driver._post_turn_straight_reference(_Vehicle(-43.0, 82.0, -90.0))
     assert lower_approach["route_target_source"] == "post_turn_straight_reference"
 
