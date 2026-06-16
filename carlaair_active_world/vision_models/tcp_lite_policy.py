@@ -501,7 +501,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             ego_world_x is not None
             and ego_world_y is not None
             and route_source == "post_turn_straight_reference"
-            and 88.0 <= float(ego_world_y) <= 112.0
+            and 78.0 <= float(ego_world_y) <= 120.0
             and ego_world_x >= -40.8
         ):
             guarded_steer = -0.30 if ego_world_x >= -39.0 else -0.24
@@ -555,7 +555,14 @@ class TcpLiteVisionPolicy(VisionPolicy):
         speed_error = target_speed - speed_mps
         throttle = _clamp(0.22 * speed_error, 0.0, 0.42)
         brake = 0.0
-        if speed_error < -0.8:
+        brake_threshold = -0.8
+        if (
+            not interaction_diagnostics.get("active")
+            and boundary_speed_limit is None
+            and not bool(first_turn_crosswalk_guard.get("applied", False))
+        ):
+            brake_threshold = -1.15
+        if speed_error < brake_threshold:
             brake = _clamp((-speed_error) / max(1.0, self.target_speed_mps), 0.0, 0.5)
             throttle = 0.0
         if interaction_diagnostics.get("active"):
@@ -586,6 +593,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "uav_bev_fusion": uav_bev_diagnostics,
             "speed_mps": float(speed_mps),
             "target_speed_mps": float(target_speed),
+            "overspeed_brake_threshold_mps": float(brake_threshold),
             "interaction_yield": interaction_diagnostics,
             "steer": float(control.steer),
             "throttle": float(control.throttle),

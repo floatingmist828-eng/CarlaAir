@@ -1278,6 +1278,7 @@ def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
     )
     assert first["route_target_source"] == "obstacle_corridor_reference"
     assert first["route_target_local_y"] < 0.0
+    assert first["obstacle_corridor"]["target_world_x"] == -44.0
 
     held = driver._obstacle_corridor_reference(_Vehicle(-45.40, 72.98, -132.3), {"active": False})
     assert held["route_target_source"] == "obstacle_corridor_reference"
@@ -1309,8 +1310,8 @@ def test_vision_driver_keeps_left_in_obstacle_corridor_tail():
     reference = driver._obstacle_corridor_reference(_Vehicle(-42.0, 58.7, -60.8), {"active": False})
 
     assert reference["route_target_source"] == "obstacle_corridor_reference"
-    assert reference["route_target_local_y"] <= -1.6
-    assert reference["obstacle_corridor_target_speed_mps"] <= 1.3
+    assert reference["route_target_local_y"] <= -1.0
+    assert reference["obstacle_corridor_target_speed_mps"] <= 1.45
 
 
 def test_vision_driver_adds_post_turn_straight_corridor_reference():
@@ -1334,14 +1335,14 @@ def test_vision_driver_adds_post_turn_straight_corridor_reference():
     assert right_drift["route_target_local_y"] <= -2.4
     assert right_drift["post_turn_corridor_target_speed_mps"] == 2.4
 
-    early_release = driver._post_turn_straight_reference(_Vehicle(-42.2, 116.0, -88.0))
-    assert early_release["route_target_source"] == "post_turn_straight_reference"
-    assert early_release["route_target_local_y"] < 0.0
+    upper_junction = driver._post_turn_straight_reference(_Vehicle(-42.2, 122.0, -88.0))
+    assert upper_junction["route_target_source"] == "post_turn_straight_reference"
+    assert upper_junction["route_target_local_y"] < 0.0
 
-    lower_approach = driver._post_turn_straight_reference(_Vehicle(-43.0, 82.0, -90.0))
+    lower_approach = driver._post_turn_straight_reference(_Vehicle(-43.0, 72.0, -90.0))
     assert lower_approach["route_target_source"] == "post_turn_straight_reference"
 
-    assert driver._post_turn_straight_reference(_Vehicle(-43.5, 120.0, -90.0)) == {}
+    assert driver._post_turn_straight_reference(_Vehicle(-43.5, 126.0, -90.0)) == {}
 
 
 def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():

@@ -1099,6 +1099,35 @@ def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
     assert control.steer <= -0.18
 
 
+def test_tcp_lite_policy_coasts_clear_corridor_small_overspeed():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="straight",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 2.8,
+            "in_junction": True,
+            "route_target_source": "obstacle_corridor_reference",
+            "route_target_local_x": 16.0,
+            "route_target_local_y": -0.4,
+            "ego_world_x": -43.5,
+            "ego_world_y": 70.0,
+            "obstacle_corridor_target_speed_mps": 1.8,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["double_yellow_guard"]["applied"] is False
+    assert diagnostics["overspeed_brake_threshold_mps"] == -1.15
+    assert diagnostics["target_speed_mps"] == 1.8
+    assert control.brake == 0.0
+
+
 def test_tcp_lite_policy_uses_post_turn_straight_reference_in_junction():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),
