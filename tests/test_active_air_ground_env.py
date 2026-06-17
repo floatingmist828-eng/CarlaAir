@@ -38,12 +38,20 @@ class _Spawned:
         self.controller = controller
 
 
+class _ActorList(list):
+    def filter(self, _pattern):
+        return []
+
+
 class _World:
     def __init__(self) -> None:
         self.ticks = 0
 
     def get_settings(self):
         return type("Settings", (), {"synchronous_mode": True})()
+
+    def get_actors(self):
+        return _ActorList()
 
     def tick(self):
         self.ticks += 1
@@ -67,6 +75,43 @@ class _TimedWorld(_World):
     def apply_settings(self, settings):
         self.settings = settings
         self.applied_settings.append((settings.synchronous_mode, settings.fixed_delta_seconds))
+
+
+def test_active_env_clears_existing_scene_before_spawn_in_synchronous_world(monkeypatch):
+    order = []
+    ego = _Actor(actor_id=10, role_name="ego")
+
+    monkeypatch.setattr(
+        env_module,
+        "cleanup_actors_by_role",
+        lambda *_args, **_kwargs: order.append("cleanup_roles") or 2,
+    )
+    monkeypatch.setattr(
+        env_module,
+        "cleanup_old_vehicles",
+        lambda *_args, **_kwargs: order.append("cleanup_ego") or 1,
+    )
+    monkeypatch.setattr(
+        env_module,
+        "spawn_ego_vehicle",
+        lambda *_args, **_kwargs: order.append("spawn_ego") or ego,
+    )
+    monkeypatch.setattr(env_module, "configure_autopilot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "set_traffic_manager_speed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "spawn_traffic_vehicles", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(env_module, "spawn_static_obstacle_vehicles", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(env_module, "spawn_traffic_walkers", lambda *_args, **_kwargs: [])
+
+    scenario = ScenarioConfig.from_dict({"name": "clean_spawn", "uav_enabled": False})
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app.client = object()
+    app.world = _World()
+    app.observe = lambda: {"time": 0.0}
+
+    app.reset()
+
+    assert order[:3] == ["cleanup_roles", "cleanup_ego", "spawn_ego"]
+    assert app.world.ticks >= 2
 
 
 def test_active_env_spawns_configured_traffic_and_walkers(monkeypatch):

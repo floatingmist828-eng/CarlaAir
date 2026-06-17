@@ -355,6 +355,9 @@ class TcpLiteVisionPolicy(VisionPolicy):
         speed_mps = float(obs.get("speed_mps", 0.0) or 0.0)
         hazard = obs.get("interaction_hazard") or {}
         route_source = str(obs.get("route_target_source", ""))
+        ego_world_x = _as_optional_float(obs.get("ego_world_x"))
+        ego_world_y = _as_optional_float(obs.get("ego_world_y"))
+        ego_world_yaw = _as_optional_float(obs.get("ego_world_yaw_deg"))
         junction_route_reference = bool(obs.get("in_junction", False)) and route_source.startswith("junction_")
         corridor_route_reference = route_source in {"obstacle_corridor_reference", "post_turn_straight_reference"}
         junction_route_steer_guard: Dict[str, Any] = {
@@ -362,6 +365,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "lane_centering_suppressed": False,
         }
         obstacle_avoidance: Dict[str, Any] = {"applied": False}
+        corridor_pose_control: Dict[str, Any] = {"applied": False}
+        corridor_pose_speed_limit = None
         adjusted_y = float(y)
         if isinstance(hazard, dict) and str(hazard.get("action", "")).lower() == "avoid_left":
             lane_width = _as_optional_float(obs.get("lane_width_m")) or 3.5
@@ -398,6 +403,33 @@ class TcpLiteVisionPolicy(VisionPolicy):
                         "steer_limit": float(self._junction_steer_limit),
                     }
                 )
+        corridor_data = obs.get("obstacle_corridor") or obs.get("post_turn_corridor") or {}
+        corridor_target_x = _as_optional_float(corridor_data.get("target_world_x")) if isinstance(corridor_data, dict) else None
+        if (
+            corridor_route_reference
+            and not bool(obstacle_avoidance.get("applied"))
+            and ego_world_x is not None
+            and ego_world_yaw is not None
+            and corridor_target_x is not None
+        ):
+            x_error = float(ego_world_x) - float(corridor_target_x)
+            yaw_error = ((float(ego_world_yaw) - (-90.0) + 180.0) % 360.0) - 180.0
+            pose_steer = _clamp(-0.085 * x_error - 0.55 * (yaw_error / 90.0), -0.34, 0.34)
+            route_steer = float(pose_steer)
+            if abs(x_error) > 2.4 or abs(yaw_error) > 28.0:
+                corridor_pose_speed_limit = 1.25
+            elif abs(x_error) > 1.5 or abs(yaw_error) > 18.0:
+                corridor_pose_speed_limit = 1.75
+            corridor_pose_control = {
+                "applied": True,
+                "target_world_x": float(corridor_target_x),
+                "ego_world_x": float(ego_world_x),
+                "ego_world_yaw_deg": float(ego_world_yaw),
+                "x_error_m": float(x_error),
+                "yaw_error_deg": float(yaw_error),
+                "pose_steer": float(pose_steer),
+                "speed_limit_mps": corridor_pose_speed_limit,
+            }
         lane_centering_correction = 0.0
         lane_offset_value = None
         try:
@@ -443,8 +475,6 @@ class TcpLiteVisionPolicy(VisionPolicy):
                     "output_steer": float(steer),
                     "steer_rate_limit": float(self._steer_rate_limit),
                 }
-        ego_world_x = _as_optional_float(obs.get("ego_world_x"))
-        ego_world_y = _as_optional_float(obs.get("ego_world_y"))
         double_yellow_guard: Dict[str, Any] = {"applied": False}
         first_turn_crosswalk_guard: Dict[str, Any] = {"applied": False}
         boundary_speed_limit = None
@@ -453,7 +483,25 @@ class TcpLiteVisionPolicy(VisionPolicy):
         ) or (ego_world_y is None and (bool(obstacle_avoidance.get("applied")) or corridor_route_reference))
         left_boundary_x = -45.4 if corridor_route_reference else -46.2
         hard_left_boundary_x = -45.8 if corridor_route_reference else -46.5
-        if ego_world_x is not None and in_obstacle_corridor and ego_world_x <= left_boundary_x:
+        if (
+            ego_world_x is not None
+            and ego_world_y is not None
+            and route_source == "post_turn_straight_reference"
+            and 88.0 <= float(ego_world_y) <= 124.0
+            and ego_world_x <= -45.0
+        ):
+            guarded_steer = 0.34 if ego_world_x <= -48.0 else 0.28
+            steer = max(float(steer), guarded_steer)
+            boundary_speed_limit = 1.15 if ego_world_x > -48.0 else 0.9
+            double_yellow_guard = {
+                "applied": True,
+                "reason": "post_turn_left_boundary",
+                "ego_world_x": float(ego_world_x),
+                "ego_world_y": float(ego_world_y),
+                "guarded_steer": float(guarded_steer),
+                "speed_limit_mps": boundary_speed_limit,
+            }
+        elif ego_world_x is not None and in_obstacle_corridor and ego_world_x <= left_boundary_x:
             guarded_steer = 0.22
             steer = max(float(steer), guarded_steer)
             boundary_speed_limit = 1.2 if corridor_route_reference else 1.2
@@ -486,12 +534,20 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "speed_limit_mps": boundary_speed_limit,
             }
         elif ego_world_x is not None and ego_world_y is not None and in_obstacle_corridor and ego_world_x >= -39.2:
-            guarded_steer = -0.18
+            post_turn_right_boundary = (
+                route_source == "post_turn_straight_reference" and float(ego_world_y) >= 66.0
+            )
+            if post_turn_right_boundary and ego_world_x >= -38.0:
+                guarded_steer = -0.32
+            elif post_turn_right_boundary:
+                guarded_steer = -0.26
+            else:
+                guarded_steer = -0.18
             steer = min(float(steer), guarded_steer)
-            boundary_speed_limit = 0.9
+            boundary_speed_limit = 1.2 if post_turn_right_boundary else 0.9
             double_yellow_guard = {
                 "applied": True,
-                "reason": "obstacle_corridor_right_boundary",
+                "reason": "post_turn_roadside_boundary" if post_turn_right_boundary else "obstacle_corridor_right_boundary",
                 "ego_world_x": float(ego_world_x),
                 "ego_world_y": float(ego_world_y),
                 "guarded_steer": float(guarded_steer),
@@ -547,6 +603,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         )
         if corridor_route_reference and corridor_speed_limit is not None:
             target_speed = min(target_speed, float(corridor_speed_limit))
+        if corridor_pose_speed_limit is not None:
+            target_speed = min(target_speed, float(corridor_pose_speed_limit))
         if boundary_speed_limit is not None:
             target_speed = min(target_speed, float(boundary_speed_limit))
         if abs(steer) > 0.30:
@@ -586,6 +644,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "junction_route_steer_guard": junction_route_steer_guard,
             "route_reference_stabilization": route_reference_stabilization,
             "obstacle_avoidance": obstacle_avoidance,
+            "corridor_pose_control": corridor_pose_control,
             "double_yellow_guard": double_yellow_guard,
             "first_turn_crosswalk_guard": first_turn_crosswalk_guard,
             "obstacle_corridor": obs.get("obstacle_corridor") or {},

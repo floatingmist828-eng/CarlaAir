@@ -1,6 +1,8 @@
+import pytest
 import airsim
+import carla
 
-from carlaair_active_world.core import move_uav_to
+from carlaair_active_world.core import move_uav_to, spawn_ego_vehicle
 from carlaair_active_world.geometry import Pose, Vector3
 
 
@@ -65,3 +67,38 @@ def test_move_uav_to_zeroes_kinematics_after_pose_set(monkeypatch):
     assert kinematics.angular_velocity.x_val == 0.0
     assert kinematics.angular_velocity.y_val == 0.0
     assert kinematics.angular_velocity.z_val == 0.0
+
+
+def test_spawn_ego_vehicle_rejects_distant_fallback_spawn():
+    class _Blueprint:
+        def has_attribute(self, name):
+            return name == "role_name"
+
+        def set_attribute(self, _name, _value):
+            pass
+
+    class _BlueprintLibrary:
+        def find(self, _blueprint_id):
+            return _Blueprint()
+
+    class _Map:
+        def get_spawn_points(self):
+            return [
+                carla.Transform(carla.Location(x=-28.0, y=130.0), carla.Rotation(yaw=-180.0)),
+                carla.Transform(carla.Location(x=-20.0, y=130.0), carla.Rotation(yaw=-180.0)),
+            ]
+
+    class _World:
+        def get_blueprint_library(self):
+            return _BlueprintLibrary()
+
+        def get_map(self):
+            return _Map()
+
+        def try_spawn_actor(self, _blueprint, transform):
+            if transform.location.x == -20.0:
+                return object()
+            return None
+
+    with pytest.raises(RuntimeError, match="near requested spawn"):
+        spawn_ego_vehicle(_World(), "vehicle.tesla.model3", spawn_index=0)

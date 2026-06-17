@@ -134,6 +134,7 @@ def spawn_ego_vehicle(
     blueprint_id: str,
     spawn_index: int = 0,
     forward_m: float = 0.0,
+    fallback_radius_m: float = 5.0,
 ) -> carla.Actor:
     blueprint_library = world.get_blueprint_library()
     blueprint = blueprint_library.find(blueprint_id)
@@ -159,12 +160,26 @@ def spawn_ego_vehicle(
             pass
     actor = world.try_spawn_actor(blueprint, spawn_point)
     if actor is None:
-        for point in spawn_points:
+        max_fallback_distance_sq = max(0.0, float(fallback_radius_m)) ** 2
+        fallback_points = sorted(
+            spawn_points,
+            key=lambda point: (
+                float(point.location.x - spawn_point.location.x) ** 2
+                + float(point.location.y - spawn_point.location.y) ** 2
+            ),
+        )
+        for point in fallback_points:
+            distance_sq = (
+                float(point.location.x - spawn_point.location.x) ** 2
+                + float(point.location.y - spawn_point.location.y) ** 2
+            )
+            if distance_sq > max_fallback_distance_sq:
+                continue
             actor = world.try_spawn_actor(blueprint, point)
             if actor is not None:
                 break
     if actor is None:
-        raise RuntimeError("Failed to spawn ego vehicle.")
+        raise RuntimeError("Failed to spawn ego vehicle near requested spawn point.")
     return actor
 
 

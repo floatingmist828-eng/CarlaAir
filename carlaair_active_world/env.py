@@ -175,6 +175,7 @@ class ActiveAirGroundEnv:
             self.connect()
         self._closed = False
         settings = self._configure_world_timing()
+        self._clear_existing_scene_before_spawn(settings)
         self.ego_vehicle = spawn_ego_vehicle(
             self.world,
             blueprint_id=self.scenario.ego_blueprint,
@@ -183,6 +184,7 @@ class ActiveAirGroundEnv:
         )
         self.collision_events = []
         self._attach_collision_sensor()
+        self._settle_ego_vehicle(settings)
         self._start_ego_control()
         self.traffic_actors = []
         self.obstacle_actors = []
@@ -221,6 +223,49 @@ class ActiveAirGroundEnv:
         observation = self.observe()
         observation["time"] = 0.0
         return observation
+
+    def _clear_existing_scene_before_spawn(self, settings: Any) -> None:
+        if not self.destroy_old_vehicles or self.world is None:
+            return
+        destroyed = 0
+        destroyed += cleanup_actors_by_role(
+            self.world,
+            {"ego", "task_ego", "task_traffic", "task_obstacle", "task_walker"},
+        )
+        destroyed += cleanup_old_vehicles(self.world)
+        if destroyed <= 0:
+            return
+        if bool(getattr(settings, "synchronous_mode", False)):
+            try:
+                self.world.tick()
+            except Exception:
+                pass
+        else:
+            time.sleep(0.1)
+
+    def _settle_ego_vehicle(self, settings: Any, frames: int = 3) -> None:
+        if self.ego_vehicle is None or self.world is None:
+            return
+        if not hasattr(self.ego_vehicle, "set_target_velocity"):
+            return
+        brake = carla.VehicleControl()
+        brake.throttle = 0.0
+        brake.brake = 1.0
+        brake.hand_brake = False
+        for _ in range(max(0, int(frames))):
+            try:
+                self.ego_vehicle.set_target_velocity(carla.Vector3D(0.0, 0.0, 0.0))
+                self.ego_vehicle.set_target_angular_velocity(carla.Vector3D(0.0, 0.0, 0.0))
+            except Exception:
+                pass
+            try:
+                self.ego_vehicle.apply_control(brake)
+            except Exception:
+                pass
+            if bool(getattr(settings, "synchronous_mode", False)):
+                self.world.tick()
+            else:
+                time.sleep(0.05)
 
     def _spawn_configured_traffic(self) -> None:
         if self._traffic_spawned or self.client is None or self.world is None:
