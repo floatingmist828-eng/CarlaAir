@@ -490,8 +490,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
         ) or (ego_world_y is None and (bool(obstacle_avoidance.get("applied")) or corridor_route_reference))
-        left_boundary_x = -44.45 if corridor_route_reference else -46.2
-        hard_left_boundary_x = -44.8 if corridor_route_reference else -46.5
+        left_boundary_x = -44.65 if corridor_route_reference else -46.2
+        hard_left_boundary_x = -45.0 if corridor_route_reference else -46.5
         if (
             ego_world_x is not None
             and ego_world_y is not None

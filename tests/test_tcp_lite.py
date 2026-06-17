@@ -1139,8 +1139,8 @@ def test_tcp_lite_policy_proactively_recovers_obstacle_corridor_left_boundary():
             "route_target_source": "obstacle_corridor_reference",
             "route_target_local_x": 12.0,
             "route_target_local_y": 0.0,
-            "ego_world_x": -44.56,
-            "ego_world_y": 51.6,
+            "ego_world_x": -44.68,
+            "ego_world_y": 48.5,
             "obstacle_corridor_target_speed_mps": 1.7,
         }
     )
