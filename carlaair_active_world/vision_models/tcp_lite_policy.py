@@ -485,6 +485,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
                     "steer_rate_limit": float(self._steer_rate_limit),
                 }
         double_yellow_guard: Dict[str, Any] = {"applied": False}
+        obstacle_clearance_guard: Dict[str, Any] = {"applied": False}
         first_turn_crosswalk_guard: Dict[str, Any] = {"applied": False}
         boundary_speed_limit = None
         in_obstacle_corridor = (
@@ -523,6 +524,25 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "reason": "obstacle_corridor_boundary",
                 "ego_world_x": float(ego_world_x),
                 "ego_world_y": None if ego_world_y is None else float(ego_world_y),
+                "guarded_steer": float(guarded_steer),
+                "speed_limit_mps": boundary_speed_limit,
+            }
+        elif (
+            ego_world_x is not None
+            and ego_world_y is not None
+            and route_source == "obstacle_corridor_reference"
+            and 49.0 <= float(ego_world_y) <= 62.0
+            and ego_world_x >= -43.35
+            and ego_world_x <= -42.6
+        ):
+            guarded_steer = -0.14
+            steer = min(float(steer), guarded_steer)
+            boundary_speed_limit = 1.25
+            obstacle_clearance_guard = {
+                "applied": True,
+                "reason": "obstacle_corridor_clearance",
+                "ego_world_x": float(ego_world_x),
+                "ego_world_y": float(ego_world_y),
                 "guarded_steer": float(guarded_steer),
                 "speed_limit_mps": boundary_speed_limit,
             }
@@ -657,6 +677,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             "obstacle_avoidance": obstacle_avoidance,
             "corridor_pose_control": corridor_pose_control,
             "double_yellow_guard": double_yellow_guard,
+            "obstacle_clearance_guard": obstacle_clearance_guard,
             "first_turn_crosswalk_guard": first_turn_crosswalk_guard,
             "obstacle_corridor": obs.get("obstacle_corridor") or {},
             "post_turn_corridor": obs.get("post_turn_corridor") or {},

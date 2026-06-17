@@ -1152,6 +1152,35 @@ def test_tcp_lite_policy_proactively_recovers_obstacle_corridor_left_boundary():
     assert control.steer >= 0.24
 
 
+def test_tcp_lite_policy_holds_obstacle_clearance_mid_corridor():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="straight",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.2,
+            "in_junction": True,
+            "route_target_source": "obstacle_corridor_reference",
+            "route_target_local_x": 12.0,
+            "route_target_local_y": 0.0,
+            "ego_world_x": -43.2,
+            "ego_world_y": 52.0,
+            "obstacle_corridor_target_speed_mps": 1.7,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["obstacle_clearance_guard"]["applied"] is True
+    assert diagnostics["obstacle_clearance_guard"]["reason"] == "obstacle_corridor_clearance"
+    assert diagnostics["target_speed_mps"] <= 1.25
+    assert control.steer <= -0.14
+
+
 def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
     policy = TcpLiteVisionPolicy(
         model=_ConsistentTcpModel(),
