@@ -1362,6 +1362,11 @@ def test_vision_driver_keeps_left_in_obstacle_corridor_tail():
     assert reference["route_target_source"] == "obstacle_corridor_reference"
     assert reference["route_target_local_y"] <= -1.0
     assert reference["obstacle_corridor_target_speed_mps"] >= 1.6
+    assert -44.4 <= reference["obstacle_corridor"]["target_world_x"] <= -43.6
+
+    lower_overlap = driver._obstacle_corridor_reference(_Vehicle(-43.2, 48.7, -84.0), {"active": False})
+    assert lower_overlap["route_target_source"] == "obstacle_corridor_reference"
+    assert -44.4 <= lower_overlap["obstacle_corridor"]["target_world_x"] <= -43.6
 
 
 def test_vision_driver_adds_post_turn_straight_corridor_reference():

@@ -356,11 +356,11 @@ class VisionEgoDriver:
             lookahead_y = 18.0
             target_speed = 2.0
         elif ego_y >= 63.0:
-            target_x = -43.0
+            target_x = -43.4
             lookahead_y = 16.0
             target_speed = 1.7
-        elif ego_y >= 50.0:
-            target_x = -43.0
+        elif ego_y >= 46.0:
+            target_x = -43.8
             lookahead_y = 12.0
             target_speed = 1.7
         else:
