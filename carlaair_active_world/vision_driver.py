@@ -418,8 +418,8 @@ class VisionEgoDriver:
         if 120.0 < ego_y <= 124.0 and yaw_to_south > 28.0:
             return {}
 
-        if ego_y >= 92.0:
-            target_x = -39.6
+        if ego_y >= 84.0:
+            target_x = -41.5
         else:
             target_x = -40.4
         target = carla.Location(x=target_x, y=ego_y - 18.0, z=float(vehicle_transform.location.z))

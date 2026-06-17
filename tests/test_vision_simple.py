@@ -1392,7 +1392,7 @@ def test_vision_driver_adds_post_turn_straight_corridor_reference():
 
     upper_junction = driver._post_turn_straight_reference(_Vehicle(-42.2, 122.0, -88.0))
     assert upper_junction["route_target_source"] == "post_turn_straight_reference"
-    assert upper_junction["route_target_local_y"] > 0.0
+    assert upper_junction["post_turn_corridor"]["target_world_x"] == -41.5
 
     lower_approach = driver._post_turn_straight_reference(_Vehicle(-43.0, 72.0, -90.0))
     assert lower_approach["route_target_source"] == "post_turn_straight_reference"
@@ -1427,12 +1427,23 @@ def test_vision_driver_keeps_post_turn_straight_in_right_lane_until_obstacle():
 
     turn_exit = driver._post_turn_straight_reference(_Vehicle(-39.4, 119.0, -103.0))
     assert turn_exit["route_target_source"] == "post_turn_straight_reference"
-    assert turn_exit["post_turn_corridor"]["target_world_x"] == -39.6
+    assert turn_exit["post_turn_corridor"]["target_world_x"] == -41.5
 
-    right_lane = driver._post_turn_straight_reference(_Vehicle(-39.4, 108.0, -90.0))
-    assert right_lane["post_turn_corridor"]["target_world_x"] == -39.6
+    right_lane = driver._post_turn_straight_reference(_Vehicle(-41.5, 108.0, -90.0))
+    assert right_lane["post_turn_corridor"]["target_world_x"] == -41.5
     assert right_lane["post_turn_corridor_target_speed_mps"] >= 2.6
     assert abs(right_lane["route_target_local_y"]) <= 0.6
+
+    roadside_drift = driver._post_turn_straight_reference(_Vehicle(-39.4, 108.0, -90.0))
+    assert roadside_drift["route_target_local_y"] <= -1.0
+    assert roadside_drift["post_turn_corridor"]["target_world_x"] == -41.5
+
+    right_lane_tail = driver._post_turn_straight_reference(_Vehicle(-41.5, 90.0, -90.0))
+    assert right_lane_tail["post_turn_corridor"]["target_world_x"] == -41.5
+    assert right_lane_tail["post_turn_corridor_target_speed_mps"] >= 2.6
+
+    lower_lane = driver._post_turn_straight_reference(_Vehicle(-40.4, 72.0, -90.0))
+    assert lower_lane["post_turn_corridor"]["target_world_x"] == -40.4
 
 
 def test_vision_driver_treats_close_obstacle_as_lane_change_not_stop():
