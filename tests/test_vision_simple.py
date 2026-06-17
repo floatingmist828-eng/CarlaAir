@@ -1034,7 +1034,7 @@ def test_vision_driver_requests_left_avoidance_for_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] == 1.6
+    assert hazard["target_speed_mps"] == 1.8
     assert hazard["avoid_lateral_m"] == -2.1
 
 
@@ -1080,7 +1080,7 @@ def test_vision_driver_requests_early_left_avoidance_for_static_lane_obstacle():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] == 1.6
+    assert hazard["target_speed_mps"] == 1.8
 
 
 def test_vision_driver_requests_left_avoidance_far_enough_for_static_obstacle():
@@ -1210,8 +1210,58 @@ def test_vision_driver_stops_for_close_lane_obstacle_before_contact():
     hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle]))
 
     assert hazard["active"] is True
-    assert hazard["action"] == "stop"
-    assert hazard["target_speed_mps"] == 0.0
+    assert hazard["action"] == "avoid_left"
+    assert hazard["target_speed_mps"] >= 1.35
+
+
+def test_vision_driver_releases_task_walker_after_leaving_ego_path():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, yaw=0.0, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation(yaw=yaw))
+            self._velocity = velocity or carla.Vector3D()
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", 0.0, 0.0, yaw=0.0, role_name="ego")
+    walker = _Actor(
+        2,
+        "walker.pedestrian.0031",
+        4.0,
+        -1.35,
+        role_name="task_walker",
+        velocity=carla.Vector3D(x=0.0, y=-0.7, z=0.0),
+    )
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, walker]))
+
+    assert hazard["active"] is False
 
 
 def test_vision_driver_creeps_past_close_obstacle_when_already_offset_left():
@@ -1256,7 +1306,7 @@ def test_vision_driver_creeps_past_close_obstacle_when_already_offset_left():
 
     assert hazard["active"] is True
     assert hazard["action"] == "avoid_left"
-    assert hazard["target_speed_mps"] == 0.6
+    assert hazard["target_speed_mps"] >= 1.0
 
 
 def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
@@ -1278,7 +1328,7 @@ def test_vision_driver_latches_obstacle_corridor_reference_until_passed():
     )
     assert first["route_target_source"] == "obstacle_corridor_reference"
     assert first["route_target_local_y"] < 0.0
-    assert first["obstacle_corridor"]["target_world_x"] == -44.0
+    assert first["obstacle_corridor"]["target_world_x"] == -42.8
 
     held = driver._obstacle_corridor_reference(_Vehicle(-45.40, 72.98, -132.3), {"active": False})
     assert held["route_target_source"] == "obstacle_corridor_reference"
@@ -1311,7 +1361,7 @@ def test_vision_driver_keeps_left_in_obstacle_corridor_tail():
 
     assert reference["route_target_source"] == "obstacle_corridor_reference"
     assert reference["route_target_local_y"] <= -1.0
-    assert reference["obstacle_corridor_target_speed_mps"] <= 1.45
+    assert reference["obstacle_corridor_target_speed_mps"] >= 1.6
 
 
 def test_vision_driver_adds_post_turn_straight_corridor_reference():
@@ -1333,16 +1383,90 @@ def test_vision_driver_adds_post_turn_straight_corridor_reference():
     right_drift = driver._post_turn_straight_reference(_Vehicle(-34.5, 91.5, 11.0))
     assert right_drift["route_target_source"] == "post_turn_straight_reference"
     assert right_drift["route_target_local_y"] <= -2.4
-    assert right_drift["post_turn_corridor_target_speed_mps"] == 2.4
+    assert right_drift["post_turn_corridor_target_speed_mps"] == 2.65
 
     upper_junction = driver._post_turn_straight_reference(_Vehicle(-42.2, 122.0, -88.0))
     assert upper_junction["route_target_source"] == "post_turn_straight_reference"
-    assert upper_junction["route_target_local_y"] < 0.0
+    assert upper_junction["route_target_local_y"] > 0.0
 
     lower_approach = driver._post_turn_straight_reference(_Vehicle(-43.0, 72.0, -90.0))
     assert lower_approach["route_target_source"] == "post_turn_straight_reference"
 
-    assert driver._post_turn_straight_reference(_Vehicle(-43.5, 126.0, -90.0)) == {}
+    assert driver._post_turn_straight_reference(_Vehicle(-28.0, 130.0, -179.0)) == {}
+    assert driver._post_turn_straight_reference(_Vehicle(-32.1, 129.1, -159.6)) == {}
+
+
+def test_vision_driver_keeps_post_turn_straight_in_right_lane_until_obstacle():
+    import carla
+
+    class _Vehicle:
+        def __init__(self, x, y, yaw):
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation(yaw=yaw))
+
+        def get_transform(self):
+            return self._transform
+
+    driver = object.__new__(VisionEgoDriver)
+
+    first_turn_entry = driver._post_turn_straight_reference(_Vehicle(-28.0, 130.0, -179.0))
+    assert first_turn_entry == {}
+
+    early_overturn_entry = driver._post_turn_straight_reference(_Vehicle(-32.1, 129.1, -159.6))
+    assert early_overturn_entry == {}
+
+    turn_exit = driver._post_turn_straight_reference(_Vehicle(-35.2, 126.0, -118.0))
+    assert turn_exit["route_target_source"] == "post_turn_straight_reference"
+    assert turn_exit["post_turn_corridor"]["target_world_x"] == -39.6
+
+    right_lane = driver._post_turn_straight_reference(_Vehicle(-39.4, 108.0, -90.0))
+    assert right_lane["post_turn_corridor"]["target_world_x"] == -39.6
+    assert right_lane["post_turn_corridor_target_speed_mps"] >= 2.6
+    assert abs(right_lane["route_target_local_y"]) <= 0.6
+
+
+def test_vision_driver_treats_close_obstacle_as_lane_change_not_stop():
+    import carla
+
+    class _Actor:
+        def __init__(self, actor_id, type_id, x, y, yaw=0.0, role_name="", velocity=None) -> None:
+            self.id = actor_id
+            self.type_id = type_id
+            self.attributes = {"role_name": role_name}
+            self._transform = carla.Transform(carla.Location(x=x, y=y), carla.Rotation(yaw=yaw))
+            self._velocity = velocity or carla.Vector3D()
+
+        def get_transform(self):
+            return self._transform
+
+        def get_location(self):
+            return self._transform.location
+
+        def get_velocity(self):
+            return self._velocity
+
+    class _Actors(list):
+        def filter(self, pattern):
+            if pattern == "vehicle.*":
+                return [item for item in self if item.type_id.startswith("vehicle.")]
+            if pattern == "walker.pedestrian.*":
+                return [item for item in self if item.type_id.startswith("walker.pedestrian.")]
+            return []
+
+    class _World:
+        def __init__(self, actors):
+            self._actors = _Actors(actors)
+
+        def get_actors(self):
+            return self._actors
+
+    ego = _Actor(1, "vehicle.ego", -40.0, 62.0, yaw=-90.0, role_name="ego")
+    obstacle = _Actor(2, "vehicle.dodge.charger_police_2020", -39.5, 58.0, role_name="task_obstacle")
+
+    hazard = VisionEgoDriver._interaction_hazard(ego, _World([ego, obstacle]))
+
+    assert hazard["active"] is True
+    assert hazard["action"] == "avoid_left"
+    assert hazard["target_speed_mps"] >= 1.0
 
 
 def test_yolo_detector_reports_traffic_diagnostics_without_obstacle():

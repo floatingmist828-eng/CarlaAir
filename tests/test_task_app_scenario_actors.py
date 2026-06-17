@@ -131,6 +131,48 @@ def test_task_app_spawns_configured_traffic_and_walkers(monkeypatch):
     assert app.walker_controllers == [controller]
 
 
+def test_task_app_passes_explicit_spawn_pose(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(task_app, "cleanup_actors_by_role", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(task_app, "cleanup_old_vehicles", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        task_app,
+        "spawn_ego_vehicle",
+        lambda *_args, **kwargs: captured.update(kwargs) or _Actor(10),
+    )
+    monkeypatch.setattr(task_app, "configure_autopilot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(task_app.ActiveUAVTaskApp, "start_ego_driver", lambda self: None)
+    monkeypatch.setattr(task_app.ActiveUAVTaskApp, "_attach_vehicle_sensors", lambda self: None)
+    monkeypatch.setattr(task_app.ActiveUAVTaskApp, "start_vehicle_viewer", lambda self: None)
+
+    scenario = ScenarioConfig.from_dict(
+        {
+            "name": "task_explicit_spawn",
+            "uav_enabled": False,
+            "ego_spawn_x": -28.3,
+            "ego_spawn_y": 130.15,
+            "ego_spawn_z": 0.6,
+            "ego_spawn_yaw_deg": -179.65,
+        }
+    )
+    app = task_app.ActiveUAVTaskApp(
+        scenario=scenario,
+        output_dir=Path("recordings/test_task_explicit_spawn"),
+        sample_hz=1.0,
+    )
+    app.client = object()
+    app.world = _World()
+
+    app.setup()
+
+    spawn_transform = captured["spawn_transform"]
+    assert spawn_transform.location.x == -28.3
+    assert spawn_transform.location.y == 130.15
+    assert spawn_transform.location.z == 0.6
+    assert spawn_transform.rotation.yaw == -179.65
+
+
 def test_task_app_drives_scripted_walkers_until_target(monkeypatch):
     walker = _Actor(30, type_id="walker.pedestrian.test")
     scenario = ScenarioConfig.from_dict({"name": "scripted_task_walker", "uav_enabled": False})

@@ -102,3 +102,53 @@ def test_spawn_ego_vehicle_rejects_distant_fallback_spawn():
 
     with pytest.raises(RuntimeError, match="near requested spawn"):
         spawn_ego_vehicle(_World(), "vehicle.tesla.model3", spawn_index=0)
+
+
+def test_spawn_ego_vehicle_uses_explicit_transform_before_spawn_index():
+    requested = carla.Transform(
+        carla.Location(x=-28.3, y=130.15, z=0.6),
+        carla.Rotation(yaw=-179.65),
+    )
+    spawned_at = []
+    actor = object()
+
+    class _Blueprint:
+        def has_attribute(self, name):
+            return name == "role_name"
+
+        def set_attribute(self, _name, _value):
+            pass
+
+    class _BlueprintLibrary:
+        def find(self, _blueprint_id):
+            return _Blueprint()
+
+    class _Map:
+        def get_spawn_points(self):
+            return [
+                carla.Transform(carla.Location(x=-18.0, y=130.0), carla.Rotation(yaw=-180.0)),
+                carla.Transform(carla.Location(x=-20.0, y=130.0), carla.Rotation(yaw=-180.0)),
+            ]
+
+    class _World:
+        def get_blueprint_library(self):
+            return _BlueprintLibrary()
+
+        def get_map(self):
+            return _Map()
+
+        def try_spawn_actor(self, _blueprint, transform):
+            spawned_at.append(transform)
+            return actor
+
+    result = spawn_ego_vehicle(
+        _World(),
+        "vehicle.tesla.model3",
+        spawn_index=1,
+        spawn_transform=requested,
+    )
+
+    assert result is actor
+    assert spawned_at[0].location.x == -28.3
+    assert spawned_at[0].location.y == 130.15
+    assert spawned_at[0].rotation.yaw == -179.65

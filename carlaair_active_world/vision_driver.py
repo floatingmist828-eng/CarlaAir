@@ -259,6 +259,8 @@ class VisionEgoDriver:
             priority = 0
             if actor_type == "walker":
                 actor_location = actor.get_location()
+                if role_name == "task_walker" and local_y <= -1.2 and local_velocity_y <= 0.1:
+                    continue
                 if local_y <= -2.4 and local_velocity_y <= 0.1:
                     continue
                 if role_name == "task_walker" and local_x >= 6.0 and local_y <= -0.15:
@@ -285,18 +287,12 @@ class VisionEgoDriver:
                     if local_x <= 8.0 and local_y >= 2.25:
                         continue
                     if local_x <= 8.0 and abs_y <= 1.8:
-                        ego_loc = vehicle_transform.location
-                        if float(ego_loc.y) >= 58.0 and float(ego_loc.x) <= -43.0:
-                            action = "avoid_left"
-                            target_speed = 0.6
-                            priority = 3
-                        else:
-                            action = "stop"
-                            target_speed = 0.0
-                            priority = 3
+                        action = "avoid_left"
+                        target_speed = 1.45
+                        priority = 3
                     elif local_x <= 30.0 and abs_y <= 5.5:
                         action = "avoid_left"
-                        target_speed = 1.6
+                        target_speed = 1.8
                         priority = 3
                 elif local_x <= 7.5 and abs_y <= 4.8:
                     action = "stop"
@@ -356,37 +352,37 @@ class VisionEgoDriver:
 
         self._obstacle_corridor_active = True
         if ego_y >= 68.0:
-            target_x = -44.0
+            target_x = -42.8
             lookahead_y = 18.0
-            target_speed = 1.8
+            target_speed = 2.0
         elif ego_y >= 63.0:
-            target_x = -44.0
+            target_x = -43.0
             lookahead_y = 16.0
-            target_speed = 1.35
+            target_speed = 1.7
         elif ego_y >= 50.0:
-            target_x = -43.9
+            target_x = -43.0
             lookahead_y = 12.0
-            target_speed = 1.45
+            target_speed = 1.7
         else:
-            target_x = -43.7
+            target_x = -42.3
             lookahead_y = 12.0
-            target_speed = 1.55
+            target_speed = 1.9
 
         target = carla.Location(x=target_x, y=ego_y - lookahead_y, z=float(vehicle_transform.location.z))
         local_x, local_y = self._local_target(vehicle_transform, target)
         local_x = self._clamp(local_x, 8.0, 22.0)
         local_y = self._clamp(local_y, -2.0, 2.0)
-        if 50.0 <= ego_y <= 66.0 and ego_x >= -39.2:
+        if 50.0 <= ego_y <= 66.0 and ego_x >= -38.7:
             local_y = min(local_y, -2.0)
-            target_speed = min(target_speed, 1.1)
-        elif ego_x <= -45.4:
+            target_speed = min(target_speed, 1.35)
+        elif ego_x <= -44.8:
             local_y = max(local_y, 1.4)
-            target_speed = min(target_speed, 1.0)
-        elif ego_x <= -45.0:
+            target_speed = min(target_speed, 1.15)
+        elif ego_x <= -44.4:
             local_y = max(local_y, 0.8)
-        elif ego_x >= -40.6 and ego_y >= 58.0:
+        elif ego_x >= -39.4 and ego_y >= 58.0:
             local_y = min(local_y, -1.8)
-            target_speed = min(target_speed, 1.4)
+            target_speed = min(target_speed, 1.55)
 
         return {
             "route_target_local_x": float(local_x),
@@ -411,37 +407,37 @@ class VisionEgoDriver:
         except Exception:
             return {}
 
-        if not (70.0 <= ego_y <= 124.0 and -54.0 <= ego_x <= -32.0):
+        ego_yaw = float(vehicle_transform.rotation.yaw)
+        yaw_to_south = abs(self._angle_delta_deg(ego_yaw, -90.0))
+        if not (70.0 <= ego_y <= 134.0 and -54.0 <= ego_x <= -28.5):
+            return {}
+        if ego_y > 124.0 and (yaw_to_south > 50.0 or ego_x > -34.0):
             return {}
 
-        if ego_y >= 112.0:
-            target_x = -42.4
-        elif ego_y >= 96.0:
-            target_x = -43.0
+        if ego_y >= 92.0:
+            target_x = -39.6
         else:
-            target_x = -43.6
+            target_x = -40.4
         target = carla.Location(x=target_x, y=ego_y - 18.0, z=float(vehicle_transform.location.z))
         local_x, local_y = self._local_target(vehicle_transform, target)
         local_x = self._clamp(local_x, 8.0, 22.0)
         local_y = self._clamp(local_y, -2.8, 2.8)
-        if ego_x <= -48.0:
+        if ego_x <= -47.0:
             local_y = max(local_y, 2.8)
-        elif ego_x <= -46.0:
+        elif ego_x <= -45.5:
             local_y = max(local_y, 2.2)
-        elif ego_x <= -45.0:
+        elif ego_x <= -44.7:
             local_y = max(local_y, 1.6)
-        elif ego_x >= -38.0:
+        elif ego_x >= -37.8:
             local_y = min(local_y, -2.6)
-        elif ego_x >= -39.5:
-            local_y = min(local_y, -2.2)
-        elif ego_x >= -41.0:
-            local_y = min(local_y, -1.6)
+        elif ego_x >= -38.6:
+            local_y = min(local_y, -1.2)
 
         return {
             "route_target_local_x": float(local_x),
             "route_target_local_y": float(local_y),
             "route_target_source": "post_turn_straight_reference",
-            "post_turn_corridor_target_speed_mps": 2.4,
+            "post_turn_corridor_target_speed_mps": 2.65,
             "post_turn_corridor": {
                 "active": True,
                 "target_world_x": float(target_x),

@@ -135,17 +135,21 @@ def spawn_ego_vehicle(
     spawn_index: int = 0,
     forward_m: float = 0.0,
     fallback_radius_m: float = 5.0,
+    spawn_transform: Optional[carla.Transform] = None,
 ) -> carla.Actor:
     blueprint_library = world.get_blueprint_library()
     blueprint = blueprint_library.find(blueprint_id)
     if blueprint.has_attribute("role_name"):
         blueprint.set_attribute("role_name", "ego")
     spawn_points = world.get_map().get_spawn_points()
-    if not spawn_points:
+    if spawn_transform is None and not spawn_points:
         raise RuntimeError("No spawn points found on the current map.")
-    spawn_index = max(0, min(spawn_index, len(spawn_points) - 1))
-    spawn_point = spawn_points[spawn_index]
-    if forward_m > 0.0:
+    if spawn_transform is not None:
+        spawn_point = spawn_transform
+    else:
+        spawn_index = max(0, min(spawn_index, len(spawn_points) - 1))
+        spawn_point = spawn_points[spawn_index]
+    if spawn_transform is None and forward_m > 0.0:
         try:
             waypoint = world.get_map().get_waypoint(
                 spawn_point.location,

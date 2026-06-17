@@ -170,6 +170,18 @@ class ActiveAirGroundEnv:
             except Exception:
                 continue
 
+    def _ego_spawn_transform(self) -> Optional[carla.Transform]:
+        x = getattr(self.scenario, "ego_spawn_x", None)
+        y = getattr(self.scenario, "ego_spawn_y", None)
+        yaw = getattr(self.scenario, "ego_spawn_yaw_deg", None)
+        if x is None or y is None or yaw is None:
+            return None
+        z = getattr(self.scenario, "ego_spawn_z", None)
+        return carla.Transform(
+            carla.Location(x=float(x), y=float(y), z=float(0.6 if z is None else z)),
+            carla.Rotation(yaw=float(yaw)),
+        )
+
     def reset(self) -> Dict[str, Any]:
         if self.client is None or self.world is None:
             self.connect()
@@ -181,6 +193,7 @@ class ActiveAirGroundEnv:
             blueprint_id=self.scenario.ego_blueprint,
             spawn_index=self.scenario.ego_spawn_index,
             forward_m=float(getattr(self.scenario, "ego_spawn_forward_m", 0.0)),
+            spawn_transform=self._ego_spawn_transform(),
         )
         self.collision_events = []
         self._attach_collision_sensor()

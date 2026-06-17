@@ -4,6 +4,10 @@
   "ego_blueprint": "vehicle.tesla.model3",
   "ego_spawn_index": 86,
   "ego_spawn_forward_m": 0.0,
+  "ego_spawn_x": -28.3,
+  "ego_spawn_y": 130.15,
+  "ego_spawn_z": 0.6,
+  "ego_spawn_yaw_deg": -179.65,
   "ego_sensor_mode": "vision",
   "ego_control_mode": "vision_tcp_lite",
   "ego_drive_hz": 8.0,
@@ -56,7 +60,7 @@
   "uav_enabled": true,
   "uav_control_enabled": true,
   "uav_name": "SimpleFlight",
-  "uav_altitude": 18.0,
+  "uav_altitude": 22.0,
   "uav_back_distance": 6.0,
   "uav_auto_patrol_enabled": true,
   "uav_patrol_interval_sec": 0.8,
@@ -69,9 +73,9 @@
   "candidate_offsets": [
     {
       "name": "front_lead_close",
-      "x": 18.0,
+      "x": 25.0,
       "y": 0.0,
-      "z": 18.0,
+      "z": 22.0,
       "weight": 1.4
     }
   ]

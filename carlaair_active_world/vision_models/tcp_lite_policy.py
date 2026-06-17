@@ -71,7 +71,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
         self._lane_centering_gain = 0.10
         self._lane_centering_deadband_m = 0.15
         self._lane_centering_max_correction = 0.18
-        self._junction_steer_limit = 0.34
+        self._junction_steer_limit = 0.25
         self._junction_low_speed_recovery_mps = 0.35
         self._junction_low_speed_recovery_throttle = 0.34
         if not str(uav_fusion_mode or "").strip():
@@ -414,12 +414,21 @@ class TcpLiteVisionPolicy(VisionPolicy):
         ):
             x_error = float(ego_world_x) - float(corridor_target_x)
             yaw_error = ((float(ego_world_yaw) - (-90.0) + 180.0) % 360.0) - 180.0
-            pose_steer = _clamp(-0.085 * x_error - 0.55 * (yaw_error / 90.0), -0.34, 0.34)
+            if route_source == "post_turn_straight_reference":
+                pose_steer = _clamp(-0.060 * x_error - 0.78 * (yaw_error / 90.0), -0.32, 0.32)
+            else:
+                pose_steer = _clamp(-0.085 * x_error - 0.55 * (yaw_error / 90.0), -0.34, 0.34)
             route_steer = float(pose_steer)
-            if abs(x_error) > 2.4 or abs(yaw_error) > 28.0:
-                corridor_pose_speed_limit = 1.25
-            elif abs(x_error) > 1.5 or abs(yaw_error) > 18.0:
-                corridor_pose_speed_limit = 1.75
+            if route_source == "post_turn_straight_reference":
+                if abs(x_error) > 2.2 or abs(yaw_error) > 24.0:
+                    corridor_pose_speed_limit = 1.25
+                elif abs(x_error) > 0.9 or abs(yaw_error) > 10.0:
+                    corridor_pose_speed_limit = 1.65
+            else:
+                if abs(x_error) > 2.4 or abs(yaw_error) > 28.0:
+                    corridor_pose_speed_limit = 1.25
+                elif abs(x_error) > 1.5 or abs(yaw_error) > 18.0:
+                    corridor_pose_speed_limit = 1.75
             corridor_pose_control = {
                 "applied": True,
                 "target_world_x": float(corridor_target_x),
@@ -481,18 +490,18 @@ class TcpLiteVisionPolicy(VisionPolicy):
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
         ) or (ego_world_y is None and (bool(obstacle_avoidance.get("applied")) or corridor_route_reference))
-        left_boundary_x = -45.4 if corridor_route_reference else -46.2
-        hard_left_boundary_x = -45.8 if corridor_route_reference else -46.5
+        left_boundary_x = -44.9 if corridor_route_reference else -46.2
+        hard_left_boundary_x = -45.3 if corridor_route_reference else -46.5
         if (
             ego_world_x is not None
             and ego_world_y is not None
             and route_source == "post_turn_straight_reference"
             and 88.0 <= float(ego_world_y) <= 124.0
-            and ego_world_x <= -45.0
+            and ego_world_x <= -44.7
         ):
-            guarded_steer = 0.34 if ego_world_x <= -48.0 else 0.28
+            guarded_steer = 0.30 if ego_world_x <= -47.0 else 0.24
             steer = max(float(steer), guarded_steer)
-            boundary_speed_limit = 1.15 if ego_world_x > -48.0 else 0.9
+            boundary_speed_limit = 1.35 if ego_world_x > -47.0 else 1.0
             double_yellow_guard = {
                 "applied": True,
                 "reason": "post_turn_left_boundary",
@@ -520,11 +529,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
             and ego_world_y is not None
             and in_obstacle_corridor
             and 50.0 <= float(ego_world_y) <= 66.0
-            and ego_world_x >= -39.2
+            and ego_world_x >= -38.6
         ):
-            guarded_steer = -0.18
+            guarded_steer = -0.22
             steer = min(float(steer), guarded_steer)
-            boundary_speed_limit = 0.7
+            boundary_speed_limit = 1.25
             double_yellow_guard = {
                 "applied": True,
                 "reason": "obstacle_corridor_roadside_boundary",
@@ -533,7 +542,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "guarded_steer": float(guarded_steer),
                 "speed_limit_mps": boundary_speed_limit,
             }
-        elif ego_world_x is not None and ego_world_y is not None and in_obstacle_corridor and ego_world_x >= -39.2:
+        elif ego_world_x is not None and ego_world_y is not None and in_obstacle_corridor and ego_world_x >= -38.6:
             post_turn_right_boundary = (
                 route_source == "post_turn_straight_reference" and float(ego_world_y) >= 66.0
             )
@@ -544,7 +553,7 @@ class TcpLiteVisionPolicy(VisionPolicy):
             else:
                 guarded_steer = -0.18
             steer = min(float(steer), guarded_steer)
-            boundary_speed_limit = 1.2 if post_turn_right_boundary else 0.9
+            boundary_speed_limit = 1.55 if post_turn_right_boundary else 1.25
             double_yellow_guard = {
                 "applied": True,
                 "reason": "post_turn_roadside_boundary" if post_turn_right_boundary else "obstacle_corridor_right_boundary",
@@ -558,11 +567,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
             and ego_world_y is not None
             and route_source == "post_turn_straight_reference"
             and 78.0 <= float(ego_world_y) <= 120.0
-            and ego_world_x >= -40.8
+            and ego_world_x >= -38.6
         ):
-            guarded_steer = -0.30 if ego_world_x >= -39.0 else -0.24
+            guarded_steer = -0.30 if ego_world_x >= -38.0 else -0.24
             steer = min(float(steer), guarded_steer)
-            boundary_speed_limit = 0.9 if ego_world_x >= -39.0 else 1.2
+            boundary_speed_limit = 1.15 if ego_world_x >= -38.0 else 1.55
             double_yellow_guard = {
                 "applied": True,
                 "reason": "post_turn_roadside_boundary",
@@ -580,11 +589,11 @@ class TcpLiteVisionPolicy(VisionPolicy):
             and 112.0 <= float(ego_world_y) <= 131.0
         ):
             if float(ego_world_y) >= 126.5:
-                crosswalk_speed_limit = 1.1
+                crosswalk_speed_limit = 2.4
             elif float(ego_world_y) >= 121.0:
-                crosswalk_speed_limit = 1.35
+                crosswalk_speed_limit = 2.6
             else:
-                crosswalk_speed_limit = 1.9
+                crosswalk_speed_limit = 2.75
             boundary_speed_limit = (
                 crosswalk_speed_limit
                 if boundary_speed_limit is None

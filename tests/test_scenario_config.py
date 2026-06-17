@@ -35,6 +35,10 @@ def test_stable_uav_bev_scenario_loads():
     assert config.duration_sec == 40.0
     assert config.ego_spawn_index == 86
     assert config.ego_spawn_forward_m == 0.0
+    assert config.ego_spawn_x == -28.3
+    assert config.ego_spawn_y == 130.15
+    assert config.ego_spawn_z == 0.6
+    assert config.ego_spawn_yaw_deg == -179.65
     assert config.ego_target_speed_mps == 3.2
     assert config.vision_navigation_command == "lane_follow"
     assert config.vision_first_junction_command == "right"
@@ -61,13 +65,32 @@ def test_stable_uav_bev_scenario_loads():
     assert config.vision_safety_gate_enabled is True
     assert config.uav_enabled is True
     assert config.uav_control_enabled is True
+    assert config.uav_altitude == 22.0
     assert config.uav_auto_patrol_enabled is True
     assert 0.75 <= config.uav_patrol_interval_sec <= 1.0
     assert config.uav_bev_fusion_enabled is True
     assert config.candidate_offsets[0].name == "front_lead_close"
     assert len(config.candidate_offsets) == 1
-    assert 17.0 <= config.candidate_offsets[0].local_offset.x <= 19.0
-    assert 17.0 <= config.candidate_offsets[0].local_offset.z <= 19.0
+    assert 24.0 <= config.candidate_offsets[0].local_offset.x <= 26.0
+    assert 21.0 <= config.candidate_offsets[0].local_offset.z <= 23.0
+
+
+def test_scenario_config_loads_explicit_ego_spawn_pose():
+    config = ScenarioConfig.from_dict(
+        {
+            "name": "explicit_spawn",
+            "ego_spawn_x": -28.3,
+            "ego_spawn_y": 130.15,
+            "ego_spawn_z": 0.6,
+            "ego_spawn_yaw_deg": -179.65,
+        }
+    )
+
+    assert config.ego_spawn_x == -28.3
+    assert config.ego_spawn_y == 130.15
+    assert config.ego_spawn_z == 0.6
+    assert config.ego_spawn_yaw_deg == -179.65
+    assert config.to_dict()["ego_spawn_x"] == -28.3
 
 
 def test_scenario_config_round_trips_uav_fusion_mode_and_planner():

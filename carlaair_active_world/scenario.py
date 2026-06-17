@@ -15,6 +15,10 @@ class ScenarioConfig:
     ego_blueprint: str = "vehicle.tesla.model3"
     ego_spawn_index: int = 0
     ego_spawn_forward_m: float = 0.0
+    ego_spawn_x: Optional[float] = None
+    ego_spawn_y: Optional[float] = None
+    ego_spawn_z: Optional[float] = None
+    ego_spawn_yaw_deg: Optional[float] = None
     ego_sensor_mode: str = "autopilot"
     ego_control_mode: str = "autopilot"
     ego_drive_hz: float = 8.0
@@ -144,12 +148,23 @@ class ScenarioConfig:
             junction_command_sequence = []
         if isinstance(junction_command_sequence, str):
             junction_command_sequence = [junction_command_sequence]
+
+        def optional_float(key: str) -> Optional[float]:
+            value = data.get(key)
+            if value is None:
+                return None
+            return float(value)
+
         return cls(
             name=str(data["name"]),
             map_name=str(data.get("map_name", "Town10HD")),
             ego_blueprint=str(data.get("ego_blueprint", "vehicle.tesla.model3")),
             ego_spawn_index=int(data.get("ego_spawn_index", 0)),
             ego_spawn_forward_m=float(data.get("ego_spawn_forward_m", 0.0)),
+            ego_spawn_x=optional_float("ego_spawn_x"),
+            ego_spawn_y=optional_float("ego_spawn_y"),
+            ego_spawn_z=optional_float("ego_spawn_z"),
+            ego_spawn_yaw_deg=optional_float("ego_spawn_yaw_deg"),
             ego_sensor_mode=str(data.get("ego_sensor_mode", "autopilot")),
             ego_control_mode=str(data.get("ego_control_mode", data.get("ego_sensor_mode", "autopilot"))),
             ego_drive_hz=float(data.get("ego_drive_hz", 8.0)),
@@ -251,6 +266,10 @@ class ScenarioConfig:
             "ego_blueprint": self.ego_blueprint,
             "ego_spawn_index": self.ego_spawn_index,
             "ego_spawn_forward_m": self.ego_spawn_forward_m,
+            "ego_spawn_x": self.ego_spawn_x,
+            "ego_spawn_y": self.ego_spawn_y,
+            "ego_spawn_z": self.ego_spawn_z,
+            "ego_spawn_yaw_deg": self.ego_spawn_yaw_deg,
             "ego_sensor_mode": self.ego_sensor_mode,
             "ego_control_mode": self.ego_control_mode,
             "ego_drive_hz": self.ego_drive_hz,

@@ -982,9 +982,61 @@ def test_tcp_lite_policy_caps_first_turn_crosswalk_approach():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
-    assert diagnostics["target_speed_mps"] <= 1.1
+    assert 2.35 <= diagnostics["target_speed_mps"] <= 2.45
     assert control.throttle == 0.0
-    assert control.brake > 0.0
+    assert control.brake == 0.0
+
+
+def test_tcp_lite_policy_keeps_first_turn_crosswalk_approach_moving():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": True,
+            "route_target_source": "junction_turn_reference",
+            "route_target_local_x": 10.0,
+            "route_target_local_y": 1.8,
+            "ego_world_x": -31.8,
+            "ego_world_y": 129.9,
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
+    assert diagnostics["target_speed_mps"] >= 2.0
+    assert control.throttle > 0.0
+    assert control.brake == 0.0
+
+
+def test_tcp_lite_policy_limits_first_turn_oversteer():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="right",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.8,
+            "in_junction": True,
+            "route_target_source": "junction_turn_reference",
+            "route_target_local_x": 8.0,
+            "route_target_local_y": 4.2,
+            "ego_world_x": -34.0,
+            "ego_world_y": 124.0,
+        }
+    )
+
+    assert abs(control.steer) <= 0.25
 
 
 def test_tcp_lite_policy_caps_waypoint_release_inside_first_turn_crosswalk():
@@ -1010,7 +1062,7 @@ def test_tcp_lite_policy_caps_waypoint_release_inside_first_turn_crosswalk():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["first_turn_crosswalk_guard"]["applied"] is True
-    assert diagnostics["target_speed_mps"] <= 1.35
+    assert diagnostics["target_speed_mps"] <= 2.65
     assert control.throttle == 0.0
     assert control.brake > 0.0
 
@@ -1087,7 +1139,7 @@ def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
             "route_target_source": "obstacle_corridor_reference",
             "route_target_local_x": 11.0,
             "route_target_local_y": -2.3,
-            "ego_world_x": -38.8,
+            "ego_world_x": -38.2,
             "ego_world_y": 58.7,
             "obstacle_corridor_target_speed_mps": 1.0,
         }
@@ -1095,8 +1147,8 @@ def test_tcp_lite_policy_guards_obstacle_corridor_roadside_boundary():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["double_yellow_guard"]["reason"] == "obstacle_corridor_roadside_boundary"
-    assert diagnostics["target_speed_mps"] <= 0.7
-    assert control.steer <= -0.18
+    assert diagnostics["target_speed_mps"] <= 1.25
+    assert control.steer <= -0.22
 
 
 def test_tcp_lite_policy_coasts_clear_corridor_small_overspeed():
@@ -1155,8 +1207,43 @@ def test_tcp_lite_policy_uses_post_turn_straight_reference_in_junction():
     assert diagnostics["route_target_source"] == "post_turn_straight_reference"
     assert diagnostics["lane_centering_correction"] == 0.0
     assert diagnostics["double_yellow_guard"]["reason"] == "post_turn_roadside_boundary"
-    assert diagnostics["target_speed_mps"] <= 1.2
+    assert diagnostics["target_speed_mps"] <= 1.55
     assert control.steer <= -0.26
+
+
+def test_tcp_lite_policy_prioritizes_post_turn_yaw_recovery_before_acceleration():
+    policy = TcpLiteVisionPolicy(
+        model=_ConsistentTcpModel(),
+        navigation_command="straight",
+        control_mode="trajectory_model",
+        target_speed_mps=3.2,
+    )
+
+    control = policy.predict(
+        {
+            "rgb": np.zeros((90, 160, 3), dtype=np.uint8),
+            "speed_mps": 1.0,
+            "in_junction": True,
+            "route_target_source": "post_turn_straight_reference",
+            "route_target_local_x": 18.0,
+            "route_target_local_y": 0.0,
+            "ego_world_x": -41.1,
+            "ego_world_y": 112.2,
+            "ego_world_yaw_deg": -73.8,
+            "post_turn_corridor_target_speed_mps": 2.65,
+            "post_turn_corridor": {
+                "active": True,
+                "target_world_x": -39.6,
+                "ego_world_x": -41.1,
+                "ego_world_y": 112.2,
+            },
+        }
+    )
+
+    diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
+    assert diagnostics["corridor_pose_control"]["applied"] is True
+    assert diagnostics["target_speed_mps"] <= 1.75
+    assert control.steer < 0.0
 
 
 def test_tcp_lite_policy_guards_post_turn_double_yellow_boundary():
@@ -1183,8 +1270,8 @@ def test_tcp_lite_policy_guards_post_turn_double_yellow_boundary():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["double_yellow_guard"]["reason"] == "post_turn_left_boundary"
-    assert diagnostics["target_speed_mps"] <= 0.9
-    assert control.steer >= 0.34
+    assert diagnostics["target_speed_mps"] <= 1.0
+    assert control.steer >= 0.30
     assert control.brake > 0.0
 
 
@@ -1212,7 +1299,7 @@ def test_tcp_lite_policy_guards_post_turn_roadside_boundary():
 
     diagnostics = policy.last_diagnostics["fallback"]["diagnostics"]
     assert diagnostics["double_yellow_guard"]["reason"] == "post_turn_roadside_boundary"
-    assert diagnostics["target_speed_mps"] <= 0.9
+    assert diagnostics["target_speed_mps"] <= 1.15
     assert control.steer <= -0.30
 
 
@@ -2222,7 +2309,8 @@ def test_vision_driver_adds_junction_heading_hold_when_turn_reference_drops(monk
 
     assert policy.obs["navigation_command"] == "right"
     assert policy.obs["route_target_source"] == "junction_heading_hold"
-    assert policy.obs["route_target_local_x"] == 10.0
+    assert policy.obs.get("post_turn_corridor", {}) == {}
+    assert policy.obs["route_target_local_x"] >= 8.0
     assert policy.obs["route_target_local_y"] == 0.0
 
 

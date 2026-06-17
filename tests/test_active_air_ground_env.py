@@ -504,6 +504,46 @@ def test_active_env_passes_forward_spawn_offset(monkeypatch):
     assert captured["forward_m"] == 18.0
 
 
+def test_active_env_passes_explicit_spawn_pose(monkeypatch):
+    captured = {}
+    ego = _Actor(actor_id=10, role_name="ego")
+
+    monkeypatch.setattr(
+        env_module,
+        "spawn_ego_vehicle",
+        lambda *_args, **kwargs: captured.update(kwargs) or ego,
+    )
+    monkeypatch.setattr(env_module, "configure_autopilot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "set_traffic_manager_speed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(env_module, "spawn_traffic_vehicles", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(env_module, "spawn_traffic_walkers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(env_module.ActiveAirGroundEnv, "_park_disabled_uav", lambda self: None)
+
+    scenario = ScenarioConfig.from_dict(
+        {
+            "name": "explicit_spawn_env",
+            "uav_enabled": False,
+            "ego_spawn_index": 86,
+            "ego_spawn_x": -28.3,
+            "ego_spawn_y": 130.15,
+            "ego_spawn_z": 0.6,
+            "ego_spawn_yaw_deg": -179.65,
+        }
+    )
+    app = env_module.ActiveAirGroundEnv(scenario)
+    app.client = object()
+    app.world = _World()
+    app.observe = lambda: {"time": 0.0}
+
+    app.reset()
+
+    spawn_transform = captured["spawn_transform"]
+    assert spawn_transform.location.x == -28.3
+    assert spawn_transform.location.y == 130.15
+    assert spawn_transform.location.z == 0.6
+    assert spawn_transform.rotation.yaw == -179.65
+
+
 def test_active_env_parks_disabled_uav(monkeypatch):
     calls = {}
     air_client = object()
