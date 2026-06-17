@@ -1419,7 +1419,13 @@ def test_vision_driver_keeps_post_turn_straight_in_right_lane_until_obstacle():
     early_overturn_entry = driver._post_turn_straight_reference(_Vehicle(-32.1, 129.1, -159.6))
     assert early_overturn_entry == {}
 
-    turn_exit = driver._post_turn_straight_reference(_Vehicle(-35.2, 126.0, -118.0))
+    still_turning_upper = driver._post_turn_straight_reference(_Vehicle(-35.2, 126.0, -118.0))
+    assert still_turning_upper == {}
+
+    still_turning_crosswalk = driver._post_turn_straight_reference(_Vehicle(-37.7, 124.2, -127.0))
+    assert still_turning_crosswalk == {}
+
+    turn_exit = driver._post_turn_straight_reference(_Vehicle(-39.4, 119.0, -103.0))
     assert turn_exit["route_target_source"] == "post_turn_straight_reference"
     assert turn_exit["post_turn_corridor"]["target_world_x"] == -39.6
 

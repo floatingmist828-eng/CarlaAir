@@ -413,6 +413,10 @@ class VisionEgoDriver:
             return {}
         if ego_y > 124.0 and (yaw_to_south > 50.0 or ego_x > -34.0):
             return {}
+        if ego_y > 124.0 and (yaw_to_south > 35.0 or ego_x > -36.8):
+            return {}
+        if 120.0 < ego_y <= 124.0 and yaw_to_south > 28.0:
+            return {}
 
         if ego_y >= 92.0:
             target_x = -39.6
