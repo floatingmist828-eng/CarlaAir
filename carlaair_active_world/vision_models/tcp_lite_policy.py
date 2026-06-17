@@ -490,8 +490,8 @@ class TcpLiteVisionPolicy(VisionPolicy):
         in_obstacle_corridor = (
             ego_world_y is not None and 45.0 <= float(ego_world_y) <= 92.0
         ) or (ego_world_y is None and (bool(obstacle_avoidance.get("applied")) or corridor_route_reference))
-        left_boundary_x = -44.9 if corridor_route_reference else -46.2
-        hard_left_boundary_x = -45.3 if corridor_route_reference else -46.5
+        left_boundary_x = -44.45 if corridor_route_reference else -46.2
+        hard_left_boundary_x = -44.8 if corridor_route_reference else -46.5
         if (
             ego_world_x is not None
             and ego_world_y is not None
@@ -511,10 +511,12 @@ class TcpLiteVisionPolicy(VisionPolicy):
                 "speed_limit_mps": boundary_speed_limit,
             }
         elif ego_world_x is not None and in_obstacle_corridor and ego_world_x <= left_boundary_x:
-            guarded_steer = 0.22
+            guarded_steer = 0.24 if corridor_route_reference else 0.22
             steer = max(float(steer), guarded_steer)
-            boundary_speed_limit = 1.2 if corridor_route_reference else 1.2
+            boundary_speed_limit = 1.15 if corridor_route_reference else 1.2
             if ego_world_x <= hard_left_boundary_x:
+                guarded_steer = max(float(guarded_steer), 0.28 if corridor_route_reference else 0.22)
+                steer = max(float(steer), guarded_steer)
                 boundary_speed_limit = 0.8 if corridor_route_reference else 1.0
             double_yellow_guard = {
                 "applied": True,
