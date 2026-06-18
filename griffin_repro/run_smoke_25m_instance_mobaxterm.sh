@@ -2,7 +2,14 @@
 set -euo pipefail
 
 cd "${GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}"
-python3 scripts/griffin_repro.py env-check --strict --json
+CONDA_HOME="${GRIFFIN_CONDA_HOME:-$HOME/miniconda3}"
+GRIFFIN_ENV_NAME="${GRIFFIN_ENV_NAME:-griffin}"
+if [ -f "$CONDA_HOME/etc/profile.d/conda.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$CONDA_HOME/etc/profile.d/conda.sh"
+  conda activate "$GRIFFIN_ENV_NAME"
+fi
+python scripts/griffin_repro.py env-check --strict --json
 
 check_assets() {
   local group_name="$1"
@@ -52,4 +59,4 @@ if [ -z "$latest_log" ]; then
   exit 3
 fi
 cd ../..
-python3 scripts/griffin_repro.py validate-run --profile smoke_25m_instance --log "griffin_repro/official/${latest_log}" --json
+python scripts/griffin_repro.py validate-run --profile smoke_25m_instance --log "griffin_repro/official/${latest_log}" --json

@@ -12,6 +12,8 @@ The full paper matrix is represented by `manifest.json` and by `python scripts/g
 
 - `official/`: upstream Griffin source ingested from `E:/a2/Griffin-main.zip`.
 - `manifest.json`: source provenance, selected profiles, expected paper metrics, and robustness matrix.
+- `setup_griffin_env_mobaxterm.sh`: Linux environment bootstrap for the paper dependency stack on the remote host.
+- `download_50scenes_25m_mobaxterm.sh`: resumable Griffin-25m raw data download, checksum, and extraction script.
 - `run_smoke_25m_instance_mobaxterm.sh`: ready-to-run Linux shell script for the partial smoke closure from MobaXterm.
 - `../scripts/griffin_repro.py`: local verification, result summary, asset checks, and eval command generation.
 - `../scripts/sync_griffin_remote.py`: password-capable SFTP sync for this reproduction package only.
@@ -28,7 +30,9 @@ python scripts/griffin_repro.py verify-layout
 python scripts/griffin_repro.py summarize-results
 python scripts/griffin_repro.py paper-matrix
 python scripts/griffin_repro.py data-packages --dataset 50scenes_25m
+python scripts/griffin_repro.py write-data-script --dataset 50scenes_25m --out griffin_repro/download_50scenes_25m_mobaxterm.sh
 python scripts/griffin_repro.py env-check
+python scripts/griffin_repro.py write-env-script --out griffin_repro/setup_griffin_env_mobaxterm.sh
 python scripts/griffin_repro.py list-profiles
 python scripts/griffin_repro.py matrix --profile smoke_25m_instance
 python scripts/griffin_repro.py plan-partial-run --profile smoke_25m_instance
@@ -37,7 +41,16 @@ python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instanc
 
 ## Real Smoke Evaluation
 
-Prepare the official Griffin environment on Linux:
+Prepare the official Griffin environment on Linux. On the remote host used for this reproduction, Conda/Mamba is not preinstalled, so use the project bootstrap script:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+bash griffin_repro/setup_griffin_env_mobaxterm.sh
+```
+
+The script installs Miniconda under `${HOME}/miniconda3` when Conda is missing, creates/updates the `griffin` environment, sets `CUDA_HOME=/usr/local/cuda`, installs PyTorch `1.9.1+cu111`, MMCV `1.4.0`, MMDetection `2.14.0`, MMSegmentation `0.14.1`, MMDetection3D `v0.17.1`, then runs `env-check --strict`. Logs are written under `griffin_repro/artifacts/logs/`.
+
+The equivalent manual environment steps are:
 
 ```bash
 conda create -n griffin python=3.8 -y
@@ -89,6 +102,15 @@ The Griffin-25m raw data is packaged as 15 Hugging Face archives totaling `16719
 python scripts/griffin_repro.py data-packages --dataset 50scenes_25m
 ```
 
+On the remote host, Hugging Face mainline timed out while `hf-mirror.com` returned the official `md5.txt`. Use the generated resumable download script:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+bash griffin_repro/download_50scenes_25m_mobaxterm.sh
+```
+
+The script downloads the Griffin-25m archives to `griffin_repro/official/datasets/griffin_50scenes_25m/archives/`, verifies `md5sum -c md5.txt`, extracts zip files into the official dataset directory, and ends with `check-partial-assets --profile smoke_25m_instance`. It defaults to three concurrent resumable downloads; override `GRIFFIN_DOWNLOAD_JOBS` to tune bandwidth. To use Hugging Face mainline instead of the mirror, override `GRIFFIN_DATA_BASE_URL`.
+
 From MobaXterm on the remote host, run the staged smoke script:
 
 ```bash
@@ -96,7 +118,7 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh
 ```
 
-The script first reports and enforces the Griffin Python package environment, checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, drone query extraction, and final cooperative instance-fusion evaluation. If you use a conda environment, activate it in MobaXterm before running the script.
+The smoke script auto-activates `${HOME}/miniconda3` environment `griffin` when present. It then reports and enforces the Griffin Python package environment, checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, drone query extraction, and final cooperative instance-fusion evaluation.
 
 After evaluation, the script finds the latest official Griffin eval log and runs:
 

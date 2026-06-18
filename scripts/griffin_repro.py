@@ -21,6 +21,7 @@ REPRO_ROOT = REPO_ROOT / "griffin_repro"
 OFFICIAL_ROOT = REPRO_ROOT / "official"
 MANIFEST_PATH = REPRO_ROOT / "manifest.json"
 RESULTS_CSV = OFFICIAL_ROOT / "docs" / "detailed_results.csv"
+CONDA_INSTALLER_URL = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
 
 DATASETS = {
     "50scenes_25m": {
@@ -304,8 +305,152 @@ def env_check() -> dict[str, Any]:
         "python": {"executable": sys.executable, "version": sys.version.split()[0]},
         "python_modules": modules,
         "nvidia_smi": nvidia_smi,
-        "ready": all(item["available"] for item in modules.values()),
+        "ready": all(item["ok"] for item in modules.values()),
     }
+
+
+def conda_activation_block() -> str:
+    return """CONDA_HOME="${GRIFFIN_CONDA_HOME:-$HOME/miniconda3}"
+GRIFFIN_ENV_NAME="${GRIFFIN_ENV_NAME:-griffin}"
+if [ -f "$CONDA_HOME/etc/profile.d/conda.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$CONDA_HOME/etc/profile.d/conda.sh"
+  conda activate "$GRIFFIN_ENV_NAME"
+fi
+"""
+
+
+def env_setup_script() -> str:
+    installer_name = Path(CONDA_INSTALLER_URL).name
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
+CONDA_HOME="${{GRIFFIN_CONDA_HOME:-$HOME/miniconda3}}"
+ENV_NAME="${{GRIFFIN_ENV_NAME:-griffin}}"
+CUDA_HOME="${{CUDA_HOME:-/usr/local/cuda}}"
+MMDET3D_SRC="${{GRIFFIN_MMDET3D_SRC:-$HOME/.cache/griffin/mmdetection3d-v0.17.1}}"
+
+export CUDA_HOME
+export PATH="$CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${{LD_LIBRARY_PATH:-}}"
+export PIP_PROGRESS_BAR="${{PIP_PROGRESS_BAR:-off}}"
+
+LOG_DIR="${{GRIFFIN_ENV_LOG_DIR:-$ROOT/griffin_repro/artifacts/logs}}"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/setup_griffin_env_$(date +%Y%m%d_%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "Griffin environment setup log: $LOG_FILE"
+echo "Repository root: $ROOT"
+echo "Conda home: $CONDA_HOME"
+echo "Environment: $ENV_NAME"
+echo "CUDA_HOME: $CUDA_HOME"
+
+if [ ! -x "$CONDA_HOME/bin/conda" ]; then
+  installer="$LOG_DIR/{installer_name}"
+  echo "Installing Miniconda from {CONDA_INSTALLER_URL}"
+  curl -fL "{CONDA_INSTALLER_URL}" -o "$installer"
+  bash "$installer" -b -p "$CONDA_HOME"
+fi
+
+# shellcheck disable=SC1091
+source "$CONDA_HOME/etc/profile.d/conda.sh"
+
+if ! conda env list | awk '{{print $1}}' | grep -qx "$ENV_NAME"; then
+  conda create -n "$ENV_NAME" python=3.8 pip -y
+fi
+
+conda activate "$ENV_NAME"
+python -m pip install --upgrade pip
+python -m pip install "setuptools==59.5.0" wheel "numpy<1.24"
+python -m pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 \\
+  -f https://download.pytorch.org/whl/torch_stable.html
+python -m pip install mmcv-full==1.4.0 \\
+  -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.9.0/index.html
+python -m pip install mmdet==2.14.0 mmsegmentation==0.14.1
+
+install_mmdet3d_source() {{
+  if [ -f "$MMDET3D_SRC/setup.py" ]; then
+    if [ -d "$MMDET3D_SRC/.git" ]; then
+      git -C "$MMDET3D_SRC" checkout v0.17.1 || true
+    fi
+    return 0
+  fi
+
+  rm -rf "$MMDET3D_SRC"
+  mkdir -p "$(dirname "$MMDET3D_SRC")"
+  if timeout 180 git -c http.version=HTTP/1.1 clone --depth 1 --branch v0.17.1 \\
+    https://github.com/open-mmlab/mmdetection3d.git "$MMDET3D_SRC"; then
+    return 0
+  fi
+
+  rm -rf "$MMDET3D_SRC"
+  archive="$LOG_DIR/mmdetection3d-v0.17.1.tar.gz"
+  if ! timeout 180 curl --retry 2 --connect-timeout 20 -fL \\
+    https://github.com/open-mmlab/mmdetection3d/archive/refs/tags/v0.17.1.tar.gz -o "$archive"; then
+    return 1
+  fi
+  mkdir -p "$MMDET3D_SRC"
+  tar -xzf "$archive" --strip-components=1 -C "$MMDET3D_SRC"
+  return 0
+}}
+
+install_mmdet3d_from_pypi_sdist() {{
+  rm -rf "$MMDET3D_SRC"
+  pypi_dir="$LOG_DIR/mmdet3d_pypi"
+  rm -rf "$pypi_dir"
+  mkdir -p "$pypi_dir" "$MMDET3D_SRC"
+  python -m pip download mmdet3d==0.17.1 --no-deps --no-build-isolation -d "$pypi_dir"
+  archive="$(find "$pypi_dir" -maxdepth 1 -name 'mmdet3d-0.17.1*.tar.gz' | head -n 1)"
+  if [ -z "$archive" ]; then
+    echo "Unable to locate downloaded mmdet3d 0.17.1 source archive." >&2
+    return 1
+  fi
+  tar -xzf "$archive" --strip-components=1 -C "$MMDET3D_SRC"
+}}
+
+patch_mmdet3d_setup() {{
+  python - "$MMDET3D_SRC/setup.py" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+pattern = (
+    r"\\n\\s+make_cuda_ext\\(\\n"
+    r"\\s+name='sparse_conv_ext',.*?"
+    r"extra_args=\\['-w', '-std=c\\+\\+14'\\]\\),"
+)
+patched, count = re.subn(pattern, "", text, count=1, flags=re.S)
+if count:
+    path.write_text(patched, encoding="utf-8")
+    print("Skipping mmdet3d spconv extension for Griffin camera/BEV reproduction.")
+else:
+    print("mmdet3d spconv extension block was not present or was already skipped.")
+PY
+}}
+
+if ! install_mmdet3d_source; then
+  install_mmdet3d_from_pypi_sdist
+fi
+patch_mmdet3d_setup
+python -m pip install -r "$MMDET3D_SRC/requirements/runtime.txt"
+python -m pip install -v -e "$MMDET3D_SRC" --no-deps
+
+python -m pip install -r "$ROOT/griffin_repro/official/requirements.txt"
+cd "$ROOT"
+python scripts/griffin_repro.py env-check --strict --json
+echo "Griffin environment is ready. Activate it with: source $CONDA_HOME/etc/profile.d/conda.sh && conda activate $ENV_NAME"
+"""
+
+
+def write_env_script(out: str) -> dict[str, Any]:
+    path = Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(env_setup_script(), encoding="utf-8", newline="\n")
+    return {"path": str(path), "bytes": path.stat().st_size}
 
 
 def data_packages(dataset: str) -> dict[str, Any]:
@@ -327,6 +472,121 @@ def data_packages(dataset: str) -> dict[str, Any]:
         "package_count": len(packages),
         "total_size_bytes": sum(item["size_bytes"] for item in packages),
         "packages": packages,
+    }
+
+
+def data_download_script(dataset: str) -> str:
+    package_payload = data_packages(dataset)
+    prefix = package_payload["dataset_prefix"]
+    rows = "\n".join(
+        f'  "{item["path"]}|{item["size_bytes"]}"'
+        for item in package_payload["packages"]
+    )
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
+BASE_URL="${{GRIFFIN_DATA_BASE_URL:-https://hf-mirror.com/datasets/wjh-svm/Griffin/resolve/main}}"
+DATA_ROOT="$ROOT/griffin_repro/official/datasets/{prefix}"
+ARCHIVE_DIR="${{GRIFFIN_ARCHIVE_DIR:-$DATA_ROOT/archives}}"
+TOTAL_SIZE_BYTES={package_payload["total_size_bytes"]}
+DOWNLOAD_JOBS="${{GRIFFIN_DOWNLOAD_JOBS:-3}}"
+
+if ! help wait 2>/dev/null | grep -q -- "-n"; then
+  DOWNLOAD_JOBS=1
+fi
+
+mkdir -p "$ARCHIVE_DIR"
+cd "$ROOT"
+
+packages=(
+{rows}
+)
+
+download_one() {{
+  local rel_path="$1"
+  local expected_size="$2"
+  local name
+  local output
+  local url
+  local actual_size
+  name="$(basename "$rel_path")"
+  output="$ARCHIVE_DIR/$name"
+  url="$BASE_URL/$rel_path"
+
+  if [ -f "$output" ]; then
+    actual_size="$(stat -c%s "$output")"
+    if [ "$actual_size" = "$expected_size" ]; then
+      echo "OK size: $name"
+      return
+    fi
+  fi
+
+  echo "Downloading $name from $url"
+  curl --retry 5 --connect-timeout 30 -L -C - -o "$output" "$url"
+  actual_size="$(stat -c%s "$output")"
+  if [ "$actual_size" != "$expected_size" ]; then
+    echo "Size mismatch for $name: expected $expected_size, got $actual_size" >&2
+    exit 4
+  fi
+}}
+
+download_fail=0
+active_jobs=0
+for item in "${{packages[@]}}"; do
+  download_one "${{item%%|*}}" "${{item##*|}}" &
+  active_jobs=$((active_jobs + 1))
+  if [ "$active_jobs" -ge "$DOWNLOAD_JOBS" ]; then
+    if ! wait -n; then
+      download_fail=1
+    fi
+    active_jobs=$((active_jobs - 1))
+  fi
+done
+
+while [ "$active_jobs" -gt 0 ]; do
+  if ! wait -n; then
+    download_fail=1
+  fi
+  active_jobs=$((active_jobs - 1))
+done
+
+if [ "$download_fail" -ne 0 ]; then
+  echo "At least one Griffin archive failed to download." >&2
+  exit 4
+fi
+
+cd "$ARCHIVE_DIR"
+md5sum -c md5.txt
+
+mkdir -p "$DATA_ROOT"
+for archive in *.zip; do
+  marker="$archive.extracted"
+  if [ -f "$marker" ]; then
+    echo "Already extracted: $archive"
+    continue
+  fi
+  echo "Extracting $archive"
+  unzip -oq "$archive" -d "$DATA_ROOT"
+  touch "$marker"
+done
+
+cd "$ROOT"
+python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance --json
+"""
+
+
+def write_data_script(dataset: str, out: str) -> dict[str, Any]:
+    path = Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(data_download_script(dataset), encoding="utf-8", newline="\n")
+    payload = data_packages(dataset)
+    return {
+        "dataset": dataset,
+        "dataset_prefix": payload["dataset_prefix"],
+        "path": str(path),
+        "bytes": path.stat().st_size,
+        "total_size_bytes": payload["total_size_bytes"],
     }
 
 
@@ -398,11 +658,13 @@ def mobaxterm_script(profile_name: str) -> str:
     preprocess_assets = "\n".join(f'  "{path}"' for path in plan["preprocess_assets"])
     evaluation_assets = "\n".join(f'  "{path}"' for path in plan["evaluation_assets"])
     _, convert_command, drone_train_command, drone_val_command, final_eval_command = plan["commands"]
+    activation = conda_activation_block().rstrip()
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
 cd "${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
-python3 scripts/griffin_repro.py env-check --strict --json
+{activation}
+python scripts/griffin_repro.py env-check --strict --json
 
 check_assets() {{
   local group_name="$1"
@@ -444,7 +706,7 @@ if [ -z "$latest_log" ]; then
   exit 3
 fi
 cd ../..
-python3 scripts/griffin_repro.py validate-run --profile {profile_name} --log "griffin_repro/official/${{latest_log}}" --json
+python scripts/griffin_repro.py validate-run --profile {profile_name} --log "griffin_repro/official/${{latest_log}}" --json
 """
 
 
@@ -566,6 +828,15 @@ def main(argv: list[str] | None = None) -> int:
     data_parser.add_argument("--dataset", required=True)
     data_parser.add_argument("--json", action="store_true")
 
+    data_script_parser = subparsers.add_parser("write-data-script")
+    data_script_parser.add_argument("--dataset", required=True)
+    data_script_parser.add_argument("--out", required=True)
+    data_script_parser.add_argument("--json", action="store_true")
+
+    env_script_parser = subparsers.add_parser("write-env-script")
+    env_script_parser.add_argument("--out", required=True)
+    env_script_parser.add_argument("--json", action="store_true")
+
     paper_parser = subparsers.add_parser("paper-matrix")
     paper_parser.add_argument("--json", action="store_true")
 
@@ -615,6 +886,10 @@ def main(argv: list[str] | None = None) -> int:
             return 4
     elif args.command == "data-packages":
         emit(data_packages(args.dataset), args.json)
+    elif args.command == "write-data-script":
+        emit(write_data_script(args.dataset, args.out), args.json)
+    elif args.command == "write-env-script":
+        emit(write_env_script(args.out), args.json)
     elif args.command == "paper-matrix":
         emit(paper_matrix(), args.json)
     elif args.command == "list-profiles":

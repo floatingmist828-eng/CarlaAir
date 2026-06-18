@@ -177,6 +177,30 @@ def test_environment_check_reports_runtime_and_required_modules():
     assert payload["ready"] == all(item["ok"] for item in payload["python_modules"].values())
 
 
+def test_write_env_script_bootstraps_isolated_paper_environment(tmp_path):
+    out_path = tmp_path / "setup_env.sh"
+    result = run_cli("write-env-script", "--out", str(out_path), "--json")
+    payload = json.loads(result.stdout)
+    script = out_path.read_text(encoding="utf-8")
+
+    assert payload["path"] == str(out_path)
+    assert "Miniconda3-latest-Linux-x86_64.sh" in script
+    assert "conda create -n \"$ENV_NAME\" python=3.8 pip -y" in script
+    assert "torch==1.9.1+cu111" in script
+    assert "torchvision==0.10.1+cu111" in script
+    assert "mmcv-full==1.4.0" in script
+    assert "mmdet==2.14.0 mmsegmentation==0.14.1" in script
+    assert "timeout 180 git -c http.version=HTTP/1.1 clone --depth 1 --branch v0.17.1" in script
+    assert "mmdetection3d/archive/refs/tags/v0.17.1.tar.gz" in script
+    assert "python -m pip download mmdet3d==0.17.1" in script
+    assert "Skipping mmdet3d spconv extension" in script
+    assert "python -m pip install -r \"$MMDET3D_SRC/requirements/runtime.txt\"" in script
+    assert "python -m pip install -v -e \"$MMDET3D_SRC\" --no-deps" in script
+    assert "CUDA_HOME=\"${CUDA_HOME:-/usr/local/cuda}\"" in script
+    assert "python scripts/griffin_repro.py env-check --strict --json" in script
+    assert "carlaair_active_world" not in script
+
+
 def test_data_packages_lists_griffin_25m_archives_and_download_size():
     result = run_cli("data-packages", "--dataset", "50scenes_25m", "--json")
     payload = json.loads(result.stdout)
@@ -188,6 +212,27 @@ def test_data_packages_lists_griffin_25m_archives_and_download_size():
     assert packages["datasets/griffin_50scenes_25m/drone_metadata.zip"]["size_bytes"] == 14384997
     assert packages["datasets/griffin_50scenes_25m/vehicle_lidar.zip"]["size_bytes"] == 214487013
     assert payload["total_size_bytes"] == 167190016122
+
+
+def test_write_data_script_downloads_from_mirror_with_checksums(tmp_path):
+    out_path = tmp_path / "download_data.sh"
+    result = run_cli("write-data-script", "--dataset", "50scenes_25m", "--out", str(out_path), "--json")
+    payload = json.loads(result.stdout)
+    script = out_path.read_text(encoding="utf-8")
+
+    assert payload["path"] == str(out_path)
+    assert payload["dataset"] == "50scenes_25m"
+    assert "https://hf-mirror.com/datasets/wjh-svm/Griffin/resolve/main" in script
+    assert "167190016122" in script
+    assert "drone_camera_back.zip|19492671867" in script
+    assert "vehicle_metadata.zip|10876283" in script
+    assert "DOWNLOAD_JOBS=\"${GRIFFIN_DOWNLOAD_JOBS:-3}\"" in script
+    assert "curl --retry 5 --connect-timeout 30 -L -C -" in script
+    assert "wait -n" in script
+    assert "md5sum -c md5.txt" in script
+    assert "unzip -oq" in script
+    assert "check-partial-assets --profile smoke_25m_instance" in script
+    assert "carlaair_active_world" not in script
 
 
 def test_validate_run_accepts_log_metrics_near_paper_reference(tmp_path):
@@ -249,8 +294,10 @@ def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     assert script.index("bash tools/griffin_converter.sh griffin_50scenes_25m") < script.index("evaluation_assets=(")
     assert "missing_assets=0" in script
     assert "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py" in script
-    assert "python3 scripts/griffin_repro.py env-check --strict --json" in script
-    assert "python3 scripts/griffin_repro.py validate-run --profile smoke_25m_instance" in script
+    assert "CONDA_HOME=\"${GRIFFIN_CONDA_HOME:-$HOME/miniconda3}\"" in script
+    assert "conda activate \"$GRIFFIN_ENV_NAME\"" in script
+    assert "python scripts/griffin_repro.py env-check --strict --json" in script
+    assert "python scripts/griffin_repro.py validate-run --profile smoke_25m_instance" in script
     assert "-printf '%T@ %p\\n'" in script
     assert "carlaair_active_world" not in script
 
