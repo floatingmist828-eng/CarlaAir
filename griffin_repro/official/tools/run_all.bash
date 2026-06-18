@@ -1,0 +1,2 @@
+bash ./tools/dist_eval.sh ./projects/configs_griffin_50scenes_25m/cooperative/tiny_track_r50_stream_bs8_48epoch_3cls.py ./projects/work_dirs_griffin_50scenes_25m/cooperative/tiny_track_r50_stream_bs8_48epoch_3cls/iter_33024.pth 1
+bash ./tools/dist_eval.sh ./projects/configs_griffin_50scenes_25m/cooperative/tiny_track_r50_stream_bs8_48epoch_3cls_loc2.py ./projects/work_dirs_griffin_50scenes_25m/cooperative/tiny_track_r50_stream_bs8_48epoch_3cls/iter_33024.pth 1

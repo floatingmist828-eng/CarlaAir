@@ -13,3 +13,11 @@ models/*.bin
 
 *.log
 *.bak-*
+
+griffin_repro/official/datasets/
+griffin_repro/official/ckpts/
+griffin_repro/official/work_dirs*/
+griffin_repro/official/result_vis/
+griffin_repro/official/outputs/
+griffin_repro/artifacts/
+griffin_repro/*.tar.gz

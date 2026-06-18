@@ -1,0 +1,126 @@
+{
+  "source": {
+    "paper": "Griffin: Aerial-Ground Cooperative Detection and Tracking Dataset and Benchmark",
+    "paper_file": "E:/a2/空地协同.pdf",
+    "repository": "https://github.com/wang-jh18-SVM/Griffin",
+    "remote_head": "9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4",
+    "local_archive": "E:/a2/Griffin-main.zip",
+    "ingested_path": "griffin_repro/official"
+  },
+  "scope": {
+    "mode": "engineering-closure",
+    "full_paper_matrix": false,
+    "goal": "Run a real Griffin evaluation closure on a small selected profile when datasets and checkpoints are present, while keeping all CarlaAir autonomous-driving code isolated."
+  },
+  "assets": {
+    "dataset_root": "griffin_repro/official/datasets",
+    "checkpoint_root": "griffin_repro/official/ckpts",
+    "required_for_smoke": [
+      "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-nuscenes/cooperative",
+      "griffin_repro/official/ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth"
+    ]
+  },
+  "profiles": {
+    "smoke_25m_instance": {
+      "description": "Single-GPU real evaluation closure for the Griffin-25m CoopTrack-style instance-fusion baseline.",
+      "dataset": "50scenes_25m",
+      "method": "2b1-cooptrack",
+      "config": "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+      "checkpoint": "ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth",
+      "required_paths": [
+        "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+        "ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth",
+        "datasets/griffin_50scenes_25m/griffin-nuscenes/cooperative",
+        "data/infos/griffin_50scenes_25m/cooperative/griffin_infos_val.pkl",
+        "data/infos/griffin_50scenes_25m/drone-side/track_query"
+      ],
+      "gpus": 1,
+      "expected": {
+        "AP": 0.479,
+        "AMOTA": 0.488
+      }
+    },
+    "smoke_25m_vehicle": {
+      "description": "Vehicle-side no-fusion baseline for checking single-agent data and model wiring.",
+      "dataset": "50scenes_25m",
+      "method": "0-no fusion",
+      "config": "projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+      "checkpoint": "ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth",
+      "required_paths": [
+        "projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+        "ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth",
+        "datasets/griffin_50scenes_25m/griffin-nuscenes/vehicle-side",
+        "data/infos/griffin_50scenes_25m/vehicle-side/griffin_infos_val.pkl"
+      ],
+      "gpus": 1,
+      "expected": {
+        "AP": 0.375,
+        "AMOTA": 0.365
+      }
+    },
+    "smoke_25m_early": {
+      "description": "Early-fusion upper-bound check on Griffin-25m.",
+      "dataset": "50scenes_25m",
+      "method": "1-early fusion",
+      "config": "projects/configs_griffin_50scenes_25m/early-fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+      "checkpoint": "ckpts/griffin_50scenes_25m/early-fusion/iter_33024.pth",
+      "required_paths": [
+        "projects/configs_griffin_50scenes_25m/early-fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+        "ckpts/griffin_50scenes_25m/early-fusion/iter_33024.pth",
+        "datasets/griffin_50scenes_25m/griffin-nuscenes/early-fusion",
+        "data/infos/griffin_50scenes_25m/early-fusion/griffin_infos_val.pkl"
+      ],
+      "gpus": 1,
+      "expected": {
+        "AP": 0.607,
+        "AMOTA": 0.67
+      }
+    }
+  },
+  "paper_matrix": {
+    "datasets": [
+      "50scenes_25m",
+      "50scenes_40m",
+      "50scenes_55m",
+      "100scenes_random"
+    ],
+    "methods": [
+      "0-no fusion",
+      "1-early fusion",
+      "2a1-v2x-vit",
+      "2a2-where2comm",
+      "2b1-cooptrack",
+      "2b2-univ2x",
+      "3-late fusion"
+    ],
+    "robustness": {
+      "communication_latency_ms": [
+        100,
+        200,
+        300,
+        400
+      ],
+      "packet_loss": [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5
+      ],
+      "translation_error_m": [
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5
+      ],
+      "rotation_error_deg": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  }
+}
