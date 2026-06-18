@@ -21,8 +21,10 @@ Repository-level helpers live in `scripts/` so they can be run from the CarlaAir
 
 The generated `griffin_repro/run_smoke_25m_instance_mobaxterm.sh` is the operational closure for the user-run MobaXterm path. It stages raw-data checks, official conversion, drone track-query extraction, final evaluation asset checks, and the cooperative instance-fusion eval command.
 
+`scripts/griffin_repro.py data-packages` records the Hugging Face package manifest for the selected Griffin-25m smoke subset so large downloads are explicit. `scripts/griffin_repro.py env-check` reports whether the active Linux environment has the expected Griffin Python stack available. `scripts/griffin_repro.py validate-run` parses the official eval log and checks AP/AMOTA against the paper reference with a small tolerance.
+
 ## Verification
 
-The local test suite verifies that the official tree is isolated, the paper result CSV can be parsed, all 28 zero-noise baselines are represented, the selected smoke profile resolves to real Griffin eval commands, and remote sync dry-run scope excludes legacy driving code.
+The local test suite verifies that the official tree is isolated, the paper result CSV can be parsed, all 28 zero-noise baselines are represented, the selected smoke profile resolves to real Griffin eval commands, the Griffin-25m data package manifest is explicit, eval logs can be validated against AP/AMOTA references, and remote sync dry-run scope excludes legacy driving code.
 
 Real experimental verification requires the Griffin Linux GPU environment plus the selected Griffin-25m raw data, drone checkpoint, cooperative instance-fusion checkpoint, and generated info/query assets. The smoke profile target is the paper's `50scenes_25m / 2b1-cooptrack` result: AP `0.479`, AMOTA `0.488`.

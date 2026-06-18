@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.metadata
+import importlib.util
 import json
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -63,6 +67,34 @@ ROBUSTNESS = {
     "packet_loss": [0.1, 0.2, 0.3, 0.4, 0.5],
     "translation_error_m": [0.5, 1.0, 1.5, 2.0, 2.5],
     "rotation_error_deg": [1, 2, 3, 4, 5],
+}
+
+DATA_PACKAGES = {
+    "50scenes_25m": [
+        ("datasets/griffin_50scenes_25m/drone_camera_back.zip", 19492671867),
+        ("datasets/griffin_50scenes_25m/drone_camera_bottom.zip", 19047808871),
+        ("datasets/griffin_50scenes_25m/drone_camera_front.zip", 19486880375),
+        ("datasets/griffin_50scenes_25m/drone_camera_instance_segmentation.zip", 3558624019),
+        ("datasets/griffin_50scenes_25m/drone_camera_left.zip", 19309526941),
+        ("datasets/griffin_50scenes_25m/drone_camera_right.zip", 19669453631),
+        ("datasets/griffin_50scenes_25m/drone_metadata.zip", 14384997),
+        ("datasets/griffin_50scenes_25m/md5.txt", 898),
+        ("datasets/griffin_50scenes_25m/vehicle_camera_back.zip", 17138643853),
+        ("datasets/griffin_50scenes_25m/vehicle_camera_front.zip", 16257201694),
+        ("datasets/griffin_50scenes_25m/vehicle_camera_instance_segmentation.zip", 1116380149),
+        ("datasets/griffin_50scenes_25m/vehicle_camera_left.zip", 15554668466),
+        ("datasets/griffin_50scenes_25m/vehicle_camera_right.zip", 16318407065),
+        ("datasets/griffin_50scenes_25m/vehicle_lidar.zip", 214487013),
+        ("datasets/griffin_50scenes_25m/vehicle_metadata.zip", 10876283),
+    ],
+}
+
+EXPECTED_PYTHON_MODULES = {
+    "torch": {"import": "torch", "package": "torch", "version": "1.9.1"},
+    "mmcv": {"import": "mmcv", "package": "mmcv-full", "version": "1.4.0"},
+    "mmdet": {"import": "mmdet", "package": "mmdet", "version": "2.14.0"},
+    "mmseg": {"import": "mmseg", "package": "mmsegmentation", "version": "0.14.1"},
+    "mmdet3d": {"import": "mmdet3d", "package": "mmdet3d", "version": "0.17.1"},
 }
 
 
@@ -216,6 +248,88 @@ def check_path_list(paths: list[str]) -> dict[str, Any]:
     return {"checks": checks, "ready": all(item["exists"] for item in checks)}
 
 
+def module_status(name: str, spec: dict[str, str]) -> dict[str, Any]:
+    import_name = spec["import"]
+    package_name = spec["package"]
+    expected_version = spec["version"]
+    available = importlib.util.find_spec(import_name) is not None
+    version = None
+    if available:
+        try:
+            version = importlib.metadata.version(package_name)
+        except importlib.metadata.PackageNotFoundError:
+            version = None
+    version_matches = bool(
+        available and (expected_version is None or (version is not None and version.startswith(expected_version)))
+    )
+    return {
+        "available": available,
+        "import": import_name,
+        "package": package_name,
+        "version": version,
+        "expected_version": expected_version,
+        "version_matches": version_matches,
+        "ok": available and version_matches,
+    }
+
+
+def env_check() -> dict[str, Any]:
+    modules = {
+        name: module_status(name, spec)
+        for name, spec in EXPECTED_PYTHON_MODULES.items()
+    }
+    nvidia_smi_path = shutil.which("nvidia-smi")
+    nvidia_smi = {"available": nvidia_smi_path is not None, "path": nvidia_smi_path, "gpus": []}
+    if nvidia_smi_path:
+        try:
+            result = subprocess.run(
+                [
+                    nvidia_smi_path,
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode == 0:
+                nvidia_smi["gpus"] = [
+                    {"raw": line.strip()} for line in result.stdout.splitlines() if line.strip()
+                ]
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return {
+        "python": {"executable": sys.executable, "version": sys.version.split()[0]},
+        "python_modules": modules,
+        "nvidia_smi": nvidia_smi,
+        "ready": all(item["available"] for item in modules.values()),
+    }
+
+
+def data_packages(dataset: str) -> dict[str, Any]:
+    if dataset not in DATA_PACKAGES:
+        raise SystemExit(f"No data package manifest is recorded for dataset {dataset!r}")
+    prefix = dataset_prefix(dataset)
+    packages = [
+        {
+            "path": path,
+            "size_bytes": size,
+            "url": f"https://huggingface.co/datasets/wjh-svm/Griffin/resolve/main/{path}",
+        }
+        for path, size in DATA_PACKAGES[dataset]
+    ]
+    return {
+        "dataset": dataset,
+        "dataset_prefix": prefix,
+        "source": "https://huggingface.co/datasets/wjh-svm/Griffin",
+        "package_count": len(packages),
+        "total_size_bytes": sum(item["size_bytes"] for item in packages),
+        "packages": packages,
+    }
+
+
 def paper_matrix() -> dict[str, Any]:
     manifest = load_manifest()
     rows = load_results()
@@ -288,6 +402,7 @@ def mobaxterm_script(profile_name: str) -> str:
 set -euo pipefail
 
 cd "${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
+python3 scripts/griffin_repro.py env-check --strict --json
 
 check_assets() {{
   local group_name="$1"
@@ -323,6 +438,13 @@ check_assets "evaluation" "${{evaluation_assets[@]}}"
 
 cd griffin_repro/official
 {final_eval_command}
+latest_log=$(find projects -path '*/logs/test_*.log' -type f -printf '%T@ %p\\n' | sort -nr | head -n 1 | cut -d' ' -f2-)
+if [ -z "$latest_log" ]; then
+  echo "No Griffin eval log found under griffin_repro/official/projects." >&2
+  exit 3
+fi
+cd ../..
+python3 scripts/griffin_repro.py validate-run --profile {profile_name} --log "griffin_repro/official/${{latest_log}}" --json
 """
 
 
@@ -346,6 +468,61 @@ def check_partial_assets(profile_name: str) -> dict[str, Any]:
         "method": plan["method"],
         "stages": stages,
         "ready": all(stage["ready"] for stage in stages),
+    }
+
+
+def parse_run_metrics(text: str) -> dict[str, float]:
+    patterns = {
+        "AP": [
+            r"(?:pts_bbox_NuScenes/)?mAP\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"(?:^|[\s\"'])AP[\"']?\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+        ],
+        "AMOTA": [
+            r"(?:pts_bbox_NuScenes/)?amota\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"(?:^|[\s\"'])AMOTA[\"']?\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+        ],
+    }
+    metrics = {}
+    for name, metric_patterns in patterns.items():
+        for pattern in metric_patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+            if match:
+                metrics[name] = float(match.group(1))
+                break
+    return metrics
+
+
+def validate_run(profile_name: str, log_path: str, tolerance: float) -> dict[str, Any]:
+    payload = profile_payload(profile_name)
+    path = Path(log_path)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    metrics = parse_run_metrics(text)
+    checks = {}
+    missing = []
+    for name, expected in payload["expected"].items():
+        if name not in metrics:
+            missing.append(name)
+            continue
+        actual = metrics[name]
+        delta = actual - expected
+        checks[name] = {
+            "actual": actual,
+            "expected": expected,
+            "delta": delta,
+            "abs_delta": abs(delta),
+            "tolerance": tolerance,
+            "passed": abs(delta) <= tolerance,
+        }
+    passed = not missing and all(item["passed"] for item in checks.values())
+    return {
+        "profile": profile_name,
+        "dataset": payload["dataset"],
+        "method": payload["method"],
+        "log": str(path),
+        "metrics": metrics,
+        "checks": checks,
+        "missing_metrics": missing,
+        "passed": passed,
     }
 
 
@@ -381,6 +558,14 @@ def main(argv: list[str] | None = None) -> int:
     summary_parser = subparsers.add_parser("summarize-results")
     summary_parser.add_argument("--json", action="store_true")
 
+    env_parser = subparsers.add_parser("env-check")
+    env_parser.add_argument("--strict", action="store_true")
+    env_parser.add_argument("--json", action="store_true")
+
+    data_parser = subparsers.add_parser("data-packages")
+    data_parser.add_argument("--dataset", required=True)
+    data_parser.add_argument("--json", action="store_true")
+
     paper_parser = subparsers.add_parser("paper-matrix")
     paper_parser.add_argument("--json", action="store_true")
 
@@ -408,6 +593,12 @@ def main(argv: list[str] | None = None) -> int:
     partial_assets_parser.add_argument("--profile", required=True)
     partial_assets_parser.add_argument("--json", action="store_true")
 
+    validate_parser = subparsers.add_parser("validate-run")
+    validate_parser.add_argument("--profile", required=True)
+    validate_parser.add_argument("--log", required=True)
+    validate_parser.add_argument("--tolerance", type=float, default=0.02)
+    validate_parser.add_argument("--json", action="store_true")
+
     run_parser = subparsers.add_parser("run-profile")
     run_parser.add_argument("--profile", required=True)
     run_parser.add_argument("--dry-run", action="store_true")
@@ -417,6 +608,13 @@ def main(argv: list[str] | None = None) -> int:
         emit(verify_layout(), args.json)
     elif args.command == "summarize-results":
         emit(result_summary(), args.json)
+    elif args.command == "env-check":
+        environment = env_check()
+        emit(environment, args.json)
+        if args.strict and not environment["ready"]:
+            return 4
+    elif args.command == "data-packages":
+        emit(data_packages(args.dataset), args.json)
     elif args.command == "paper-matrix":
         emit(paper_matrix(), args.json)
     elif args.command == "list-profiles":
@@ -431,6 +629,11 @@ def main(argv: list[str] | None = None) -> int:
         emit(check_assets(args.profile), args.json)
     elif args.command == "check-partial-assets":
         emit(check_partial_assets(args.profile), args.json)
+    elif args.command == "validate-run":
+        validation = validate_run(args.profile, args.log, args.tolerance)
+        emit(validation, args.json)
+        if not validation["passed"]:
+            return 3
     elif args.command == "run-profile":
         return run_profile(args.profile, args.dry_run)
     return 0

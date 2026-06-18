@@ -27,6 +27,8 @@ python -m pytest tests/test_griffin_repro.py -q
 python scripts/griffin_repro.py verify-layout
 python scripts/griffin_repro.py summarize-results
 python scripts/griffin_repro.py paper-matrix
+python scripts/griffin_repro.py data-packages --dataset 50scenes_25m
+python scripts/griffin_repro.py env-check
 python scripts/griffin_repro.py list-profiles
 python scripts/griffin_repro.py matrix --profile smoke_25m_instance
 python scripts/griffin_repro.py plan-partial-run --profile smoke_25m_instance
@@ -81,6 +83,12 @@ cd -
 
 The drone-side eval step is needed to populate the `data/infos/griffin_50scenes_25m/drone-side/track_query` features consumed by instance fusion.
 
+The Griffin-25m raw data is packaged as 15 Hugging Face archives totaling `167190016122` bytes. Inspect the exact package list before downloading:
+
+```bash
+python scripts/griffin_repro.py data-packages --dataset 50scenes_25m
+```
+
 From MobaXterm on the remote host, run the staged smoke script:
 
 ```bash
@@ -88,12 +96,21 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh
 ```
 
-The script first checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, drone query extraction, and final cooperative instance-fusion evaluation.
+The script first reports and enforces the Griffin Python package environment, checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, drone query extraction, and final cooperative instance-fusion evaluation. If you use a conda environment, activate it in MobaXterm before running the script.
+
+After evaluation, the script finds the latest official Griffin eval log and runs:
+
+```bash
+python3 scripts/griffin_repro.py validate-run --profile smoke_25m_instance --log <latest-log>
+```
+
+That validator parses AP and AMOTA from the log and compares them with the paper reference using a default tolerance of `0.02`.
 
 You can also inspect and run the same pieces through the Python helper:
 
 ```bash
 python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance
+python scripts/griffin_repro.py validate-run --profile smoke_25m_instance --log griffin_repro/official/<path-to-eval-log>
 python scripts/griffin_repro.py run-profile --profile smoke_25m_instance
 ```
 

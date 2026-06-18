@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "${GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}"
+python3 scripts/griffin_repro.py env-check --strict --json
 
 check_assets() {
   local group_name="$1"
@@ -45,3 +46,10 @@ check_assets "evaluation" "${evaluation_assets[@]}"
 
 cd griffin_repro/official
 CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth 1
+latest_log=$(find projects -path '*/logs/test_*.log' -type f -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)
+if [ -z "$latest_log" ]; then
+  echo "No Griffin eval log found under griffin_repro/official/projects." >&2
+  exit 3
+fi
+cd ../..
+python3 scripts/griffin_repro.py validate-run --profile smoke_25m_instance --log "griffin_repro/official/${latest_log}" --json

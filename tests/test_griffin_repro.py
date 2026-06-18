@@ -162,6 +162,81 @@ def test_check_partial_assets_reports_preprocess_and_evaluation_stages():
     assert payload["ready"] == all(stage["ready"] for stage in stages.values())
 
 
+def test_environment_check_reports_runtime_and_required_modules():
+    result = run_cli("env-check", "--json")
+    payload = json.loads(result.stdout)
+
+    assert payload["python"]["executable"]
+    assert payload["python"]["version"]
+    assert {"torch", "mmcv", "mmdet", "mmseg", "mmdet3d"} <= set(payload["python_modules"])
+    assert payload["python_modules"]["torch"]["expected_version"] == "1.9.1"
+    assert payload["python_modules"]["mmseg"]["package"] == "mmsegmentation"
+    assert payload["python_modules"]["mmseg"]["expected_version"] == "0.14.1"
+    assert "ok" in payload["python_modules"]["torch"]
+    assert "nvidia_smi" in payload
+    assert payload["ready"] == all(item["ok"] for item in payload["python_modules"].values())
+
+
+def test_data_packages_lists_griffin_25m_archives_and_download_size():
+    result = run_cli("data-packages", "--dataset", "50scenes_25m", "--json")
+    payload = json.loads(result.stdout)
+    packages = {item["path"]: item for item in payload["packages"]}
+
+    assert payload["dataset_prefix"] == "griffin_50scenes_25m"
+    assert payload["package_count"] == 15
+    assert packages["datasets/griffin_50scenes_25m/vehicle_metadata.zip"]["size_bytes"] == 10876283
+    assert packages["datasets/griffin_50scenes_25m/drone_metadata.zip"]["size_bytes"] == 14384997
+    assert packages["datasets/griffin_50scenes_25m/vehicle_lidar.zip"]["size_bytes"] == 214487013
+    assert payload["total_size_bytes"] == 167190016122
+
+
+def test_validate_run_accepts_log_metrics_near_paper_reference(tmp_path):
+    log_path = tmp_path / "eval.log"
+    log_path.write_text(
+        "Evaluation summary\n"
+        "pts_bbox_NuScenes/mAP: 0.481\n"
+        "pts_bbox_NuScenes/amota: 0.491\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli("validate-run", "--profile", "smoke_25m_instance", "--log", str(log_path), "--json")
+    payload = json.loads(result.stdout)
+
+    assert payload["profile"] == "smoke_25m_instance"
+    assert payload["passed"] is True
+    assert payload["metrics"]["AP"] == 0.481
+    assert payload["metrics"]["AMOTA"] == 0.491
+    assert payload["checks"]["AP"]["expected"] == 0.479
+    assert payload["checks"]["AMOTA"]["expected"] == 0.488
+
+
+def test_validate_run_rejects_missing_metrics(tmp_path):
+    log_path = tmp_path / "eval.log"
+    log_path.write_text("Testing done without metric summary\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "validate-run",
+            "--profile",
+            "smoke_25m_instance",
+            "--log",
+            str(log_path),
+            "--json",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 3
+    payload = json.loads(result.stdout)
+    assert payload["passed"] is False
+    assert payload["missing_metrics"] == ["AP", "AMOTA"]
+
+
 def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     out_path = tmp_path / "run_smoke.sh"
     run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")
@@ -174,6 +249,9 @@ def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     assert script.index("bash tools/griffin_converter.sh griffin_50scenes_25m") < script.index("evaluation_assets=(")
     assert "missing_assets=0" in script
     assert "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py" in script
+    assert "python3 scripts/griffin_repro.py env-check --strict --json" in script
+    assert "python3 scripts/griffin_repro.py validate-run --profile smoke_25m_instance" in script
+    assert "-printf '%T@ %p\\n'" in script
     assert "carlaair_active_world" not in script
 
 
