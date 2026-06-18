@@ -80,6 +80,103 @@ def test_smoke_profile_asset_check_includes_data_dependencies():
     assert "griffin_repro/official/data/infos/griffin_50scenes_25m/drone-side/track_query" in paths
 
 
+def test_paper_matrix_cli_covers_paper_scenes_metrics_fusions_and_robustness():
+    result = run_cli("paper-matrix", "--json")
+    payload = json.loads(result.stdout)
+
+    assert payload["source"]["paper"].startswith("Griffin:")
+    assert payload["result_rows"] == 142
+    assert payload["baseline_rows"] == 28
+    assert payload["baseline_complete"] is True
+
+    assert payload["datasets"]["50scenes_25m"]["scene_count"] == 47
+    assert payload["datasets"]["50scenes_40m"]["scene_count"] == 54
+    assert payload["datasets"]["50scenes_55m"]["scene_count"] == 50
+    assert payload["datasets"]["100scenes_random"]["scene_count"] == 104
+
+    assert set(payload["fusion_methods"]) == {
+        "0-no fusion",
+        "1-early fusion",
+        "2a1-v2x-vit",
+        "2a2-where2comm",
+        "2b1-cooptrack",
+        "2b2-univ2x",
+        "3-late fusion",
+    }
+    assert set(payload["metrics"]) >= {"AP", "AMOTA", "BPS", "FPS"}
+    assert payload["robustness"]["communication_latency_ms"] == [100, 200, 300, 400]
+    assert payload["robustness"]["packet_loss"] == [0.1, 0.2, 0.3, 0.4, 0.5]
+    assert payload["robustness"]["translation_error_m"] == [0.5, 1.0, 1.5, 2.0, 2.5]
+    assert payload["robustness"]["rotation_error_deg"] == [1, 2, 3, 4, 5]
+
+
+def test_list_profiles_marks_runnable_configs_and_expected_metrics():
+    result = run_cli("list-profiles", "--json")
+    payload = json.loads(result.stdout)
+    profiles = payload["profiles"]
+
+    assert {"smoke_25m_instance", "smoke_25m_vehicle", "smoke_25m_early"} <= set(profiles)
+    assert profiles["smoke_25m_instance"]["config_exists"] is True
+    assert profiles["smoke_25m_instance"]["expected"] == {"AMOTA": 0.488, "AP": 0.479}
+    assert profiles["smoke_25m_instance"]["method"] == "2b1-cooptrack"
+
+
+def test_partial_run_plan_includes_conversion_query_extraction_eval_and_asset_gates():
+    result = run_cli("plan-partial-run", "--profile", "smoke_25m_instance", "--json")
+    payload = json.loads(result.stdout)
+    commands = payload["commands"]
+    assets = payload["required_assets"]
+
+    assert payload["profile"] == "smoke_25m_instance"
+    assert payload["dataset_prefix"] == "griffin_50scenes_25m"
+    assert payload["expected"] == {"AMOTA": 0.488, "AP": 0.479}
+    assert commands[0] == "cd griffin_repro/official"
+    assert "bash tools/griffin_converter.sh griffin_50scenes_25m" in commands
+    assert any("drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py" in command for command in commands)
+    assert any("drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py" in command for command in commands)
+    assert commands[-1].startswith("CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh")
+    assert "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py" in commands[-1]
+
+    assert "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-release/vehicle-side" in assets
+    assert "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-release/drone-side" in assets
+    assert "griffin_repro/official/data/split_datas/griffin_50scenes_25m.json" in assets
+    assert "griffin_repro/official/ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth" in assets
+    assert "griffin_repro/official/data/infos/griffin_50scenes_25m/drone-side/track_query" in assets
+
+
+def test_check_partial_assets_reports_preprocess_and_evaluation_stages():
+    result = run_cli("check-partial-assets", "--profile", "smoke_25m_instance", "--json")
+    payload = json.loads(result.stdout)
+    stages = {stage["stage"]: stage for stage in payload["stages"]}
+
+    assert payload["profile"] == "smoke_25m_instance"
+    assert {"preprocess", "evaluation"} == set(stages)
+    assert any(
+        item["path"] == "griffin_repro/official/ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth"
+        for item in stages["preprocess"]["checks"]
+    )
+    assert any(
+        item["path"] == "griffin_repro/official/data/infos/griffin_50scenes_25m/drone-side/track_query"
+        for item in stages["evaluation"]["checks"]
+    )
+    assert payload["ready"] == all(stage["ready"] for stage in stages.values())
+
+
+def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
+    out_path = tmp_path / "run_smoke.sh"
+    run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")
+    script = out_path.read_text(encoding="utf-8")
+
+    assert "cd griffin_repro/official" in script
+    assert "bash tools/griffin_converter.sh griffin_50scenes_25m" in script
+    assert "preprocess_assets=(" in script
+    assert "evaluation_assets=(" in script
+    assert script.index("bash tools/griffin_converter.sh griffin_50scenes_25m") < script.index("evaluation_assets=(")
+    assert "missing_assets=0" in script
+    assert "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py" in script
+    assert "carlaair_active_world" not in script
+
+
 def test_sync_remote_dry_run_limits_upload_to_repro_files():
     result = subprocess.run(
         [

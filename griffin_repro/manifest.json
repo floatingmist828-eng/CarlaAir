@@ -9,13 +9,17 @@
   },
   "scope": {
     "mode": "engineering-closure",
-    "full_paper_matrix": false,
-    "goal": "Run a real Griffin evaluation closure on a small selected profile when datasets and checkpoints are present, while keeping all CarlaAir autonomous-driving code isolated."
+    "full_paper_matrix": true,
+    "goal": "Represent the full Griffin paper scenario, method, metric, and robustness matrix while running a real partial smoke closure when the selected dataset and checkpoints are present."
   },
   "assets": {
     "dataset_root": "griffin_repro/official/datasets",
     "checkpoint_root": "griffin_repro/official/ckpts",
     "required_for_smoke": [
+      "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-release/vehicle-side",
+      "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-release/drone-side",
+      "griffin_repro/official/data/split_datas/griffin_50scenes_25m.json",
+      "griffin_repro/official/ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth",
       "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-nuscenes/cooperative",
       "griffin_repro/official/ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth"
     ]
@@ -78,12 +82,24 @@
     }
   },
   "paper_matrix": {
-    "datasets": [
-      "50scenes_25m",
-      "50scenes_40m",
-      "50scenes_55m",
-      "100scenes_random"
-    ],
+    "datasets": {
+      "50scenes_25m": {
+        "scene_count": 47,
+        "altitude": "25 +/- 2 m"
+      },
+      "50scenes_40m": {
+        "scene_count": 54,
+        "altitude": "40 +/- 2 m"
+      },
+      "50scenes_55m": {
+        "scene_count": 50,
+        "altitude": "55 +/- 2 m"
+      },
+      "100scenes_random": {
+        "scene_count": 104,
+        "altitude": "20-60 m"
+      }
+    },
     "methods": [
       "0-no fusion",
       "1-early fusion",
@@ -92,6 +108,12 @@
       "2b1-cooptrack",
       "2b2-univ2x",
       "3-late fusion"
+    ],
+    "metrics": [
+      "AP",
+      "AMOTA",
+      "BPS",
+      "FPS"
     ],
     "robustness": {
       "communication_latency_ms": [

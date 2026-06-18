@@ -4,14 +4,15 @@ This directory isolates the Griffin paper reproduction from the legacy CarlaAir 
 
 ## Scope
 
-The immediate goal is an engineering closure, not a full rerun of every paper table. The selected smoke profile is `smoke_25m_instance`, which runs the Griffin-25m cooperative instance-fusion baseline when the dataset and checkpoint are present.
+The immediate goal is to reproduce the paper structure and run a real partial closure, not to download and rerun the full 973 GB-scale dataset in one pass. The selected smoke profile is `smoke_25m_instance`, which runs the Griffin-25m cooperative instance-fusion baseline when the selected dataset and checkpoints are present.
 
-The full paper matrix remains represented in `manifest.json` so it can be expanded later without touching CarlaAir control code.
+The full paper matrix is represented by `manifest.json` and by `python scripts/griffin_repro.py paper-matrix`: four Griffin scene groups, seven fusion methods, the AP/AMOTA/BPS/FPS metric set, and robustness conditions for latency, packet loss, translation error, and rotation error.
 
 ## Layout
 
 - `official/`: upstream Griffin source ingested from `E:/a2/Griffin-main.zip`.
 - `manifest.json`: source provenance, selected profiles, expected paper metrics, and robustness matrix.
+- `run_smoke_25m_instance_mobaxterm.sh`: ready-to-run Linux shell script for the partial smoke closure from MobaXterm.
 - `../scripts/griffin_repro.py`: local verification, result summary, asset checks, and eval command generation.
 - `../scripts/sync_griffin_remote.py`: password-capable SFTP sync for this reproduction package only.
 
@@ -25,7 +26,11 @@ Run from the CarlaAir repository root:
 python -m pytest tests/test_griffin_repro.py -q
 python scripts/griffin_repro.py verify-layout
 python scripts/griffin_repro.py summarize-results
+python scripts/griffin_repro.py paper-matrix
+python scripts/griffin_repro.py list-profiles
 python scripts/griffin_repro.py matrix --profile smoke_25m_instance
+python scripts/griffin_repro.py plan-partial-run --profile smoke_25m_instance
+python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance
 ```
 
 ## Real Smoke Evaluation
@@ -48,6 +53,7 @@ Place the Griffin-25m dataset and checkpoint under:
 
 ```text
 griffin_repro/official/datasets/griffin_50scenes_25m/
+griffin_repro/official/ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth
 griffin_repro/official/ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth
 ```
 
@@ -75,10 +81,19 @@ cd -
 
 The drone-side eval step is needed to populate the `data/infos/griffin_50scenes_25m/drone-side/track_query` features consumed by instance fusion.
 
-Then run:
+From MobaXterm on the remote host, run the staged smoke script:
 
 ```bash
-python scripts/griffin_repro.py check-assets --profile smoke_25m_instance
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh
+```
+
+The script first checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, drone query extraction, and final cooperative instance-fusion evaluation.
+
+You can also inspect and run the same pieces through the Python helper:
+
+```bash
+python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance
 python scripts/griffin_repro.py run-profile --profile smoke_25m_instance
 ```
 
@@ -94,3 +109,9 @@ python scripts/sync_griffin_remote.py --host 10.2.14.120 --user fp --remote-dir 
 ```
 
 The sync script uploads only `griffin_repro`, `scripts/griffin_repro.py`, `scripts/sync_griffin_remote.py`, selected tests, and `.gitignore`. It does not upload or delete legacy CarlaAir driving modules.
+
+## Matrix Notes
+
+`paper-matrix` confirms the parsed official result table contains 142 result rows and all 28 zero-noise dataset/method baselines. It also records the paper scene counts used by the official docs: 47 Griffin-25m scenes, 54 Griffin-40m scenes, 50 Griffin-55m scenes, and 104 random-altitude scenes.
+
+Some paper methods are present in `docs/detailed_results.csv` even when this zip does not include runnable config files. In particular, `Where2Comm` is retained in the paper matrix, while runnable status must be checked from the actual config paths exposed by `list-profiles` or direct file checks.
