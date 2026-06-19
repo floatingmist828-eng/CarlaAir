@@ -447,6 +447,37 @@ def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     assert "carlaair_active_world" not in script
 
 
+def test_write_supervisor_script_retries_data_download_until_smoke_ready(tmp_path):
+    out_path = tmp_path / "supervise_smoke.sh"
+    result = run_cli(
+        "write-supervisor-script",
+        "--profile",
+        "smoke_25m_instance",
+        "--dataset",
+        "50scenes_25m",
+        "--package-profile",
+        "smoke_25m_instance",
+        "--out",
+        str(out_path),
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    script = out_path.read_text(encoding="utf-8")
+
+    assert payload["path"] == str(out_path)
+    assert payload["profile"] == "smoke_25m_instance"
+    assert payload["dataset"] == "50scenes_25m"
+    assert payload["package_profile"] == "smoke_25m_instance"
+    assert "GRIFFIN_SUPERVISOR_MAX_ATTEMPTS" in script
+    assert "check-data-packages --dataset 50scenes_25m --package-profile smoke_25m_instance --json" in script
+    assert "bash griffin_repro/download_50scenes_25m_mobaxterm.sh" in script
+    assert "download_status=$?" in script
+    assert "sleep \"$SUPERVISOR_SLEEP_SEC\"" in script
+    assert "bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh" in script
+    assert "smoke_25m_instance_supervisor.latest" in script
+    assert "carlaair_active_world" not in script
+
+
 def test_sync_remote_dry_run_limits_upload_to_repro_files():
     result = subprocess.run(
         [

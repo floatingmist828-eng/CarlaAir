@@ -15,6 +15,7 @@ The full paper matrix is represented by `manifest.json` and by `python scripts/g
 - `setup_griffin_env_mobaxterm.sh`: Linux environment bootstrap for the paper dependency stack on the remote host.
 - `download_50scenes_25m_mobaxterm.sh`: resumable Griffin-25m raw data download, checksum, and extraction script.
 - `run_smoke_25m_instance_mobaxterm.sh`: ready-to-run Linux shell script for the partial smoke closure from MobaXterm.
+- `supervise_smoke_25m_instance_mobaxterm.sh`: end-to-end MobaXterm supervisor that retries data download until the smoke package set is complete, then launches the smoke evaluation.
 - `../scripts/griffin_repro.py`: local verification, result summary, asset checks, and eval command generation.
 - `../scripts/sync_griffin_remote.py`: password-capable SFTP sync for this reproduction package only.
 
@@ -122,6 +123,15 @@ bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh
 ```
 
 The smoke script auto-activates `${HOME}/miniconda3` environment `griffin` when present. It then reports and enforces the Griffin Python package environment, checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, drone query extraction, and final cooperative instance-fusion evaluation.
+
+For unattended real runs, prefer the supervisor:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+bash griffin_repro/supervise_smoke_25m_instance_mobaxterm.sh
+```
+
+The supervisor repeatedly runs `check-data-packages`, retries `download_50scenes_25m_mobaxterm.sh` after transient failures, and only calls `run_smoke_25m_instance_mobaxterm.sh` after all selected smoke archives match their expected sizes. Use `GRIFFIN_SUPERVISOR_SLEEP_SEC` to tune retry delay and `GRIFFIN_SUPERVISOR_MAX_ATTEMPTS` to bound retries; the default is unlimited attempts.
 
 After evaluation, the script finds the latest official Griffin eval log and runs:
 
