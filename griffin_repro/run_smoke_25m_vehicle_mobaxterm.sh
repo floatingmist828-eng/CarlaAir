@@ -55,7 +55,7 @@ converter = GriffinKittiToNuScenesConverter(
     target_dir=f"datasets/{prefix}/griffin-nuscenes/vehicle-side",
     side="vehicle",
 )
-converter.convert([])
+converter.convert({})
 create_nuscenes_infos(
     f"datasets/{prefix}/griffin-nuscenes/vehicle-side",
     f"data/infos/{prefix}/vehicle-side",
