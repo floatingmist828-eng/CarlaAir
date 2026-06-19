@@ -1,5 +1,6 @@
 import json
 import importlib.util
+import pickle
 import subprocess
 import sys
 from pathlib import Path
@@ -220,6 +221,88 @@ def test_check_partial_assets_reports_preprocess_and_evaluation_stages():
         for item in stages["evaluation"]["checks"]
     )
     assert payload["ready"] == all(stage["ready"] for stage in stages.values())
+
+
+def test_prepare_partial_eval_writes_scene_subset_and_config(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    source_ann = official / "data" / "infos" / "griffin_50scenes_25m" / "cooperative" / "griffin_infos_val.pkl"
+    out_ann = source_ann.with_name("griffin_infos_val_partial_1scene.pkl")
+    out_config = (
+        official
+        / "projects"
+        / "configs_griffin_50scenes_25m"
+        / "cooperative"
+        / "instance_fusion"
+        / "tiny_track_r50_stream_bs8_48epoch_3cls_partial_1scene.py"
+    )
+    base_config = official / module.profile_payload("smoke_25m_instance")["config"]
+    source_ann.parent.mkdir(parents=True)
+    base_config.parent.mkdir(parents=True)
+    base_config.write_text("# base config\n", encoding="utf-8")
+    source_ann.write_bytes(
+        pickle.dumps(
+            {
+                "metadata": {"version": "v1.0-trainval"},
+                "infos": [
+                    {"token": "b0", "scene_token": "scene-b", "timestamp": 30},
+                    {"token": "a0", "scene_token": "scene-a", "timestamp": 10},
+                    {"token": "a1", "scene_token": "scene-a", "timestamp": 20},
+                ],
+            }
+        )
+    )
+
+    module.OFFICIAL_ROOT = official
+    payload = module.prepare_partial_eval(
+        "smoke_25m_instance",
+        scene_limit=1,
+        max_samples=10,
+        source_ann=str(source_ann),
+        out_ann=str(out_ann),
+        out_config=str(out_config),
+    )
+
+    written = pickle.loads(out_ann.read_bytes())
+    assert [item["token"] for item in written["infos"]] == ["a0", "a1"]
+    assert written["metadata"] == {"version": "v1.0-trainval"}
+    assert payload["selected_scene_count"] == 1
+    assert payload["selected_sample_count"] == 2
+    assert payload["ann_file"] == "data/infos/griffin_50scenes_25m/cooperative/griffin_infos_val_partial_1scene.pkl"
+    assert payload["config"] == (
+        "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/"
+        "tiny_track_r50_stream_bs8_48epoch_3cls_partial_1scene.py"
+    )
+    assert "tools/dist_eval.sh" in payload["command"]
+    assert payload["expected"] == {"AMOTA": 0.488, "AP": 0.479}
+
+    config = out_config.read_text(encoding="utf-8")
+    assert "_base_ = './tiny_track_r50_stream_bs8_48epoch_3cls.py'" in config
+    assert "ann_file_val = './data/infos/griffin_50scenes_25m/cooperative/griffin_infos_val_partial_1scene.pkl'" in config
+    assert "val=dict(ann_file=ann_file_val)" in config
+    assert "test=dict(ann_file=ann_file_val)" in config
+
+
+def test_script_writers_are_compatible_with_python38_pathlib(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    original_write_text = Path.write_text
+
+    def python38_write_text(self, data, encoding=None, errors=None):
+        return original_write_text(self, data, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(Path, "write_text", python38_write_text)
+
+    payload = module.write_data_script("50scenes_25m", str(tmp_path / "download.sh"))
+
+    assert payload["path"] == str(tmp_path / "download.sh")
 
 
 def test_environment_check_reports_runtime_and_required_modules():

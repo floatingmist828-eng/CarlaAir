@@ -8,6 +8,8 @@ import csv
 import importlib.metadata
 import importlib.util
 import json
+import os
+import pickle
 import re
 import shutil
 import subprocess
@@ -242,6 +244,7 @@ def profile_payload(profile_name: str) -> dict[str, Any]:
         "method": profile["method"],
         "config": profile["config"],
         "checkpoint": profile["checkpoint"],
+        "gpus": profile["gpus"],
         "expected": profile["expected"],
         "commands": [command],
         "asset_checks": [f"griffin_repro/official/{path}" for path in profile.get("required_paths", [])],
@@ -480,10 +483,15 @@ echo "Griffin environment is ready. Activate it with: source $CONDA_HOME/etc/pro
 """
 
 
+def write_text_lf(path: Path, text: str) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
 def write_env_script(out: str) -> dict[str, Any]:
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(env_setup_script(), encoding="utf-8", newline="\n")
+    write_text_lf(path, env_setup_script())
     return {"path": str(path), "bytes": path.stat().st_size}
 
 
@@ -682,7 +690,7 @@ python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instanc
 def write_data_script(dataset: str, out: str, package_profile: str = "smoke_25m_instance") -> dict[str, Any]:
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(data_download_script(dataset, package_profile), encoding="utf-8", newline="\n")
+    write_text_lf(path, data_download_script(dataset, package_profile))
     payload = data_packages(dataset, package_profile)
     return {
         "dataset": dataset,
@@ -1020,6 +1028,146 @@ def partial_run_plan(profile_name: str) -> dict[str, Any]:
     }
 
 
+def _relative_posix(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return str(path).replace("\\", "/")
+
+
+def _profile_v2x_side(profile: dict[str, Any]) -> str:
+    config = profile["config"]
+    for side in ("cooperative", "vehicle-side", "early-fusion", "drone-side"):
+        if f"/{side}/" in config:
+            return side
+    raise SystemExit(f"Unable to infer Griffin v2x side from config: {config}")
+
+
+def _config_path_literal(path: str) -> str:
+    if path.startswith("/") or re.match(r"^[A-Za-z]:/", path):
+        return path
+    return f"./{path}"
+
+
+def _select_infos_for_partial_eval(
+    infos: list[dict[str, Any]],
+    scene_limit: int,
+    max_samples: int | None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    if scene_limit < 1:
+        raise SystemExit("--scene-limit must be at least 1")
+    if max_samples is not None and max_samples < 1:
+        raise SystemExit("--max-samples must be at least 1 when provided")
+
+    sorted_infos = sorted(infos, key=lambda item: item.get("timestamp", 0))
+    selected_scenes = []
+    for info in sorted_infos:
+        scene_token = info.get("scene_token")
+        if scene_token is None:
+            continue
+        if scene_token not in selected_scenes:
+            selected_scenes.append(scene_token)
+            if len(selected_scenes) == scene_limit:
+                break
+    selected_scene_set = set(selected_scenes)
+    selected_infos = [info for info in sorted_infos if info.get("scene_token") in selected_scene_set]
+    if max_samples is not None:
+        selected_infos = selected_infos[:max_samples]
+    selected_scenes = list(dict.fromkeys(info["scene_token"] for info in selected_infos if "scene_token" in info))
+    if not selected_infos:
+        raise SystemExit("No Griffin infos matched the requested partial evaluation subset")
+    return selected_infos, selected_scenes
+
+
+def prepare_partial_eval(
+    profile_name: str,
+    scene_limit: int = 1,
+    max_samples: int | None = None,
+    source_ann: str | None = None,
+    out_ann: str | None = None,
+    out_config: str | None = None,
+    out_tag: str | None = None,
+) -> dict[str, Any]:
+    profile = profile_payload(profile_name)
+    prefix = dataset_prefix(profile["dataset"])
+    v2x_side = _profile_v2x_side(profile)
+    source_ann_path = (
+        Path(source_ann)
+        if source_ann
+        else OFFICIAL_ROOT / "data" / "infos" / prefix / v2x_side / "griffin_infos_val.pkl"
+    )
+    tag = out_tag or f"partial_{scene_limit}scene"
+    out_ann_path = (
+        Path(out_ann)
+        if out_ann
+        else source_ann_path.with_name(f"griffin_infos_val_{tag}.pkl")
+    )
+    base_config = OFFICIAL_ROOT / profile["config"]
+    out_config_path = (
+        Path(out_config)
+        if out_config
+        else base_config.with_name(f"{base_config.stem}_{tag}.py")
+    )
+    if not source_ann_path.exists():
+        raise SystemExit(f"Missing source annotation file: {source_ann_path}")
+    if not base_config.exists():
+        raise SystemExit(f"Missing base Griffin config: {base_config}")
+
+    with source_ann_path.open("rb") as handle:
+        data = pickle.load(handle)
+    selected_infos, selected_scenes = _select_infos_for_partial_eval(
+        list(data.get("infos", [])),
+        scene_limit,
+        max_samples,
+    )
+    out_payload = dict(data)
+    out_payload["infos"] = selected_infos
+    out_ann_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_ann_path.open("wb") as handle:
+        pickle.dump(out_payload, handle)
+
+    base_ref = Path(os.path.relpath(base_config, out_config_path.parent)).as_posix()
+    base_ref_literal = _config_path_literal(base_ref)
+    ann_ref = _relative_posix(out_ann_path, OFFICIAL_ROOT)
+    ann_ref_literal = _config_path_literal(ann_ref)
+    config_text = f"""# Generated by scripts/griffin_repro.py prepare-partial-eval.
+_base_ = '{base_ref_literal}'
+
+ann_file_val = '{ann_ref_literal}'
+data = dict(
+    workers_per_gpu=0,
+    val=dict(ann_file=ann_file_val),
+    test=dict(ann_file=ann_file_val),
+)
+"""
+    out_config_path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_lf(out_config_path, config_text)
+
+    config_rel = _relative_posix(out_config_path, OFFICIAL_ROOT)
+    ann_rel = _relative_posix(out_ann_path, OFFICIAL_ROOT)
+    command = (
+        "cd griffin_repro/official && "
+        "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} "
+        f"./tools/dist_eval.sh {config_rel} {profile['checkpoint']} {profile['gpus']}"
+    )
+    return {
+        "profile": profile_name,
+        "dataset": profile["dataset"],
+        "dataset_prefix": prefix,
+        "method": profile["method"],
+        "v2x_side": v2x_side,
+        "expected": profile["expected"],
+        "source_ann": _relative_posix(source_ann_path, OFFICIAL_ROOT),
+        "ann_file": ann_rel,
+        "config": config_rel,
+        "checkpoint": profile["checkpoint"],
+        "selected_scene_count": len(selected_scenes),
+        "selected_sample_count": len(selected_infos),
+        "selected_scenes": selected_scenes,
+        "command": command,
+    }
+
+
 def mobaxterm_script(profile_name: str) -> str:
     plan = partial_run_plan(profile_name)
     preprocess_assets = "\n".join(f'  "{path}"' for path in plan["preprocess_assets"])
@@ -1080,7 +1228,7 @@ python scripts/griffin_repro.py validate-run --profile {profile_name} --log "gri
 def write_mobaxterm_script(profile_name: str, out: str) -> dict[str, Any]:
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(mobaxterm_script(profile_name), encoding="utf-8", newline="\n")
+    write_text_lf(path, mobaxterm_script(profile_name))
     return {"profile": profile_name, "path": str(path), "bytes": path.stat().st_size}
 
 
@@ -1159,7 +1307,7 @@ bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh 2>&1 | tee "$smoke_log"
 def write_supervisor_script(profile_name: str, dataset: str, package_profile: str, out: str) -> dict[str, Any]:
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(supervisor_script(profile_name, dataset, package_profile), encoding="utf-8", newline="\n")
+    write_text_lf(path, supervisor_script(profile_name, dataset, package_profile))
     return {
         "profile": profile_name,
         "dataset": dataset,
@@ -1315,6 +1463,16 @@ def main(argv: list[str] | None = None) -> int:
     partial_parser.add_argument("--profile", required=True)
     partial_parser.add_argument("--json", action="store_true")
 
+    prepare_partial_parser = subparsers.add_parser("prepare-partial-eval")
+    prepare_partial_parser.add_argument("--profile", required=True)
+    prepare_partial_parser.add_argument("--scene-limit", type=int, default=1)
+    prepare_partial_parser.add_argument("--max-samples", type=int)
+    prepare_partial_parser.add_argument("--source-ann")
+    prepare_partial_parser.add_argument("--out-ann")
+    prepare_partial_parser.add_argument("--out-config")
+    prepare_partial_parser.add_argument("--out-tag")
+    prepare_partial_parser.add_argument("--json", action="store_true")
+
     script_parser = subparsers.add_parser("write-mobaxterm-script")
     script_parser.add_argument("--profile", required=True)
     script_parser.add_argument("--out", required=True)
@@ -1373,6 +1531,19 @@ def main(argv: list[str] | None = None) -> int:
         emit(profile_payload(args.profile), args.json)
     elif args.command == "plan-partial-run":
         emit(partial_run_plan(args.profile), args.json)
+    elif args.command == "prepare-partial-eval":
+        emit(
+            prepare_partial_eval(
+                args.profile,
+                args.scene_limit,
+                args.max_samples,
+                args.source_ann,
+                args.out_ann,
+                args.out_config,
+                args.out_tag,
+            ),
+            args.json,
+        )
     elif args.command == "write-mobaxterm-script":
         emit(write_mobaxterm_script(args.profile, args.out), args.json)
     elif args.command == "write-supervisor-script":
