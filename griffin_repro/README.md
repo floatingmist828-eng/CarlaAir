@@ -112,7 +112,7 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 bash griffin_repro/download_50scenes_25m_mobaxterm.sh
 ```
 
-The script downloads the selected Griffin-25m archives to `griffin_repro/official/datasets/griffin_50scenes_25m/archives/`, verifies a selected-entry MD5 file with `md5sum -c md5.selected.txt`, extracts zip files into the official dataset directory, and ends with `check-partial-assets --profile smoke_25m_instance`. It defaults to three concurrent resumable downloads and up to 12 resume passes; override `GRIFFIN_DOWNLOAD_JOBS` or `GRIFFIN_DOWNLOAD_MAX_PASSES` to tune bandwidth and retry depth. To use Hugging Face mainline instead of the mirror, override `GRIFFIN_DATA_BASE_URL`. To generate the full 15-archive downloader instead, pass `--package-profile full` to `write-data-script`.
+The script downloads the selected Griffin-25m archives to `griffin_repro/official/datasets/griffin_50scenes_25m/archives/`, verifies a selected-entry MD5 file with `md5sum -c md5.selected.txt`, extracts zip files into the official dataset directory, and ends with `check-partial-assets --profile smoke_25m_instance`. It defaults to three concurrent resumable downloads and up to 12 resume passes; override `GRIFFIN_DOWNLOAD_JOBS` or `GRIFFIN_DOWNLOAD_MAX_PASSES` to tune bandwidth and retry depth. If an interrupted transfer leaves an archive larger than the official expected size, the script deletes that corrupt partial file before retrying. To use Hugging Face mainline instead of the mirror, override `GRIFFIN_DATA_BASE_URL`. To generate the full 15-archive downloader instead, pass `--package-profile full` to `write-data-script`.
 
 From MobaXterm on the remote host, run the staged smoke script:
 

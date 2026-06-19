@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -317,6 +318,8 @@ def test_write_data_script_downloads_from_mirror_with_checksums(tmp_path):
     assert "DOWNLOAD_JOBS=\"${GRIFFIN_DOWNLOAD_JOBS:-3}\"" in script
     assert "DOWNLOAD_MAX_PASSES=\"${GRIFFIN_DOWNLOAD_MAX_PASSES:-12}\"" in script
     assert "curl --retry 5 --connect-timeout 30 -L -C -" in script
+    assert "is larger than expected; deleting corrupt partial archive before retry" in script
+    assert "rm -f \"$output\"" in script
     assert "wait -n" in script
     assert "md5.selected.txt" in script
     assert "md5sum -c md5.selected.txt" in script
@@ -343,6 +346,38 @@ def test_check_data_packages_reports_missing_local_archives():
     assert payload["total_size_bytes"] == 162300524941
     assert payload["ready"] is False
     assert any(item["path"].endswith("drone_camera_back.zip") for item in payload["checks"])
+
+
+def test_check_data_packages_reports_oversized_corrupt_archives(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkey_root = tmp_path / "repo"
+    archive_dir = monkey_root / "griffin_repro" / "official" / "datasets" / "tiny_prefix" / "archives"
+    archive_dir.mkdir(parents=True)
+    corrupt = archive_dir / "oversized.zip"
+    corrupt.write_bytes(b"0123456789AB")
+
+    module.REPO_ROOT = monkey_root
+    module.OFFICIAL_ROOT = monkey_root / "griffin_repro" / "official"
+    module.DATASETS["tiny"] = {
+        "dataset_prefix": "tiny_prefix",
+        "scene_count": 1,
+        "altitude": "unit",
+    }
+    module.DATA_PACKAGES["tiny"] = [("datasets/tiny_prefix/oversized.zip", 10)]
+    module.DATA_PACKAGE_PROFILES["oversize_test"] = {"datasets/tiny_prefix/oversized.zip"}
+
+    payload = module.check_data_packages("tiny", "oversize_test")
+
+    assert payload["ready"] is False
+    assert payload["checks"][0]["actual_size_bytes"] == 12
+    assert payload["checks"][0]["expected_size_bytes"] == 10
+    assert payload["checks"][0]["missing_size_bytes"] == 0
+    assert payload["checks"][0]["oversize_size_bytes"] == 2
+    assert payload["checks"][0]["size_delta_bytes"] == 2
 
 
 def test_validate_run_accepts_log_metrics_near_paper_reference(tmp_path):

@@ -51,6 +51,10 @@ download_one() {
       echo "OK size: $name"
       return
     fi
+    if [ "$actual_size" -gt "$expected_size" ]; then
+      echo "$name is larger than expected; deleting corrupt partial archive before retry"
+      rm -f "$output"
+    fi
   fi
 
   echo "Downloading $name from $url"

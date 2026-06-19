@@ -567,6 +567,10 @@ download_one() {{
       echo "OK size: $name"
       return
     fi
+    if [ "$actual_size" -gt "$expected_size" ]; then
+      echo "$name is larger than expected; deleting corrupt partial archive before retry"
+      rm -f "$output"
+    fi
   fi
 
   echo "Downloading $name from $url"
@@ -692,6 +696,7 @@ def check_data_packages(dataset: str, package_profile: str = "smoke_25m_instance
         name = Path(item["path"]).name
         path = archive_dir / name
         actual_size = path.stat().st_size if path.exists() else 0
+        size_delta = actual_size - item["size_bytes"]
         complete = actual_size == item["size_bytes"]
         if complete:
             complete_size += actual_size
@@ -702,6 +707,8 @@ def check_data_packages(dataset: str, package_profile: str = "smoke_25m_instance
                 "expected_size_bytes": item["size_bytes"],
                 "actual_size_bytes": actual_size,
                 "missing_size_bytes": max(item["size_bytes"] - actual_size, 0),
+                "oversize_size_bytes": max(size_delta, 0),
+                "size_delta_bytes": size_delta,
                 "complete": complete,
             }
         )
