@@ -254,7 +254,7 @@ For late-fusion, the tracking-only evidence log reuses the `results.pkl` generat
 
 The 200-frame results are still below the paper's full-validation numbers. They are useful as a real closure check for method wiring, data conversion, metrics, and relative trends, not as a claim that the paper table has been fully reproduced.
 
-The next completed expansion added one more sample per selected scene. This run first filled the missing 20 vehicle images and 50 drone images, then evaluated all four runnable methods on the same 10-scene, 210-frame subset:
+The next completed expansions increased the same selected scenes from 21 to 25 samples per scene. These runs keep the paper-aligned Griffin-25m scenario and the same four runnable baselines, then compare the official AP/AMOTA outputs against the paper's full-validation references:
 
 ```text
 subset: 10 scenes, 21 samples per scene, 210 samples total
@@ -266,16 +266,36 @@ method            paper AP   paper AMOTA   partial AP        partial AMOTA   evi
 3-late fusion     0.378      0.377         0.1346 det        0.115           griffin_repro/artifacts/logs/expanded_10scene_21per_scene_all_20260620_automated.log
 ```
 
-The 210-frame results are stable relative to the 200-frame run, not closer to the full paper table. Early fusion remains the strongest runnable baseline in the subset, which agrees with the paper's broad ordering. CoopTrack remains below no-fusion in this subset, which still disagrees with the paper's Griffin-25m result and shows the current subset is not representative enough for a paper-level effect claim.
+```text
+subset: 10 scenes, 22 samples per scene, 220 samples total
 
-Paper-fit assessment for the 200/210-frame subsets:
+method            paper AP   paper AMOTA   partial AP        partial AMOTA   evidence log
+0-no fusion       0.375      0.365         0.2039            0.187           griffin_repro/artifacts/logs/expanded_10scene_22per_scene_all_20260620_automated.log
+1-early fusion    0.607      0.670         0.2506            0.289           griffin_repro/artifacts/logs/expanded_10scene_22per_scene_all_20260620_automated.log
+2b1-cooptrack     0.479      0.488         0.1364            0.151           griffin_repro/artifacts/logs/expanded_10scene_22per_scene_all_20260620_automated.log
+3-late fusion     0.378      0.377         0.1349 det        0.116           griffin_repro/artifacts/logs/expanded_10scene_22per_scene_all_20260620_automated.log
+```
+
+```text
+subset: 10 scenes, 25 samples per scene, 250 samples total
+
+method            paper AP   paper AMOTA   partial AP        partial AMOTA   evidence log
+0-no fusion       0.375      0.365         0.2022            0.185           griffin_repro/artifacts/logs/expanded_10scene_25per_scene_all_20260620_automated.log
+1-early fusion    0.607      0.670         0.2565            0.290           griffin_repro/artifacts/logs/expanded_10scene_25per_scene_all_20260620_automated.log
+2b1-cooptrack     0.479      0.488         0.1365            0.150           griffin_repro/artifacts/logs/expanded_10scene_25per_scene_all_20260620_automated.log
+3-late fusion     0.378      0.377         0.1367 det        0.118           griffin_repro/artifacts/logs/expanded_10scene_25per_scene_all_20260620_automated.log
+```
+
+The 250-frame run first filled 64 missing vehicle-side images and 150 missing drone-side images, then completed all four methods. The results are stable relative to the 200/210/220-frame runs. Early fusion remains the strongest runnable baseline in the subset, which agrees with the paper's broad ordering. CoopTrack remains below no-fusion in this subset, which still disagrees with the paper's Griffin-25m result and shows the current subset is not representative enough for a paper-level effect claim.
+
+Paper-fit assessment for the 200/210/220/250-frame subsets:
 
 - Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
 - Does not yet match the full paper's CoopTrack behavior: the paper reports CoopTrack above no-fusion and late-fusion on Griffin-25m, while these partial subsets have CoopTrack below no-fusion.
-- Does not yet match paper-level absolute AP/AMOTA. The largest completed subset here is 210 frames out of the 1490-frame validation split, with weak bicycle and pedestrian coverage in the sampled frames.
+- Does not yet match paper-level absolute AP/AMOTA. The largest completed subset here is 250 frames out of the 1490-frame validation split, with weak bicycle and pedestrian coverage in the sampled frames.
 - `validate-run` `passed=true` in these logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not a claim that the partial result equals the paper table.
 
-An attempted 10-scene, 30-samples-per-scene expansion on 2026-06-20 was intentionally stopped during data materialization before evaluation. The local vehicle-side archives on the remote host are incomplete for several camera zips, so the materializer fell back to HTTP Range extraction from the Hugging Face mirror. After the completed 10x21 run, the remaining 10x30 gap is 204 vehicle images and 450 drone images; even 10x22 still needs 20 vehicle and 50 drone images. Treat the stopped 10x30 run only as a data-prefetch attempt, not as an experimental result.
+An attempted 10-scene, 30-samples-per-scene expansion on 2026-06-20 was intentionally stopped during data materialization before evaluation. The local vehicle-side archives on the remote host are incomplete for several camera zips, so the materializer fell back to HTTP Range extraction from the Hugging Face mirror. After the completed 10x25 run, the remaining 10x30 gap is 120 vehicle images and 250 drone images. Treat the stopped 10x30 run only as a data-prefetch attempt, not as an experimental result.
 
 To rerun the same 100-frame checks from MobaXterm:
 
