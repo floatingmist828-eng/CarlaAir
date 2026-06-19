@@ -17,6 +17,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INCLUDE_FILES = {
     ".gitignore",
+    "docs/griffin_reproduction_design.md",
     "scripts/griffin_repro.py",
     "scripts/sync_griffin_remote.py",
     "tests/test_griffin_repro.py",

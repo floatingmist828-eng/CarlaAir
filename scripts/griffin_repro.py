@@ -90,6 +90,26 @@ DATA_PACKAGES = {
     ],
 }
 
+SMOKE_25M_INSTANCE_PACKAGES = {
+    "datasets/griffin_50scenes_25m/drone_camera_back.zip",
+    "datasets/griffin_50scenes_25m/drone_camera_bottom.zip",
+    "datasets/griffin_50scenes_25m/drone_camera_front.zip",
+    "datasets/griffin_50scenes_25m/drone_camera_left.zip",
+    "datasets/griffin_50scenes_25m/drone_camera_right.zip",
+    "datasets/griffin_50scenes_25m/drone_metadata.zip",
+    "datasets/griffin_50scenes_25m/md5.txt",
+    "datasets/griffin_50scenes_25m/vehicle_camera_back.zip",
+    "datasets/griffin_50scenes_25m/vehicle_camera_front.zip",
+    "datasets/griffin_50scenes_25m/vehicle_camera_left.zip",
+    "datasets/griffin_50scenes_25m/vehicle_camera_right.zip",
+    "datasets/griffin_50scenes_25m/vehicle_metadata.zip",
+}
+
+DATA_PACKAGE_PROFILES = {
+    "full": None,
+    "smoke_25m_instance": SMOKE_25M_INSTANCE_PACKAGES,
+}
+
 EXPECTED_PYTHON_MODULES = {
     "torch": {"import": "torch", "package": "torch", "version": "1.9.1"},
     "mmcv": {"import": "mmcv", "package": "mmcv-full", "version": "1.4.0"},
@@ -453,10 +473,14 @@ def write_env_script(out: str) -> dict[str, Any]:
     return {"path": str(path), "bytes": path.stat().st_size}
 
 
-def data_packages(dataset: str) -> dict[str, Any]:
+def data_packages(dataset: str, package_profile: str = "full") -> dict[str, Any]:
     if dataset not in DATA_PACKAGES:
         raise SystemExit(f"No data package manifest is recorded for dataset {dataset!r}")
+    if package_profile not in DATA_PACKAGE_PROFILES:
+        known = ", ".join(sorted(DATA_PACKAGE_PROFILES))
+        raise SystemExit(f"Unknown data package profile {package_profile!r}; expected one of: {known}")
     prefix = dataset_prefix(dataset)
+    selected_paths = DATA_PACKAGE_PROFILES[package_profile]
     packages = [
         {
             "path": path,
@@ -464,19 +488,24 @@ def data_packages(dataset: str) -> dict[str, Any]:
             "url": f"https://huggingface.co/datasets/wjh-svm/Griffin/resolve/main/{path}",
         }
         for path, size in DATA_PACKAGES[dataset]
+        if selected_paths is None or path in selected_paths
     ]
+    full_total = sum(size for _, size in DATA_PACKAGES[dataset])
     return {
         "dataset": dataset,
         "dataset_prefix": prefix,
+        "package_profile": package_profile,
         "source": "https://huggingface.co/datasets/wjh-svm/Griffin",
         "package_count": len(packages),
+        "full_package_count": len(DATA_PACKAGES[dataset]),
         "total_size_bytes": sum(item["size_bytes"] for item in packages),
+        "full_total_size_bytes": full_total,
         "packages": packages,
     }
 
 
-def data_download_script(dataset: str) -> str:
-    package_payload = data_packages(dataset)
+def data_download_script(dataset: str, package_profile: str = "smoke_25m_instance") -> str:
+    package_payload = data_packages(dataset, package_profile)
     prefix = package_payload["dataset_prefix"]
     rows = "\n".join(
         f'  "{item["path"]}|{item["size_bytes"]}"'
@@ -487,16 +516,20 @@ set -euo pipefail
 
 ROOT="${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
 BASE_URL="${{GRIFFIN_DATA_BASE_URL:-https://hf-mirror.com/datasets/wjh-svm/Griffin/resolve/main}}"
+DATA_PARENT="$ROOT/griffin_repro/official/datasets"
 DATA_ROOT="$ROOT/griffin_repro/official/datasets/{prefix}"
 ARCHIVE_DIR="${{GRIFFIN_ARCHIVE_DIR:-$DATA_ROOT/archives}}"
+PACKAGE_PROFILE="{package_profile}"
 TOTAL_SIZE_BYTES={package_payload["total_size_bytes"]}
+FULL_TOTAL_SIZE_BYTES={package_payload["full_total_size_bytes"]}
 DOWNLOAD_JOBS="${{GRIFFIN_DOWNLOAD_JOBS:-3}}"
+DOWNLOAD_MAX_PASSES="${{GRIFFIN_DOWNLOAD_MAX_PASSES:-12}}"
 
 if ! help wait 2>/dev/null | grep -q -- "-n"; then
   DOWNLOAD_JOBS=1
 fi
 
-mkdir -p "$ARCHIVE_DIR"
+mkdir -p "$ARCHIVE_DIR" "$DATA_PARENT"
 cd "$ROOT"
 
 packages=(
@@ -531,43 +564,87 @@ download_one() {{
   fi
 }}
 
-download_fail=0
-active_jobs=0
-for item in "${{packages[@]}}"; do
-  download_one "${{item%%|*}}" "${{item##*|}}" &
-  active_jobs=$((active_jobs + 1))
-  if [ "$active_jobs" -ge "$DOWNLOAD_JOBS" ]; then
+all_selected_complete() {{
+  local item
+  local path
+  local expected_size
+  local actual_size
+  for item in "${{packages[@]}}"; do
+    path="$ARCHIVE_DIR/$(basename "${{item%%|*}}")"
+    expected_size="${{item##*|}}"
+    if [ ! -f "$path" ]; then
+      return 1
+    fi
+    actual_size="$(stat -c%s "$path")"
+    if [ "$actual_size" != "$expected_size" ]; then
+      return 1
+    fi
+  done
+  return 0
+}}
+
+download_pass() {{
+  local download_fail=0
+  local active_jobs=0
+  local item
+  for item in "${{packages[@]}}"; do
+    download_one "${{item%%|*}}" "${{item##*|}}" &
+    active_jobs=$((active_jobs + 1))
+    if [ "$active_jobs" -ge "$DOWNLOAD_JOBS" ]; then
+      if ! wait -n; then
+        download_fail=1
+      fi
+      active_jobs=$((active_jobs - 1))
+    fi
+  done
+
+  while [ "$active_jobs" -gt 0 ]; do
     if ! wait -n; then
       download_fail=1
     fi
     active_jobs=$((active_jobs - 1))
+  done
+
+  return "$download_fail"
+}}
+
+for pass in $(seq 1 "$DOWNLOAD_MAX_PASSES"); do
+  echo "Download pass $pass/$DOWNLOAD_MAX_PASSES for $PACKAGE_PROFILE package set"
+  if download_pass && all_selected_complete; then
+    break
+  fi
+  if [ "$pass" -lt "$DOWNLOAD_MAX_PASSES" ]; then
+    echo "Download pass $pass did not complete all selected Griffin archives; retrying with resume."
+    sleep 15
   fi
 done
 
-while [ "$active_jobs" -gt 0 ]; do
-  if ! wait -n; then
-    download_fail=1
-  fi
-  active_jobs=$((active_jobs - 1))
-done
-
-if [ "$download_fail" -ne 0 ]; then
-  echo "At least one Griffin archive failed to download." >&2
+if ! all_selected_complete; then
+  echo "Selected Griffin archive set is incomplete after $DOWNLOAD_MAX_PASSES pass(es)." >&2
   exit 4
 fi
 
 cd "$ARCHIVE_DIR"
-md5sum -c md5.txt
+rm -f md5.selected.txt
+for item in "${{packages[@]}}"; do
+  name="$(basename "${{item%%|*}}")"
+  grep -F " ./$name" md5.txt >> md5.selected.txt
+done
+md5sum -c md5.selected.txt
 
 mkdir -p "$DATA_ROOT"
-for archive in *.zip; do
-  marker="$archive.extracted"
+for item in "${{packages[@]}}"; do
+  archive="$(basename "${{item%%|*}}")"
+  if [ "$archive" = "md5.txt" ]; then
+    continue
+  fi
+  marker="$archive.extracted.to-data-parent"
   if [ -f "$marker" ]; then
     echo "Already extracted: $archive"
     continue
   fi
   echo "Extracting $archive"
-  unzip -oq "$archive" -d "$DATA_ROOT"
+  unzip -oq "$archive" -d "$DATA_PARENT"
   touch "$marker"
 done
 
@@ -576,17 +653,55 @@ python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instanc
 """
 
 
-def write_data_script(dataset: str, out: str) -> dict[str, Any]:
+def write_data_script(dataset: str, out: str, package_profile: str = "smoke_25m_instance") -> dict[str, Any]:
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(data_download_script(dataset), encoding="utf-8", newline="\n")
-    payload = data_packages(dataset)
+    path.write_text(data_download_script(dataset, package_profile), encoding="utf-8", newline="\n")
+    payload = data_packages(dataset, package_profile)
     return {
         "dataset": dataset,
         "dataset_prefix": payload["dataset_prefix"],
+        "package_profile": package_profile,
         "path": str(path),
         "bytes": path.stat().st_size,
         "total_size_bytes": payload["total_size_bytes"],
+        "full_total_size_bytes": payload["full_total_size_bytes"],
+    }
+
+
+def check_data_packages(dataset: str, package_profile: str = "smoke_25m_instance") -> dict[str, Any]:
+    payload = data_packages(dataset, package_profile)
+    archive_dir = OFFICIAL_ROOT / "datasets" / payload["dataset_prefix"] / "archives"
+    checks = []
+    complete_size = 0
+    for item in payload["packages"]:
+        name = Path(item["path"]).name
+        path = archive_dir / name
+        actual_size = path.stat().st_size if path.exists() else 0
+        complete = actual_size == item["size_bytes"]
+        if complete:
+            complete_size += actual_size
+        checks.append(
+            {
+                "path": item["path"],
+                "archive": str(path.relative_to(REPO_ROOT)),
+                "expected_size_bytes": item["size_bytes"],
+                "actual_size_bytes": actual_size,
+                "missing_size_bytes": max(item["size_bytes"] - actual_size, 0),
+                "complete": complete,
+            }
+        )
+    return {
+        "dataset": dataset,
+        "dataset_prefix": payload["dataset_prefix"],
+        "package_profile": package_profile,
+        "archive_dir": str(archive_dir.relative_to(REPO_ROOT)),
+        "package_count": len(checks),
+        "complete_count": sum(1 for item in checks if item["complete"]),
+        "total_size_bytes": payload["total_size_bytes"],
+        "complete_size_bytes": complete_size,
+        "ready": all(item["complete"] for item in checks),
+        "checks": checks,
     }
 
 
@@ -826,12 +941,19 @@ def main(argv: list[str] | None = None) -> int:
 
     data_parser = subparsers.add_parser("data-packages")
     data_parser.add_argument("--dataset", required=True)
+    data_parser.add_argument("--package-profile", default="full", choices=sorted(DATA_PACKAGE_PROFILES))
     data_parser.add_argument("--json", action="store_true")
 
     data_script_parser = subparsers.add_parser("write-data-script")
     data_script_parser.add_argument("--dataset", required=True)
     data_script_parser.add_argument("--out", required=True)
+    data_script_parser.add_argument("--package-profile", default="smoke_25m_instance", choices=sorted(DATA_PACKAGE_PROFILES))
     data_script_parser.add_argument("--json", action="store_true")
+
+    data_check_parser = subparsers.add_parser("check-data-packages")
+    data_check_parser.add_argument("--dataset", required=True)
+    data_check_parser.add_argument("--package-profile", default="smoke_25m_instance", choices=sorted(DATA_PACKAGE_PROFILES))
+    data_check_parser.add_argument("--json", action="store_true")
 
     env_script_parser = subparsers.add_parser("write-env-script")
     env_script_parser.add_argument("--out", required=True)
@@ -885,9 +1007,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.strict and not environment["ready"]:
             return 4
     elif args.command == "data-packages":
-        emit(data_packages(args.dataset), args.json)
+        emit(data_packages(args.dataset, args.package_profile), args.json)
     elif args.command == "write-data-script":
-        emit(write_data_script(args.dataset, args.out), args.json)
+        emit(write_data_script(args.dataset, args.out, args.package_profile), args.json)
+    elif args.command == "check-data-packages":
+        emit(check_data_packages(args.dataset, args.package_profile), args.json)
     elif args.command == "write-env-script":
         emit(write_env_script(args.out), args.json)
     elif args.command == "paper-matrix":

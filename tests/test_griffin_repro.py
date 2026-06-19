@@ -207,11 +207,37 @@ def test_data_packages_lists_griffin_25m_archives_and_download_size():
     packages = {item["path"]: item for item in payload["packages"]}
 
     assert payload["dataset_prefix"] == "griffin_50scenes_25m"
+    assert payload["package_profile"] == "full"
     assert payload["package_count"] == 15
+    assert payload["full_package_count"] == 15
     assert packages["datasets/griffin_50scenes_25m/vehicle_metadata.zip"]["size_bytes"] == 10876283
     assert packages["datasets/griffin_50scenes_25m/drone_metadata.zip"]["size_bytes"] == 14384997
     assert packages["datasets/griffin_50scenes_25m/vehicle_lidar.zip"]["size_bytes"] == 214487013
     assert payload["total_size_bytes"] == 167190016122
+    assert payload["full_total_size_bytes"] == 167190016122
+
+
+def test_data_packages_can_select_smoke_eval_archives_only():
+    result = run_cli(
+        "data-packages",
+        "--dataset",
+        "50scenes_25m",
+        "--package-profile",
+        "smoke_25m_instance",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    package_paths = {item["path"] for item in payload["packages"]}
+
+    assert payload["package_profile"] == "smoke_25m_instance"
+    assert payload["package_count"] == 12
+    assert payload["full_package_count"] == 15
+    assert payload["total_size_bytes"] == 162300524941
+    assert payload["full_total_size_bytes"] == 167190016122
+    assert "datasets/griffin_50scenes_25m/drone_camera_bottom.zip" in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_camera_right.zip" in package_paths
+    assert "datasets/griffin_50scenes_25m/drone_camera_instance_segmentation.zip" not in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_lidar.zip" not in package_paths
 
 
 def test_write_data_script_downloads_from_mirror_with_checksums(tmp_path):
@@ -222,17 +248,42 @@ def test_write_data_script_downloads_from_mirror_with_checksums(tmp_path):
 
     assert payload["path"] == str(out_path)
     assert payload["dataset"] == "50scenes_25m"
+    assert payload["package_profile"] == "smoke_25m_instance"
     assert "https://hf-mirror.com/datasets/wjh-svm/Griffin/resolve/main" in script
-    assert "167190016122" in script
+    assert "TOTAL_SIZE_BYTES=162300524941" in script
+    assert "FULL_TOTAL_SIZE_BYTES=167190016122" in script
     assert "drone_camera_back.zip|19492671867" in script
     assert "vehicle_metadata.zip|10876283" in script
+    assert "vehicle_lidar.zip|214487013" not in script
     assert "DOWNLOAD_JOBS=\"${GRIFFIN_DOWNLOAD_JOBS:-3}\"" in script
+    assert "DOWNLOAD_MAX_PASSES=\"${GRIFFIN_DOWNLOAD_MAX_PASSES:-12}\"" in script
     assert "curl --retry 5 --connect-timeout 30 -L -C -" in script
     assert "wait -n" in script
-    assert "md5sum -c md5.txt" in script
-    assert "unzip -oq" in script
+    assert "md5.selected.txt" in script
+    assert "md5sum -c md5.selected.txt" in script
+    assert "DATA_PARENT=\"$ROOT/griffin_repro/official/datasets\"" in script
+    assert "unzip -oq \"$archive\" -d \"$DATA_PARENT\"" in script
+    assert "extracted.to-data-parent" in script
     assert "check-partial-assets --profile smoke_25m_instance" in script
     assert "carlaair_active_world" not in script
+
+
+def test_check_data_packages_reports_missing_local_archives():
+    result = run_cli(
+        "check-data-packages",
+        "--dataset",
+        "50scenes_25m",
+        "--package-profile",
+        "smoke_25m_instance",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["package_profile"] == "smoke_25m_instance"
+    assert payload["package_count"] == 12
+    assert payload["total_size_bytes"] == 162300524941
+    assert payload["ready"] is False
+    assert any(item["path"].endswith("drone_camera_back.zip") for item in payload["checks"])
 
 
 def test_validate_run_accepts_log_metrics_near_paper_reference(tmp_path):
