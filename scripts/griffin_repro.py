@@ -538,12 +538,20 @@ TOTAL_SIZE_BYTES={package_payload["total_size_bytes"]}
 FULL_TOTAL_SIZE_BYTES={package_payload["full_total_size_bytes"]}
 DOWNLOAD_JOBS="${{GRIFFIN_DOWNLOAD_JOBS:-3}}"
 DOWNLOAD_MAX_PASSES="${{GRIFFIN_DOWNLOAD_MAX_PASSES:-12}}"
+LOCK_FILE="$ARCHIVE_DIR/.download.lock"
 
 if ! help wait 2>/dev/null | grep -q -- "-n"; then
   DOWNLOAD_JOBS=1
 fi
 
 mkdir -p "$ARCHIVE_DIR" "$DATA_PARENT"
+exec 9>"$LOCK_FILE"
+if command -v flock >/dev/null 2>&1; then
+  if ! flock -n 9; then
+    echo "Another Griffin data download is already active for $ARCHIVE_DIR." >&2
+    exit 75
+  fi
+fi
 cd "$ROOT"
 
 packages=(
@@ -1113,6 +1121,11 @@ raise SystemExit(0 if payload["ready"] else 1)
 PY
 }}
 
+cleanup_stale_downloads() {{
+  pkill -f "curl .*griffin_50scenes_25m/archives" 2>/dev/null || true
+  pkill -f "bash griffin_repro/download_50scenes_25m_mobaxterm.sh" 2>/dev/null || true
+}}
+
 attempt=1
 while true; do
   echo "[$(date -Is)] Griffin supervisor attempt $attempt"
@@ -1125,6 +1138,7 @@ while true; do
     exit 4
   fi
 
+  cleanup_stale_downloads
   set +e
   bash griffin_repro/download_50scenes_25m_mobaxterm.sh
   download_status=$?

@@ -37,6 +37,11 @@ raise SystemExit(0 if payload["ready"] else 1)
 PY
 }
 
+cleanup_stale_downloads() {
+  pkill -f "curl .*griffin_50scenes_25m/archives" 2>/dev/null || true
+  pkill -f "bash griffin_repro/download_50scenes_25m_mobaxterm.sh" 2>/dev/null || true
+}
+
 attempt=1
 while true; do
   echo "[$(date -Is)] Griffin supervisor attempt $attempt"
@@ -49,6 +54,7 @@ while true; do
     exit 4
   fi
 
+  cleanup_stale_downloads
   set +e
   bash griffin_repro/download_50scenes_25m_mobaxterm.sh
   download_status=$?

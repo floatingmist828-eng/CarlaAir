@@ -11,12 +11,20 @@ TOTAL_SIZE_BYTES=162300524941
 FULL_TOTAL_SIZE_BYTES=167190016122
 DOWNLOAD_JOBS="${GRIFFIN_DOWNLOAD_JOBS:-3}"
 DOWNLOAD_MAX_PASSES="${GRIFFIN_DOWNLOAD_MAX_PASSES:-12}"
+LOCK_FILE="$ARCHIVE_DIR/.download.lock"
 
 if ! help wait 2>/dev/null | grep -q -- "-n"; then
   DOWNLOAD_JOBS=1
 fi
 
 mkdir -p "$ARCHIVE_DIR" "$DATA_PARENT"
+exec 9>"$LOCK_FILE"
+if command -v flock >/dev/null 2>&1; then
+  if ! flock -n 9; then
+    echo "Another Griffin data download is already active for $ARCHIVE_DIR." >&2
+    exit 75
+  fi
+fi
 cd "$ROOT"
 
 packages=(

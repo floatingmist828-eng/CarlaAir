@@ -317,6 +317,9 @@ def test_write_data_script_downloads_from_mirror_with_checksums(tmp_path):
     assert "vehicle_lidar.zip|214487013" not in script
     assert "DOWNLOAD_JOBS=\"${GRIFFIN_DOWNLOAD_JOBS:-3}\"" in script
     assert "DOWNLOAD_MAX_PASSES=\"${GRIFFIN_DOWNLOAD_MAX_PASSES:-12}\"" in script
+    assert "LOCK_FILE=\"$ARCHIVE_DIR/.download.lock\"" in script
+    assert "flock -n 9" in script
+    assert "Another Griffin data download is already active" in script
     assert "curl --retry 5 --connect-timeout 30 -L -C -" in script
     assert "is larger than expected; deleting corrupt partial archive before retry" in script
     assert "rm -f \"$output\"" in script
@@ -470,6 +473,9 @@ def test_write_supervisor_script_retries_data_download_until_smoke_ready(tmp_pat
     assert payload["package_profile"] == "smoke_25m_instance"
     assert "GRIFFIN_SUPERVISOR_MAX_ATTEMPTS" in script
     assert "check-data-packages --dataset 50scenes_25m --package-profile smoke_25m_instance --json" in script
+    assert "cleanup_stale_downloads()" in script
+    assert "pkill -f \"curl .*griffin_50scenes_25m/archives\"" in script
+    assert "pkill -f \"bash griffin_repro/download_50scenes_25m_mobaxterm.sh\"" in script
     assert "bash griffin_repro/download_50scenes_25m_mobaxterm.sh" in script
     assert "download_status=$?" in script
     assert "sleep \"$SUPERVISOR_SLEEP_SEC\"" in script
