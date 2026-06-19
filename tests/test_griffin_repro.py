@@ -1,9 +1,11 @@
 import json
 import importlib.util
+import io
 import pickle
 import struct
 import subprocess
 import sys
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -599,6 +601,61 @@ def test_zip_entry_from_url_reads_zip64_central_directory(monkeypatch):
     assert module._zip_entry_from_url("https://example.invalid/archive.zip", len(archive), member) == payload
 
 
+def test_url_zip_entry_reader_reuses_central_directory_for_same_archive(monkeypatch):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive_file:
+        archive_file.writestr("root/first.txt", b"first")
+        archive_file.writestr("root/second.txt", b"second")
+    archive = archive_buffer.getvalue()
+
+    eocd_at = archive.rfind(b"PK\x05\x06")
+    assert eocd_at >= 0
+    _, _, _, _, _, central_size, central_offset, _ = struct.unpack(
+        "<4s4H2IH",
+        archive[eocd_at : eocd_at + 22],
+    )
+
+    calls = []
+
+    def fake_curl_range(_url, start, end):
+        calls.append((start, end))
+        return archive[start : end + 1]
+
+    monkeypatch.setattr(module, "_curl_range", fake_curl_range)
+
+    assert module._zip_entry_from_url("https://example.invalid/archive.zip", len(archive), "root/first.txt") == b"first"
+    assert module._zip_entry_from_url("https://example.invalid/archive.zip", len(archive), "root/second.txt") == b"second"
+
+    assert calls.count((central_offset, central_offset + central_size - 1)) == 1
+
+
+def test_curl_range_uses_retries_and_timeout(monkeypatch):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(args, 0, stdout=b"ok", stderr=b"")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module._curl_range("https://example.invalid/archive.zip", 10, 20) == b"ok"
+
+    assert "--retry" in captured["args"]
+    assert "--connect-timeout" in captured["args"]
+    assert "--max-time" in captured["args"]
+
+
 def test_materialize_partial_images_cli_accepts_shared_out_tag(tmp_path, capsys):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
@@ -936,7 +993,9 @@ def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     assert "bash tools/griffin_converter.sh griffin_50scenes_25m" in script
     assert "preprocess_assets=(" in script
     assert "evaluation_assets=(" in script
-    assert script.index("bash tools/griffin_converter.sh griffin_50scenes_25m") < script.index("evaluation_assets=(")
+    assert script.index("bash tools/griffin_converter.sh griffin_50scenes_25m") < script.index(
+        'check_assets "evaluation" "${evaluation_assets[@]}"'
+    )
     assert "missing_assets=0" in script
     assert "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py" in script
     assert "CONDA_HOME=\"${GRIFFIN_CONDA_HOME:-$HOME/miniconda3}\"" in script
@@ -986,6 +1045,21 @@ def test_write_mobaxterm_script_prepares_partial_images_and_drone_query(tmp_path
     assert "prepare-drone-query-partial-eval --profile smoke_25m_instance" in script
     assert script.index("prepare-drone-query-partial-eval --profile smoke_25m_instance") < script.index(
         "prepare-partial-eval --profile smoke_25m_instance"
+    )
+
+
+def test_write_mobaxterm_script_can_skip_converter_after_asset_check(tmp_path):
+    out_path = tmp_path / "run_smoke.sh"
+    run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")
+    script = out_path.read_text(encoding="utf-8")
+
+    assert 'skip_converter="${GRIFFIN_SKIP_CONVERTER:-0}"' in script
+    assert 'if [ "$skip_converter" = "1" ]; then' in script
+    assert "Skipping Griffin converter because GRIFFIN_SKIP_CONVERTER=1" in script
+    assert 'check_assets "converted data" "${evaluation_assets[@]}"' in script
+    assert "bash tools/griffin_converter.sh griffin_50scenes_25m" in script
+    assert script.index('if [ "$skip_converter" = "1" ]; then') < script.index(
+        "bash tools/griffin_converter.sh griffin_50scenes_25m"
     )
 
 

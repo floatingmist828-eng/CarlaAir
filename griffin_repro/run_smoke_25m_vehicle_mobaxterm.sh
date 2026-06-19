@@ -56,6 +56,7 @@ partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"
 partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"
 partial_samples_per_scene="${GRIFFIN_PARTIAL_SAMPLES_PER_SCENE:-}"
 partial_metric_tolerance="${GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}"
+skip_converter="${GRIFFIN_SKIP_CONVERTER:-0}"
 partial_args=()
 if [ "$partial_scene_limit" -gt 0 ]; then
   partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${partial_scene_limit}scene")
@@ -66,8 +67,21 @@ if [ "$partial_scene_limit" -gt 0 ]; then
   fi
 fi
 
+evaluation_assets=(
+  "griffin_repro/official/projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py"
+  "griffin_repro/official/ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth"
+  "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-nuscenes/vehicle-side"
+  "griffin_repro/official/data/infos/griffin_50scenes_25m/vehicle-side/griffin_infos_val.pkl"
+)
+
 cd griffin_repro/official
-python - <<'PY'
+if [ "$skip_converter" = "1" ]; then
+  cd ../..
+  check_assets "converted data" "${evaluation_assets[@]}"
+  echo "Skipping Griffin converter because GRIFFIN_SKIP_CONVERTER=1"
+  cd griffin_repro/official
+else
+  python - <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -94,6 +108,7 @@ create_nuscenes_infos(
     split_info=split_info,
 )
 PY
+fi
 cd ../..
 
 if [ "$partial_scene_limit" -gt 0 ]; then
@@ -103,12 +118,6 @@ else
   :
 fi
 
-evaluation_assets=(
-  "griffin_repro/official/projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py"
-  "griffin_repro/official/ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth"
-  "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-nuscenes/vehicle-side"
-  "griffin_repro/official/data/infos/griffin_50scenes_25m/vehicle-side/griffin_infos_val.pkl"
-)
 check_assets "evaluation" "${evaluation_assets[@]}"
 
 if [ "$partial_scene_limit" -gt 0 ]; then

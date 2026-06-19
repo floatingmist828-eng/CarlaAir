@@ -26,6 +26,7 @@ OFFICIAL_ROOT = REPRO_ROOT / "official"
 MANIFEST_PATH = REPRO_ROOT / "manifest.json"
 RESULTS_CSV = OFFICIAL_ROOT / "docs" / "detailed_results.csv"
 CONDA_INSTALLER_URL = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+_ZIP_CENTRAL_DIRECTORY_CACHE: dict[tuple[str, int], tuple[int, bytes]] = {}
 
 DATASETS = {
     "50scenes_25m": {
@@ -1538,6 +1539,12 @@ def _curl_range(url: str, start: int, end: int) -> bytes:
             "--location",
             "--silent",
             "--show-error",
+            "--retry",
+            "3",
+            "--connect-timeout",
+            "20",
+            "--max-time",
+            "180",
             "--range",
             f"{start}-{end}",
             url,
@@ -1578,6 +1585,27 @@ def _zip64_central_directory(url: str, tail: bytes, eocd_at: int) -> tuple[int, 
     return total_entries, central_size, central_offset
 
 
+def _central_directory_from_url(url: str, archive_size: int) -> tuple[int, bytes]:
+    cache_key = (url, archive_size)
+    if cache_key in _ZIP_CENTRAL_DIRECTORY_CACHE:
+        return _ZIP_CENTRAL_DIRECTORY_CACHE[cache_key]
+
+    tail_start = max(0, archive_size - 66000)
+    tail = _curl_range(url, tail_start, archive_size - 1)
+    eocd_at = tail.rfind(b"PK\x05\x06")
+    if eocd_at < 0:
+        raise SystemExit(f"Unable to locate ZIP central directory in {url}")
+    eocd = tail[eocd_at : eocd_at + 22]
+    if len(eocd) < 22:
+        raise SystemExit(f"Truncated ZIP end record in {url}")
+    _, _, _, _, total_entries, central_size, central_offset, _ = struct.unpack("<4s4H2IH", eocd)
+    if total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
+        total_entries, central_size, central_offset = _zip64_central_directory(url, tail, eocd_at)
+    central = _curl_range(url, central_offset, central_offset + central_size - 1)
+    _ZIP_CENTRAL_DIRECTORY_CACHE[cache_key] = (total_entries, central)
+    return total_entries, central
+
+
 def _apply_zip64_entry_extra(
     extra: bytes,
     compressed_size: int,
@@ -1610,18 +1638,7 @@ def _apply_zip64_entry_extra(
 
 
 def _zip_entry_from_url(url: str, archive_size: int, member: str) -> bytes:
-    tail_start = max(0, archive_size - 66000)
-    tail = _curl_range(url, tail_start, archive_size - 1)
-    eocd_at = tail.rfind(b"PK\x05\x06")
-    if eocd_at < 0:
-        raise SystemExit(f"Unable to locate ZIP central directory in {url}")
-    eocd = tail[eocd_at : eocd_at + 22]
-    if len(eocd) < 22:
-        raise SystemExit(f"Truncated ZIP end record in {url}")
-    _, _, _, _, total_entries, central_size, central_offset, _ = struct.unpack("<4s4H2IH", eocd)
-    if total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
-        total_entries, central_size, central_offset = _zip64_central_directory(url, tail, eocd_at)
-    central = _curl_range(url, central_offset, central_offset + central_size - 1)
+    total_entries, central = _central_directory_from_url(url, archive_size)
     pos = 0
     target = None
     while pos + 46 <= len(central):
@@ -1830,6 +1847,7 @@ partial_scene_limit="${{GRIFFIN_PARTIAL_SCENE_LIMIT:-1}}"
 partial_max_samples="${{GRIFFIN_PARTIAL_MAX_SAMPLES:-20}}"
 partial_samples_per_scene="${{GRIFFIN_PARTIAL_SAMPLES_PER_SCENE:-}}"
 partial_metric_tolerance="${{GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}}"
+skip_converter="${{GRIFFIN_SKIP_CONVERTER:-0}}"
 partial_args=()
 if [ "$partial_scene_limit" -gt 0 ]; then
   partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${{partial_scene_limit}}scene")
@@ -1840,8 +1858,19 @@ if [ "$partial_scene_limit" -gt 0 ]; then
   fi
 fi
 
+evaluation_assets=(
+{evaluation_assets}
+)
+
 cd griffin_repro/official
-{convert_command}
+if [ "$skip_converter" = "1" ]; then
+  cd ../..
+  check_assets "converted data" "${{evaluation_assets[@]}}"
+  echo "Skipping Griffin converter because GRIFFIN_SKIP_CONVERTER=1"
+  cd griffin_repro/official
+else
+  {convert_command}
+fi
 cd ../..
 
 if [ "$partial_scene_limit" -gt 0 ]; then
@@ -1851,9 +1880,6 @@ else
 {full_drone_commands}
 fi
 
-evaluation_assets=(
-{evaluation_assets}
-)
 check_assets "evaluation" "${{evaluation_assets[@]}}"
 
 if [ "$partial_scene_limit" -gt 0 ]; then
