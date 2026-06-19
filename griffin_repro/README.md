@@ -19,6 +19,7 @@ The full paper matrix is represented by `manifest.json` and by `python scripts/g
 - `run_smoke_25m_instance_mobaxterm.sh`: ready-to-run Linux shell script for the partial smoke closure from MobaXterm.
 - `run_smoke_25m_vehicle_mobaxterm.sh`: vehicle-side partial smoke closure, defaulting to one scene and 20 samples.
 - `run_smoke_25m_early_mobaxterm.sh`: early-fusion partial smoke closure script.
+- `run_smoke_25m_late_mobaxterm.sh`: late-fusion partial closure that reuses the vehicle/drone pkl outputs and runs AB3DMOT tracking.
 - `supervise_smoke_25m_instance_mobaxterm.sh`: end-to-end MobaXterm supervisor that retries data download until the smoke package set is complete, then launches the smoke evaluation.
 - `../scripts/griffin_repro.py`: local verification, result summary, asset checks, and eval command generation.
 - `../scripts/sync_griffin_remote.py`: password-capable SFTP sync for this reproduction package only.
@@ -253,6 +254,15 @@ For late-fusion, the tracking-only evidence log reuses the `results.pkl` generat
 
 The 200-frame results are still below the paper's full-validation numbers. They are useful as a real closure check for method wiring, data conversion, metrics, and relative trends, not as a claim that the paper table has been fully reproduced.
 
+Paper-fit assessment for the 200-frame subset:
+
+- Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
+- Does not yet match the full paper's CoopTrack behavior: the paper reports CoopTrack above no-fusion and late-fusion on Griffin-25m, while this 200-frame subset has CoopTrack below no-fusion.
+- Does not yet match paper-level absolute AP/AMOTA. The subset is 200 frames out of the 1490-frame validation split, with weak bicycle and pedestrian coverage in the sampled frames.
+- `validate-run` `passed=true` in these logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not a claim that the partial result equals the paper table.
+
+An attempted 10-scene, 30-samples-per-scene expansion on 2026-06-20 was intentionally stopped during data materialization before evaluation. The local vehicle-side archives on the remote host are incomplete for several camera zips, so the materializer fell back to HTTP Range extraction from the Hugging Face mirror. At stop time, the 10x30 vehicle-side plan still missed 224 image files, 10x22 still missed 40, and 10x21 still missed 20. Treat that run only as a data-prefetch attempt, not as an experimental result.
+
 To rerun the same 100-frame checks from MobaXterm:
 
 ```bash
@@ -265,37 +275,16 @@ bash griffin_repro/run_smoke_25m_early_mobaxterm.sh 2>&1 | tee griffin_repro/art
 bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_instance_10scene_10per_scene_$(date +%Y%m%d_%H%M%S).log
 ```
 
-To rerun the 200-frame checks, set `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE=20` and use the same three smoke scripts. For late-fusion, first reuse the latest 200-frame vehicle and drone pkl outputs, then run:
+To rerun the 200-frame checks, set `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE=20` and use the same three smoke scripts. For late-fusion, reuse the latest 200-frame vehicle and drone pkl outputs by running the dedicated late-fusion smoke script:
 
 ```bash
-cd /home/fp/CARLA/CarlaAir-v0.1.7/code/griffin_repro/official
-export PATH=/home/fp/miniconda3/envs/griffin/bin:$PATH
-python - <<'PY'
-from pathlib import Path
-base = Path('projects/configs_griffin_50scenes_25m/cooperative/late_fusion')
-ann = './data/infos/griffin_50scenes_25m/cooperative/griffin_infos_val_partial_10scene_20per_scene.pkl'
-for name, base_name in [
-    ('tiny_track_r50_stream_bs1_3cls_late_fusion_partial_10scene_20per_scene.py', 'tiny_track_r50_stream_bs1_3cls_late_fusion.py'),
-    ('tiny_track_r50_stream_bs1_3cls_late_fusion_ab3dmot_partial_10scene_20per_scene.py', 'tiny_track_r50_stream_bs1_3cls_late_fusion_ab3dmot.py'),
-]:
-    (base / name).write_text(
-        '# Generated for Griffin partial late-fusion validation.\n'
-        f"_base_ = '{base_name}'\n\n"
-        f"ann_file_val = '{ann}'\n"
-        'data = dict(\n'
-        '    workers_per_gpu=0,\n'
-        '    val=dict(ann_file=ann_file_val),\n'
-        '    test=dict(ann_file=ann_file_val),\n'
-        ')\n',
-        encoding='utf-8',
-    )
-PY
-veh=$(ls -t projects/work_dirs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_20per_scene/results-*.pkl | head -1)
-drone=$(ls -t projects/work_dirs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_partial_10scene_20per_scene/results-*.pkl | head -1)
-det_cfg=projects/configs_griffin_50scenes_25m/cooperative/late_fusion/tiny_track_r50_stream_bs1_3cls_late_fusion_partial_10scene_20per_scene.py
-track_cfg=projects/configs_griffin_50scenes_25m/cooperative/late_fusion/tiny_track_r50_stream_bs1_3cls_late_fusion_ab3dmot_partial_10scene_20per_scene.py
-bash tools/eval_late_fusion.sh "$veh" "$drone" "$det_cfg" "$track_cfg"
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+export GRIFFIN_PARTIAL_SCENE_LIMIT=10
+export GRIFFIN_PARTIAL_SAMPLES_PER_SCENE=20
+bash griffin_repro/run_smoke_25m_late_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_late_10scene_20per_scene_$(date +%Y%m%d_%H%M%S).log
 ```
+
+When increasing `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, the materialization step now prints per-image progress to stderr while keeping stdout JSON-compatible. If the terminal is still printing `Materializing ... images: N/M`, the job is still filling image files, not yet running model evaluation.
 
 ## Remote Sync
 

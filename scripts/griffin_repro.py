@@ -1738,8 +1738,14 @@ def materialize_partial_images(
     written = 0
     skipped = 0
     if not dry_run:
-        for item in plan["items"]:
+        total = len(plan["items"])
+        for index, item in enumerate(plan["items"], start=1):
             dest = Path(item["dest"])
+            print(
+                f"Materializing {image_side} images: {index}/{total} {dest.name}",
+                file=sys.stderr,
+                flush=True,
+            )
             if dest.exists() and dest.stat().st_size > 0:
                 skipped += 1
                 continue

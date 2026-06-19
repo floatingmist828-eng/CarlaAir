@@ -510,6 +510,48 @@ def test_materialize_partial_images_dry_run_returns_plan_without_writes(tmp_path
     assert not (official / "datasets").exists()
 
 
+def test_materialize_partial_images_reports_progress_to_stderr(tmp_path, monkeypatch, capsys):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    prefix = "griffin_50scenes_25m"
+    ann = official / "data" / "infos" / prefix / "vehicle-side" / "griffin_infos_val.pkl"
+    ann.parent.mkdir(parents=True)
+    with ann.open("wb") as handle:
+        pickle.dump(
+            {
+                "infos": [
+                    {
+                        "token": "veh_001",
+                        "scene_token": "scene_0",
+                        "timestamp": 1,
+                        "cams": {"CAM_FRONT": {"data_path": "samples/CAM_FRONT/000001.png"}},
+                    }
+                ],
+                "metadata": {"version": "v1.0-trainval"},
+            },
+            handle,
+        )
+
+    module.OFFICIAL_ROOT = official
+    monkeypatch.setattr(module, "_zip_entry_from_url", lambda *_args: b"png-bytes")
+
+    payload = module.materialize_partial_images(
+        "smoke_25m_vehicle",
+        image_side="vehicle-side",
+        scene_limit=1,
+        max_samples=1,
+    )
+
+    captured = capsys.readouterr()
+    assert payload["written"] == 1
+    assert "Materializing vehicle-side images: 1/1" in captured.err
+    assert "000001.png" in captured.err
+
+
 def test_zip_entry_from_url_reads_zip64_central_directory(monkeypatch):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
@@ -1106,6 +1148,21 @@ def test_write_vehicle_mobaxterm_script_uses_profile_partial_eval_file(tmp_path)
     assert "smoke_25m_vehicle_partial_eval.json" in script
     assert "smoke_25m_instance_partial_eval.json" not in script
     assert "else\n\nfi" not in script
+
+
+def test_late_fusion_mobaxterm_script_reuses_vehicle_and_drone_outputs():
+    script_path = REPO_ROOT / "griffin_repro" / "run_smoke_25m_late_mobaxterm.sh"
+    script = script_path.read_text(encoding="utf-8")
+
+    assert "prepare-partial-eval --profile smoke_25m_instance" in script
+    assert '"$ROOT/$partial_json"' not in script
+    assert '"$partial_json" "$partial_tag"' in script
+    assert "partial_${partial_scene_limit}scene_${partial_samples_per_scene}per_scene" in script
+    assert "tiny_track_r50_stream_bs8_48epoch_3cls_${partial_tag}/results-*.pkl" in script
+    assert "tiny_track_r50_stream_bs8_24epoch_3cls_eval_${partial_tag}/results-*.pkl" in script
+    assert "tools/eval_late_fusion.sh" in script
+    assert "tiny_track_r50_stream_bs1_3cls_late_fusion_${partial_tag}.py" in script
+    assert "tiny_track_r50_stream_bs1_3cls_late_fusion_ab3dmot_${partial_tag}.py" in script
 
 
 def test_vehicle_partial_run_plan_uses_vehicle_only_preprocess():
