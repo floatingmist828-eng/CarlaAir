@@ -1,8 +1,10 @@
 import json
 import importlib.util
 import pickle
+import struct
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 
@@ -504,6 +506,97 @@ def test_materialize_partial_images_dry_run_returns_plan_without_writes(tmp_path
     assert payload["planned_items"] == 1
     assert payload["written"] == 0
     assert not (official / "datasets").exists()
+
+
+def test_zip_entry_from_url_reads_zip64_central_directory(monkeypatch):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    member = "griffin_50scenes_25m/griffin-release/vehicle-side/camera/back/012901.png"
+    member_bytes = member.encode("utf-8")
+    payload = b"png-bytes"
+    crc = zlib.crc32(payload) & 0xFFFFFFFF
+
+    local_offset = 0
+    local_header = (
+        struct.pack(
+            "<4s5H3I2H",
+            b"PK\x03\x04",
+            45,
+            0,
+            0,
+            0,
+            0,
+            crc,
+            len(payload),
+            len(payload),
+            len(member_bytes),
+            0,
+        )
+        + member_bytes
+    )
+    central_offset = len(local_header) + len(payload)
+    zip64_extra = struct.pack("<HHQ", 0x0001, 8, local_offset)
+    central = (
+        struct.pack(
+            "<4s6H3I5H2I",
+            b"PK\x01\x02",
+            45,
+            45,
+            0,
+            0,
+            0,
+            0,
+            crc,
+            len(payload),
+            len(payload),
+            len(member_bytes),
+            len(zip64_extra),
+            0,
+            0,
+            0,
+            0,
+            0xFFFFFFFF,
+        )
+        + member_bytes
+        + zip64_extra
+    )
+    zip64_eocd_offset = central_offset + len(central)
+    zip64_eocd = struct.pack(
+        "<4sQ2H2I4Q",
+        b"PK\x06\x06",
+        44,
+        45,
+        45,
+        0,
+        0,
+        1,
+        1,
+        len(central),
+        central_offset,
+    )
+    zip64_locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, zip64_eocd_offset, 1)
+    eocd = struct.pack(
+        "<4s4H2IH",
+        b"PK\x05\x06",
+        0,
+        0,
+        0xFFFF,
+        0xFFFF,
+        0xFFFFFFFF,
+        0xFFFFFFFF,
+        0,
+    )
+    archive = local_header + payload + central + zip64_eocd + zip64_locator + eocd
+
+    def fake_curl_range(_url, start, end):
+        return archive[start : end + 1]
+
+    monkeypatch.setattr(module, "_curl_range", fake_curl_range)
+
+    assert module._zip_entry_from_url("https://example.invalid/archive.zip", len(archive), member) == payload
 
 
 def test_materialize_partial_images_cli_accepts_shared_out_tag(tmp_path, capsys):

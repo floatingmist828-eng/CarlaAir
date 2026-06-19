@@ -1551,6 +1551,64 @@ def _curl_range(url: str, start: int, end: int) -> bytes:
     return result.stdout
 
 
+def _zip64_central_directory(url: str, tail: bytes, eocd_at: int) -> tuple[int, int, int]:
+    locator_at = tail.rfind(b"PK\x06\x07", 0, eocd_at)
+    if locator_at < 0:
+        raise SystemExit(f"ZIP64 central directory locator missing in {url}")
+    locator = tail[locator_at : locator_at + 20]
+    if len(locator) < 20:
+        raise SystemExit(f"Truncated ZIP64 central directory locator in {url}")
+    _, _, zip64_eocd_offset, _ = struct.unpack("<4sIQI", locator)
+
+    record = _curl_range(url, zip64_eocd_offset, zip64_eocd_offset + 55)
+    if len(record) < 56 or record[:4] != b"PK\x06\x06":
+        raise SystemExit(f"Invalid ZIP64 central directory record in {url}")
+    (
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        total_entries,
+        central_size,
+        central_offset,
+    ) = struct.unpack("<4sQ2H2I4Q", record[:56])
+    return total_entries, central_size, central_offset
+
+
+def _apply_zip64_entry_extra(
+    extra: bytes,
+    compressed_size: int,
+    uncompressed_size: int,
+    local_offset: int,
+) -> tuple[int, int, int]:
+    needs_uncompressed = uncompressed_size == 0xFFFFFFFF
+    needs_compressed = compressed_size == 0xFFFFFFFF
+    needs_offset = local_offset == 0xFFFFFFFF
+    if not (needs_uncompressed or needs_compressed or needs_offset):
+        return compressed_size, uncompressed_size, local_offset
+
+    pos = 0
+    while pos + 4 <= len(extra):
+        header_id, data_size = struct.unpack("<HH", extra[pos : pos + 4])
+        data = extra[pos + 4 : pos + 4 + data_size]
+        if header_id == 0x0001:
+            cursor = 0
+            if needs_uncompressed:
+                uncompressed_size = struct.unpack("<Q", data[cursor : cursor + 8])[0]
+                cursor += 8
+            if needs_compressed:
+                compressed_size = struct.unpack("<Q", data[cursor : cursor + 8])[0]
+                cursor += 8
+            if needs_offset:
+                local_offset = struct.unpack("<Q", data[cursor : cursor + 8])[0]
+            return compressed_size, uncompressed_size, local_offset
+        pos += 4 + data_size
+    raise SystemExit("ZIP64 entry metadata missing for large archive member")
+
+
 def _zip_entry_from_url(url: str, archive_size: int, member: str) -> bytes:
     tail_start = max(0, archive_size - 66000)
     tail = _curl_range(url, tail_start, archive_size - 1)
@@ -1561,6 +1619,8 @@ def _zip_entry_from_url(url: str, archive_size: int, member: str) -> bytes:
     if len(eocd) < 22:
         raise SystemExit(f"Truncated ZIP end record in {url}")
     _, _, _, _, total_entries, central_size, central_offset, _ = struct.unpack("<4s4H2IH", eocd)
+    if total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
+        total_entries, central_size, central_offset = _zip64_central_directory(url, tail, eocd_at)
     central = _curl_range(url, central_offset, central_offset + central_size - 1)
     pos = 0
     target = None
@@ -1590,6 +1650,13 @@ def _zip_entry_from_url(url: str, archive_size: int, member: str) -> bytes:
         name_start = pos + 46
         name = central[name_start : name_start + name_len].decode("utf-8")
         if name == member:
+            extra = central[name_start + name_len : name_start + name_len + extra_len]
+            compressed_size, uncompressed_size, local_offset = _apply_zip64_entry_extra(
+                extra,
+                compressed_size,
+                uncompressed_size,
+                local_offset,
+            )
             target = {
                 "flags": flags,
                 "method": method,
