@@ -244,8 +244,7 @@ def profile_payload(profile_name: str) -> dict[str, Any]:
     profile = profiles[profile_name]
     command = (
         f"cd griffin_repro/official && "
-        f"CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-0}} "
-        f"./tools/dist_eval.sh {profile['config']} {profile['checkpoint']} {profile['gpus']}"
+        f"{dist_eval_command(profile['config'], profile['checkpoint'], profile['gpus'])}"
     )
     return {
         "profile": profile_name,
@@ -259,6 +258,10 @@ def profile_payload(profile_name: str) -> dict[str, Any]:
         "commands": [command],
         "asset_checks": [f"griffin_repro/official/{path}" for path in profile.get("required_paths", [])],
     }
+
+
+def dist_eval_command(config: str, checkpoint: str, gpus: int | str) -> str:
+    return f"CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-0}} bash tools/dist_eval.sh {config} {checkpoint} {gpus}"
 
 
 def list_profiles() -> dict[str, Any]:
@@ -910,8 +913,7 @@ def command_for_row(dataset: str, method: str, config: str | None, checkpoint: s
     if checkpoint:
         return (
             "dist_eval",
-            "cd griffin_repro/official && "
-            f"CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-0}} ./tools/dist_eval.sh {config} {checkpoint} 1",
+            f"cd griffin_repro/official && {dist_eval_command(config, checkpoint, 1)}",
         )
     return None, None
 
@@ -1044,14 +1046,18 @@ PY"""
             "cd griffin_repro/official",
             f"bash tools/griffin_converter.sh {prefix}",
             (
-                "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh "
-                f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py "
-                f"{drone_checkpoint} 1"
+                dist_eval_command(
+                    f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py",
+                    drone_checkpoint,
+                    1,
+                )
             ),
             (
-                "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh "
-                f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py "
-                f"{drone_checkpoint} 1"
+                dist_eval_command(
+                    f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py",
+                    drone_checkpoint,
+                    1,
+                )
             ),
             final_eval_command,
         ]
@@ -1197,8 +1203,7 @@ data = dict(
     ann_rel = _relative_posix(out_ann_path, OFFICIAL_ROOT)
     command = (
         "cd griffin_repro/official && "
-        "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} "
-        f"./tools/dist_eval.sh {config_rel} {profile['checkpoint']} {profile['gpus']}"
+        f"{dist_eval_command(config_rel, profile['checkpoint'], profile['gpus'])}"
     )
     return {
         "profile": profile_name,

@@ -64,7 +64,8 @@ def test_matrix_smoke_profile_generates_real_eval_command():
     assert payload["profile"] == "smoke_25m_instance"
     assert payload["expected"]["AP"] == 0.479
     assert payload["expected"]["AMOTA"] == 0.488
-    assert "tools/dist_eval.sh" in payload["commands"][0]
+    assert "bash tools/dist_eval.sh" in payload["commands"][0]
+    assert "./tools/dist_eval.sh" not in payload["commands"][0]
     assert "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py" in payload["commands"][0]
     assert "ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth" in payload["commands"][0]
     assert "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-nuscenes/cooperative" in payload["asset_checks"]
@@ -195,7 +196,8 @@ def test_partial_run_plan_includes_conversion_query_extraction_eval_and_asset_ga
     assert "bash tools/griffin_converter.sh griffin_50scenes_25m" in commands
     assert any("drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py" in command for command in commands)
     assert any("drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py" in command for command in commands)
-    assert commands[-1].startswith("CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh")
+    assert commands[-1].startswith("CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh")
+    assert "./tools/dist_eval.sh" not in commands[-1]
     assert "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py" in commands[-1]
 
     assert "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-release/vehicle-side" in assets
@@ -277,7 +279,8 @@ def test_prepare_partial_eval_writes_scene_subset_and_config(tmp_path):
         "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/"
         "tiny_track_r50_stream_bs8_48epoch_3cls_partial_1scene.py"
     )
-    assert "tools/dist_eval.sh" in payload["command"]
+    assert "bash tools/dist_eval.sh" in payload["command"]
+    assert "./tools/dist_eval.sh" not in payload["command"]
     assert payload["expected"] == {"AMOTA": 0.488, "AP": 0.479}
 
     config = out_config.read_text(encoding="utf-8")

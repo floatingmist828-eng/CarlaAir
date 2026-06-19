@@ -99,7 +99,7 @@ PY
   final_eval_to_run="$partial_eval_command"
   validation_tolerance="$partial_metric_tolerance"
 else
-  final_eval_to_run="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth 1"
+  final_eval_to_run="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth 1"
   validation_tolerance="0.02"
 fi
 

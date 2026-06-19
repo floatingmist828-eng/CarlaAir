@@ -41,8 +41,8 @@ check_assets "preprocess" "${preprocess_assets[@]}"
 
 cd griffin_repro/official
 bash tools/griffin_converter.sh griffin_50scenes_25m
-CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
-CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
+CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
+CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
 cd ../..
 
 evaluation_assets=(
@@ -76,7 +76,7 @@ PY
   final_eval_to_run="$partial_eval_command"
   validation_tolerance="$partial_metric_tolerance"
 else
-  final_eval_to_run="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth 1"
+  final_eval_to_run="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth 1"
   validation_tolerance="0.02"
 fi
 
