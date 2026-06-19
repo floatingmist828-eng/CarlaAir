@@ -47,48 +47,24 @@ check_assets() {
 
 preprocess_assets=(
   "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-release/vehicle-side"
+  "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-release/drone-side"
   "griffin_repro/official/data/split_datas/griffin_50scenes_25m.json"
-  "griffin_repro/official/ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth"
+  "griffin_repro/official/ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth"
+  "griffin_repro/official/ckpts/griffin_50scenes_25m/early-fusion/iter_33024.pth"
 )
 check_assets "preprocess" "${preprocess_assets[@]}"
 
 cd griffin_repro/official
-python - <<'PY'
-import json
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path.cwd() / "tools/griffin_data_converter"))
-from tools.griffin_data_converter.trans_kitti2nuscenes import GriffinKittiToNuScenesConverter
-from tools.griffin_data_converter.generate_nuscenes_pkl import create_nuscenes_infos
-
-prefix = "griffin_50scenes_25m"
-split_file = Path(f"data/split_datas/{prefix}.json")
-with split_file.open("r", encoding="utf-8") as handle:
-    split_info = json.load(handle)["batch_split"]
-converter = GriffinKittiToNuScenesConverter(
-    source_dir=f"datasets/{prefix}/griffin-release/vehicle-side",
-    target_dir=f"datasets/{prefix}/griffin-nuscenes/vehicle-side",
-    side="vehicle",
-)
-converter.convert({})
-create_nuscenes_infos(
-    f"datasets/{prefix}/griffin-nuscenes/vehicle-side",
-    f"data/infos/{prefix}/vehicle-side",
-    "griffin",
-    "v1.0-trainval",
-    side="vehicle",
-    split_info=split_info,
-)
-PY
-
-
+bash tools/griffin_converter.sh griffin_50scenes_25m
+CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
+CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
 cd ../..
 
 evaluation_assets=(
-  "griffin_repro/official/projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py"
-  "griffin_repro/official/ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth"
-  "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-nuscenes/vehicle-side"
-  "griffin_repro/official/data/infos/griffin_50scenes_25m/vehicle-side/griffin_infos_val.pkl"
+  "griffin_repro/official/projects/configs_griffin_50scenes_25m/early-fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py"
+  "griffin_repro/official/ckpts/griffin_50scenes_25m/early-fusion/iter_33024.pth"
+  "griffin_repro/official/datasets/griffin_50scenes_25m/griffin-nuscenes/early-fusion"
+  "griffin_repro/official/data/infos/griffin_50scenes_25m/early-fusion/griffin_infos_val.pkl"
 )
 check_assets "evaluation" "${evaluation_assets[@]}"
 
@@ -96,12 +72,12 @@ partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"
 partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"
 partial_metric_tolerance="${GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}"
 if [ "$partial_scene_limit" -gt 0 ]; then
-  partial_json="$LOG_DIR/smoke_25m_vehicle_partial_eval.json"
+  partial_json="$LOG_DIR/smoke_25m_early_partial_eval.json"
   partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${partial_scene_limit}scene")
   if [ -n "$partial_max_samples" ]; then
     partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${partial_scene_limit}scene_${partial_max_samples}samples")
   fi
-  python scripts/griffin_repro.py prepare-partial-eval --profile smoke_25m_vehicle "${partial_args[@]}" --json | tee "$partial_json"
+  python scripts/griffin_repro.py prepare-partial-eval --profile smoke_25m_early "${partial_args[@]}" --json | tee "$partial_json"
   partial_eval_command=$(python - "$partial_json" <<'PY'
 import json
 import sys
@@ -114,7 +90,7 @@ PY
   final_eval_to_run="$partial_eval_command"
   validation_tolerance="$partial_metric_tolerance"
 else
-  final_eval_to_run="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth 1"
+  final_eval_to_run="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/early-fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py ckpts/griffin_50scenes_25m/early-fusion/iter_33024.pth 1"
   validation_tolerance="0.02"
 fi
 
@@ -126,4 +102,4 @@ if [ -z "$latest_log" ]; then
   exit 3
 fi
 cd "$ROOT"
-python scripts/griffin_repro.py validate-run --profile smoke_25m_vehicle --log "griffin_repro/official/${latest_log}" --tolerance "$validation_tolerance" --json
+python scripts/griffin_repro.py validate-run --profile smoke_25m_early --log "griffin_repro/official/${latest_log}" --tolerance "$validation_tolerance" --json

@@ -1242,6 +1242,21 @@ ROOT="${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
 cd "$ROOT"
 {activation}
 python scripts/griffin_repro.py env-check --strict --json
+set +e
+spconv_error=$(python - <<'PY' 2>&1
+import mmdet3d.ops.spconv
+PY
+)
+spconv_status=$?
+set -e
+if [ "$spconv_status" -ne 0 ]; then
+  printf '%s\\n' "$spconv_error" >&2
+  if printf '%s' "$spconv_error" | grep -q 'sparse_conv_ext'; then
+    bash griffin_repro/build_mmdet3d_spconv_ext_mobaxterm.sh
+  else
+    exit "$spconv_status"
+  fi
+fi
 LOG_DIR="${{GRIFFIN_SMOKE_LOG_DIR:-$ROOT/griffin_repro/artifacts/logs}}"
 mkdir -p "$LOG_DIR"
 
@@ -1277,8 +1292,8 @@ evaluation_assets=(
 )
 check_assets "evaluation" "${{evaluation_assets[@]}}"
 
-partial_scene_limit="${{GRIFFIN_PARTIAL_SCENE_LIMIT:-0}}"
-partial_max_samples="${{GRIFFIN_PARTIAL_MAX_SAMPLES:-}}"
+partial_scene_limit="${{GRIFFIN_PARTIAL_SCENE_LIMIT:-1}}"
+partial_max_samples="${{GRIFFIN_PARTIAL_MAX_SAMPLES:-20}}"
 partial_metric_tolerance="${{GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}}"
 if [ "$partial_scene_limit" -gt 0 ]; then
   partial_json="$LOG_DIR/{profile_name}_partial_eval.json"
@@ -1445,6 +1460,7 @@ def parse_run_metrics(text: str) -> dict[str, float]:
         "AMOTA": [
             r"(?:pts_bbox_NuScenes/)?amota\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
             r"(?:^|[\s\"'])AMOTA[\"']?\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"^AMOTA\s+([0-9]+(?:\.[0-9]+)?)\s*$",
         ],
     }
     metrics = {}

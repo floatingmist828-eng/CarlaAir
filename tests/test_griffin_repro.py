@@ -513,6 +513,33 @@ def test_validate_run_accepts_log_metrics_near_paper_reference(tmp_path):
     assert payload["checks"]["AMOTA"]["expected"] == 0.488
 
 
+def test_validate_run_accepts_official_tracking_table_metrics(tmp_path):
+    log_path = tmp_path / "eval.log"
+    log_path.write_text(
+        "mAP: 0.1625\n"
+        "Aggregated results:\n"
+        "AMOTA\t0.138\n"
+        "AMOTP\t1.741\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "validate-run",
+        "--profile",
+        "smoke_25m_vehicle",
+        "--log",
+        str(log_path),
+        "--tolerance",
+        "1.0",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["passed"] is True
+    assert payload["metrics"]["AP"] == 0.1625
+    assert payload["metrics"]["AMOTA"] == 0.138
+
+
 def test_validate_run_rejects_missing_metrics(tmp_path):
     log_path = tmp_path / "eval.log"
     log_path.write_text("Testing done without metric summary\n", encoding="utf-8")
@@ -555,6 +582,8 @@ def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     assert "CONDA_HOME=\"${GRIFFIN_CONDA_HOME:-$HOME/miniconda3}\"" in script
     assert "conda activate \"$GRIFFIN_ENV_NAME\"" in script
     assert "python scripts/griffin_repro.py env-check --strict --json" in script
+    assert "import mmdet3d.ops.spconv" in script
+    assert "bash griffin_repro/build_mmdet3d_spconv_ext_mobaxterm.sh" in script
     assert "python scripts/griffin_repro.py validate-run --profile smoke_25m_instance" in script
     assert "-printf '%T@ %p\\n'" in script
     assert "carlaair_active_world" not in script
@@ -567,6 +596,8 @@ def test_write_mobaxterm_script_can_run_partial_final_eval(tmp_path):
 
     assert "GRIFFIN_PARTIAL_SCENE_LIMIT" in script
     assert "GRIFFIN_PARTIAL_MAX_SAMPLES" in script
+    assert 'partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"' in script
+    assert 'partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"' in script
     assert "prepare-partial-eval --profile smoke_25m_instance" in script
     assert "smoke_25m_instance_partial_eval.json" in script
     assert "partial_eval_command=" in script
