@@ -121,9 +121,19 @@ SMOKE_25M_INSTANCE_PACKAGES = {
     "datasets/griffin_50scenes_25m/vehicle_metadata.zip",
 }
 
+SMOKE_25M_VEHICLE_PACKAGES = {
+    "datasets/griffin_50scenes_25m/md5.txt",
+    "datasets/griffin_50scenes_25m/vehicle_camera_back.zip",
+    "datasets/griffin_50scenes_25m/vehicle_camera_front.zip",
+    "datasets/griffin_50scenes_25m/vehicle_camera_left.zip",
+    "datasets/griffin_50scenes_25m/vehicle_camera_right.zip",
+    "datasets/griffin_50scenes_25m/vehicle_metadata.zip",
+}
+
 DATA_PACKAGE_PROFILES = {
     "full": None,
     "smoke_25m_instance": SMOKE_25M_INSTANCE_PACKAGES,
+    "smoke_25m_vehicle": SMOKE_25M_VEHICLE_PACKAGES,
 }
 
 EXPECTED_PYTHON_MODULES = {
@@ -989,29 +999,67 @@ def paper_run_matrix(dataset: str | None = None, include_robustness: bool = Fals
 def partial_run_plan(profile_name: str) -> dict[str, Any]:
     payload = profile_payload(profile_name)
     prefix = dataset_prefix(payload["dataset"])
-    drone_checkpoint = f"ckpts/{prefix}/drone-side/{Path(payload['checkpoint']).name}"
-    commands = [
-        "cd griffin_repro/official",
-        f"bash tools/griffin_converter.sh {prefix}",
-        (
-            "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh "
-            f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py "
-            f"{drone_checkpoint} 1"
-        ),
-        (
-            "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh "
-            f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py "
-            f"{drone_checkpoint} 1"
-        ),
-        payload["commands"][0].split("&&", 1)[1].strip(),
-    ]
-    preprocess_assets = [
-        f"griffin_repro/official/datasets/{prefix}/griffin-release/vehicle-side",
-        f"griffin_repro/official/datasets/{prefix}/griffin-release/drone-side",
-        f"griffin_repro/official/data/split_datas/{prefix}.json",
-        f"griffin_repro/official/{drone_checkpoint}",
-        f"griffin_repro/official/{payload['checkpoint']}",
-    ]
+    final_eval_command = payload["commands"][0].split("&&", 1)[1].strip()
+    if payload["method"] == "0-no fusion":
+        vehicle_preprocess_command = f"""python - <<'PY'
+import json
+from pathlib import Path
+from tools.griffin_data_converter.trans_kitti2nuscenes import GriffinKittiToNuScenesConverter
+from tools.griffin_data_converter.generate_nuscenes_pkl import create_nuscenes_infos
+
+prefix = "{prefix}"
+split_file = Path(f"data/split_datas/{{prefix}}.json")
+with split_file.open("r", encoding="utf-8") as handle:
+    split_info = json.load(handle)["batch_split"]
+converter = GriffinKittiToNuScenesConverter(
+    source_dir=f"datasets/{{prefix}}/griffin-release/vehicle-side",
+    target_dir=f"datasets/{{prefix}}/griffin-nuscenes/vehicle-side",
+    side="vehicle",
+)
+converter.convert([])
+create_nuscenes_infos(
+    f"datasets/{{prefix}}/griffin-nuscenes/vehicle-side",
+    f"data/infos/{{prefix}}/vehicle-side",
+    "griffin",
+    "v1.0-trainval",
+    side="vehicle",
+    split_info=split_info,
+)
+PY"""
+        commands = [
+            "cd griffin_repro/official",
+            vehicle_preprocess_command,
+            final_eval_command,
+        ]
+        preprocess_assets = [
+            f"griffin_repro/official/datasets/{prefix}/griffin-release/vehicle-side",
+            f"griffin_repro/official/data/split_datas/{prefix}.json",
+            f"griffin_repro/official/{payload['checkpoint']}",
+        ]
+    else:
+        drone_checkpoint = f"ckpts/{prefix}/drone-side/{Path(payload['checkpoint']).name}"
+        commands = [
+            "cd griffin_repro/official",
+            f"bash tools/griffin_converter.sh {prefix}",
+            (
+                "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh "
+                f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py "
+                f"{drone_checkpoint} 1"
+            ),
+            (
+                "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} ./tools/dist_eval.sh "
+                f"projects/configs_{prefix}/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py "
+                f"{drone_checkpoint} 1"
+            ),
+            final_eval_command,
+        ]
+        preprocess_assets = [
+            f"griffin_repro/official/datasets/{prefix}/griffin-release/vehicle-side",
+            f"griffin_repro/official/datasets/{prefix}/griffin-release/drone-side",
+            f"griffin_repro/official/data/split_datas/{prefix}.json",
+            f"griffin_repro/official/{drone_checkpoint}",
+            f"griffin_repro/official/{payload['checkpoint']}",
+        ]
     evaluation_assets = [
         *payload["asset_checks"],
     ]
@@ -1172,7 +1220,13 @@ def mobaxterm_script(profile_name: str) -> str:
     plan = partial_run_plan(profile_name)
     preprocess_assets = "\n".join(f'  "{path}"' for path in plan["preprocess_assets"])
     evaluation_assets = "\n".join(f'  "{path}"' for path in plan["evaluation_assets"])
-    _, convert_command, drone_train_command, drone_val_command, final_eval_command = plan["commands"]
+    commands = plan["commands"]
+    if len(commands) == 3:
+        _, convert_command, final_eval_command = commands
+        drone_train_command = ""
+        drone_val_command = ""
+    else:
+        _, convert_command, drone_train_command, drone_val_command, final_eval_command = commands
     activation = conda_activation_block().rstrip()
     return f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -1220,7 +1274,7 @@ partial_scene_limit="${{GRIFFIN_PARTIAL_SCENE_LIMIT:-0}}"
 partial_max_samples="${{GRIFFIN_PARTIAL_MAX_SAMPLES:-}}"
 partial_metric_tolerance="${{GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}}"
 if [ "$partial_scene_limit" -gt 0 ]; then
-  partial_json="$LOG_DIR/smoke_25m_instance_partial_eval.json"
+  partial_json="$LOG_DIR/{profile_name}_partial_eval.json"
   partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${{partial_scene_limit}}scene")
   if [ -n "$partial_max_samples" ]; then
     partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${{partial_scene_limit}}scene_${{partial_max_samples}}samples")
@@ -1261,10 +1315,23 @@ def write_mobaxterm_script(profile_name: str, out: str) -> dict[str, Any]:
     return {"profile": profile_name, "path": str(path), "bytes": path.stat().st_size}
 
 
+def data_script_name(dataset: str, package_profile: str) -> str:
+    if package_profile == "smoke_25m_instance":
+        return f"download_{dataset}_mobaxterm.sh"
+    suffix = package_profile.removeprefix("smoke_25m_")
+    return f"download_{dataset}_{suffix}_mobaxterm.sh"
+
+
+def run_script_name(profile_name: str) -> str:
+    return f"run_{profile_name}_mobaxterm.sh"
+
+
 def supervisor_script(profile_name: str, dataset: str, package_profile: str) -> str:
     profile_payload(profile_name)
     data_packages(dataset, package_profile)
     activation = conda_activation_block().rstrip()
+    download_script = data_script_name(dataset, package_profile)
+    smoke_script = run_script_name(profile_name)
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -1276,8 +1343,8 @@ SUPERVISOR_SLEEP_SEC="${{GRIFFIN_SUPERVISOR_SLEEP_SEC:-300}}"
 SUPERVISOR_MAX_ATTEMPTS="${{GRIFFIN_SUPERVISOR_MAX_ATTEMPTS:-0}}"
 mkdir -p "$LOG_DIR"
 
-data_status="$LOG_DIR/smoke_25m_instance_supervisor_data_status.json"
-latest_log="$LOG_DIR/smoke_25m_instance_supervisor.latest"
+data_status="$LOG_DIR/{profile_name}_supervisor_data_status.json"
+latest_log="$LOG_DIR/{profile_name}_supervisor.latest"
 
 check_data_ready() {{
   python scripts/griffin_repro.py check-data-packages --dataset {dataset} --package-profile {package_profile} --json > "$data_status"
@@ -1300,7 +1367,7 @@ PY
 
 cleanup_stale_downloads() {{
   pkill -f "curl .*griffin_50scenes_25m/archives" 2>/dev/null || true
-  pkill -f "bash griffin_repro/download_50scenes_25m_mobaxterm.sh" 2>/dev/null || true
+  pkill -f "bash griffin_repro/{download_script}" 2>/dev/null || true
 }}
 
 attempt=1
@@ -1317,7 +1384,7 @@ while true; do
 
   cleanup_stale_downloads
   set +e
-  bash griffin_repro/download_50scenes_25m_mobaxterm.sh
+  bash griffin_repro/{download_script}
   download_status=$?
   set -e
   if [ "$download_status" -ne 0 ]; then
@@ -1327,9 +1394,9 @@ while true; do
   sleep "$SUPERVISOR_SLEEP_SEC"
 done
 
-smoke_log="$LOG_DIR/smoke_25m_instance_supervisor_$(date +%Y%m%d_%H%M%S).log"
+smoke_log="$LOG_DIR/{profile_name}_supervisor_$(date +%Y%m%d_%H%M%S).log"
 echo "$smoke_log" > "$latest_log"
-bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh 2>&1 | tee "$smoke_log"
+bash griffin_repro/{smoke_script} 2>&1 | tee "$smoke_log"
 """
 
 

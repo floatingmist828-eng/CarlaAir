@@ -383,6 +383,30 @@ def test_data_packages_can_select_smoke_eval_archives_only():
     assert "datasets/griffin_50scenes_25m/vehicle_lidar.zip" not in package_paths
 
 
+def test_data_packages_can_select_vehicle_smoke_archives_only():
+    result = run_cli(
+        "data-packages",
+        "--dataset",
+        "50scenes_25m",
+        "--package-profile",
+        "smoke_25m_vehicle",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    package_paths = {item["path"] for item in payload["packages"]}
+
+    assert payload["package_profile"] == "smoke_25m_vehicle"
+    assert payload["package_count"] == 6
+    assert "datasets/griffin_50scenes_25m/md5.txt" in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_metadata.zip" in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_camera_front.zip" in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_camera_back.zip" in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_camera_left.zip" in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_camera_right.zip" in package_paths
+    assert "datasets/griffin_50scenes_25m/drone_camera_front.zip" not in package_paths
+    assert "datasets/griffin_50scenes_25m/vehicle_lidar.zip" not in package_paths
+
+
 def test_write_data_script_downloads_from_mirror_with_checksums(tmp_path):
     out_path = tmp_path / "download_data.sh"
     result = run_cli("write-data-script", "--dataset", "50scenes_25m", "--out", str(out_path), "--json")
@@ -548,6 +572,30 @@ def test_write_mobaxterm_script_can_run_partial_final_eval(tmp_path):
     assert "GRIFFIN_PARTIAL_METRIC_TOLERANCE" in script
 
 
+def test_write_vehicle_mobaxterm_script_uses_profile_partial_eval_file(tmp_path):
+    out_path = tmp_path / "run_smoke_vehicle.sh"
+    run_cli("write-mobaxterm-script", "--profile", "smoke_25m_vehicle", "--out", str(out_path), "--json")
+    script = out_path.read_text(encoding="utf-8")
+
+    assert "prepare-partial-eval --profile smoke_25m_vehicle" in script
+    assert "smoke_25m_vehicle_partial_eval.json" in script
+    assert "smoke_25m_instance_partial_eval.json" not in script
+
+
+def test_vehicle_partial_run_plan_uses_vehicle_only_preprocess():
+    result = run_cli("plan-partial-run", "--profile", "smoke_25m_vehicle", "--json")
+    payload = json.loads(result.stdout)
+    commands = payload["commands"]
+    assets = payload["required_assets"]
+
+    assert payload["method"] == "0-no fusion"
+    assert "GriffinKittiToNuScenesConverter" in "\n".join(commands)
+    assert not any("drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval" in command for command in commands)
+    assert "griffin_repro/official/ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth" in assets
+    assert "griffin_repro/official/ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth" not in assets
+    assert "griffin_repro/official/data/infos/griffin_50scenes_25m/drone-side/track_query" not in assets
+
+
 def test_write_supervisor_script_retries_data_download_until_smoke_ready(tmp_path):
     out_path = tmp_path / "supervise_smoke.sh"
     result = run_cli(
@@ -580,6 +628,32 @@ def test_write_supervisor_script_retries_data_download_until_smoke_ready(tmp_pat
     assert "bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh" in script
     assert "smoke_25m_instance_supervisor.latest" in script
     assert "carlaair_active_world" not in script
+
+
+def test_write_vehicle_supervisor_uses_vehicle_download_and_run_scripts(tmp_path):
+    out_path = tmp_path / "supervise_vehicle.sh"
+    result = run_cli(
+        "write-supervisor-script",
+        "--profile",
+        "smoke_25m_vehicle",
+        "--dataset",
+        "50scenes_25m",
+        "--package-profile",
+        "smoke_25m_vehicle",
+        "--out",
+        str(out_path),
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    script = out_path.read_text(encoding="utf-8")
+
+    assert payload["profile"] == "smoke_25m_vehicle"
+    assert payload["package_profile"] == "smoke_25m_vehicle"
+    assert "check-data-packages --dataset 50scenes_25m --package-profile smoke_25m_vehicle --json" in script
+    assert "bash griffin_repro/download_50scenes_25m_vehicle_mobaxterm.sh" in script
+    assert "bash griffin_repro/run_smoke_25m_vehicle_mobaxterm.sh" in script
+    assert "smoke_25m_vehicle_supervisor.latest" in script
+    assert "run_smoke_25m_instance_mobaxterm.sh" not in script
 
 
 def test_sync_remote_dry_run_limits_upload_to_repro_files():
