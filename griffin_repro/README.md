@@ -6,7 +6,7 @@ This directory isolates the Griffin paper reproduction from the legacy CarlaAir 
 
 The immediate goal is to reproduce the paper structure and run a real partial closure, not to download and rerun the full 973 GB-scale dataset in one pass. The selected smoke profile is `smoke_25m_instance`, which runs the Griffin-25m cooperative instance-fusion baseline when the selected dataset and checkpoints are present.
 
-The full paper matrix is represented by `manifest.json` and by `python scripts/griffin_repro.py paper-matrix`: four Griffin scene groups, seven fusion methods, the AP/AMOTA/BPS/FPS metric set, and robustness conditions for latency, packet loss, translation error, and rotation error.
+The full paper matrix is represented by `manifest.json` and by `python scripts/griffin_repro.py paper-matrix`: four Griffin scene groups, seven fusion methods, the AP/AMOTA/BPS/FPS metric set, and robustness conditions for latency, packet loss, translation error, and rotation error. Use `paper-run-matrix` when you need the same paper rows expanded into concrete official config/checkpoint commands and runnable-status labels.
 
 ## Layout
 
@@ -29,6 +29,7 @@ python -m pytest tests/test_griffin_repro.py -q
 python scripts/griffin_repro.py verify-layout
 python scripts/griffin_repro.py summarize-results
 python scripts/griffin_repro.py paper-matrix
+python scripts/griffin_repro.py paper-run-matrix --dataset 50scenes_25m --include-robustness
 python scripts/griffin_repro.py data-packages --dataset 50scenes_25m
 python scripts/griffin_repro.py data-packages --dataset 50scenes_25m --package-profile smoke_25m_instance
 python scripts/griffin_repro.py write-data-script --dataset 50scenes_25m --package-profile smoke_25m_instance --out griffin_repro/download_50scenes_25m_mobaxterm.sh
@@ -154,5 +155,7 @@ The sync script uploads only `griffin_repro`, `scripts/griffin_repro.py`, `scrip
 ## Matrix Notes
 
 `paper-matrix` confirms the parsed official result table contains 142 result rows and all 28 zero-noise dataset/method baselines. It also records the paper scene counts used by the official docs: 47 Griffin-25m scenes, 54 Griffin-40m scenes, 50 Griffin-55m scenes, and 104 random-altitude scenes.
+
+`paper-run-matrix` converts the same rows into executable status records. It maps vehicle-side, early-fusion, CoopTrack instance-fusion, and late-fusion entries to the official config paths, expected checkpoint paths, and MobaXterm-ready commands. With `--include-robustness`, Griffin-25m latency, packet-loss, translation-error, and rotation-error configs are included when they exist in the upstream zip. Rows without runnable configs in this release are retained as `paper_result_only`, so the paper table is still represented without pretending those methods can be launched from missing assets.
 
 Some paper methods are present in `docs/detailed_results.csv` even when this zip does not include runnable config files. In particular, `Where2Comm` is retained in the paper matrix, while runnable status must be checked from the actual config paths exposed by `list-profiles` or direct file checks.

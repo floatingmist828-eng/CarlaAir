@@ -70,6 +70,20 @@ ROBUSTNESS = {
     "rotation_error_deg": [1, 2, 3, 4, 5],
 }
 
+CHECKPOINT_ITERS = {
+    "100scenes_random": "iter_36072.pth",
+    "50scenes_25m": "iter_33024.pth",
+    "50scenes_40m": "iter_38784.pth",
+    "50scenes_55m": "iter_35760.pth",
+}
+
+RUNNABLE_METHODS = {
+    "0-no fusion",
+    "1-early fusion",
+    "2b1-cooptrack",
+    "3-late fusion",
+}
+
 DATA_PACKAGES = {
     "50scenes_25m": [
         ("datasets/griffin_50scenes_25m/drone_camera_back.zip", 19492671867),
@@ -726,6 +740,229 @@ def paper_matrix() -> dict[str, Any]:
     }
 
 
+def config_path_exists(path: str | None) -> bool:
+    return bool(path and (OFFICIAL_ROOT / path).exists())
+
+
+def checkpoint_path_exists(path: str | None) -> bool:
+    return bool(path and (OFFICIAL_ROOT / path).exists())
+
+
+def first_existing_config(candidates: list[str]) -> str:
+    for candidate in candidates:
+        if config_path_exists(candidate):
+            return candidate
+    return candidates[0]
+
+
+def base_config_for(dataset: str, method: str) -> str | None:
+    prefix = dataset_prefix(dataset)
+    if method == "0-no fusion":
+        return first_existing_config(
+            [
+                f"projects/configs_{prefix}/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+                f"projects/configs_{prefix}/vehicle-side/tiny_track_r50_stream_bs8_24epoch_3cls.py",
+            ]
+        )
+    if method == "1-early fusion":
+        return first_existing_config(
+            [
+                f"projects/configs_{prefix}/early-fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+                f"projects/configs_{prefix}/early-fusion/tiny_track_r50_stream_bs8_24epoch_3cls.py",
+            ]
+        )
+    if method == "2b1-cooptrack":
+        return first_existing_config(
+            [
+                f"projects/configs_{prefix}/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+                f"projects/configs_{prefix}/cooperative/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+                f"projects/configs_{prefix}/cooperative/tiny_track_r50_stream_bs8_24epoch_3cls.py",
+            ]
+        )
+    if method == "3-late fusion":
+        return first_existing_config(
+            [
+                f"projects/configs_{prefix}/cooperative/late_fusion/tiny_track_r50_stream_bs1_3cls_late_fusion.py",
+                f"projects/configs_{prefix}/cooperative/tiny_track_r50_stream_bs1_3cls_late_fusion.py",
+            ]
+        )
+    return None
+
+
+def checkpoint_for(dataset: str, method: str) -> str | None:
+    prefix = dataset_prefix(dataset)
+    iteration = CHECKPOINT_ITERS[dataset]
+    if method == "0-no fusion":
+        return f"ckpts/{prefix}/vehicle-side/{iteration}"
+    if method == "1-early fusion":
+        return f"ckpts/{prefix}/early-fusion/{iteration}"
+    if method == "2b1-cooptrack":
+        return f"ckpts/{prefix}/cooperative/instance_fusion/{iteration}"
+    return None
+
+
+def condition_from_row(row: dict[str, str]) -> tuple[str, dict[str, float]]:
+    latency = float(row["communication latency"])
+    packet_loss = float(row["packet loss"])
+    translation = float(row["translation error"])
+    rotation = float(row["rotation error"])
+    if latency:
+        return f"communication_latency_ms_{int(latency)}", {"communication_latency_ms": int(latency)}
+    if packet_loss:
+        return f"packet_loss_{packet_loss:g}", {"packet_loss": packet_loss}
+    if translation:
+        return f"translation_error_m_{translation:g}", {"translation_error_m": translation}
+    if rotation:
+        return f"rotation_error_deg_{int(rotation)}", {"rotation_error_deg": int(rotation)}
+    return "baseline", {}
+
+
+def robustness_config(base_config: str | None, method: str, condition: dict[str, float]) -> str | None:
+    if not base_config or not condition:
+        return base_config
+
+    path = Path(base_config)
+    stem = path.stem
+    if "packet_loss" in condition:
+        value = int(round(float(condition["packet_loss"]) * 100))
+        folder = "drop_noised"
+        suffix = f"drop{value}"
+    elif "communication_latency_ms" in condition:
+        value = int(condition["communication_latency_ms"])
+        folder = "latency"
+        suffix = f"{value}latency"
+    elif "translation_error_m" in condition:
+        value = int(round(float(condition["translation_error_m"]) * 10))
+        folder = "loc_noised"
+        suffix = f"loc{value:02d}"
+    elif "rotation_error_deg" in condition:
+        value = int(condition["rotation_error_deg"])
+        folder = "orien_noised"
+        suffix = f"orien{value * 10}" if method == "3-late fusion" else f"orien{value}"
+    else:
+        return base_config
+
+    return str(path.with_name(folder) / f"{stem}_{suffix}.py").replace("\\", "/")
+
+
+def late_fusion_track_config(config: str | None) -> str | None:
+    if not config:
+        return None
+    path = Path(config)
+    candidate = str(path.with_name(f"{path.stem}_ab3dmot.py")).replace("\\", "/")
+    if config_path_exists(candidate):
+        return candidate
+    config_group = config.split("/")[1]
+    dataset = config_group.replace("configs_griffin_", "", 1)
+    base = base_config_for(dataset, "3-late fusion")
+    if not base:
+        return None
+    base_path = Path(base)
+    return str(base_path.with_name(f"{base_path.stem}_ab3dmot.py")).replace("\\", "/")
+
+
+def command_for_row(dataset: str, method: str, config: str | None, checkpoint: str | None) -> tuple[str | None, str | None]:
+    prefix = dataset_prefix(dataset)
+    if not config:
+        return None, None
+    if method == "3-late fusion":
+        track_config = late_fusion_track_config(config)
+        veh_pkl = f"projects/work_dirs_{prefix}/vehicle-side/results.pkl"
+        drone_pkl = f"projects/work_dirs_{prefix}/drone-side/results.pkl"
+        return (
+            "late_fusion_pipeline",
+            "cd griffin_repro/official && "
+            f"bash tools/eval_late_fusion.sh {veh_pkl} {drone_pkl} {config} {track_config}",
+        )
+    if checkpoint:
+        return (
+            "dist_eval",
+            "cd griffin_repro/official && "
+            f"CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-0}} ./tools/dist_eval.sh {config} {checkpoint} 1",
+        )
+    return None, None
+
+
+def numeric_metrics(row: dict[str, str]) -> dict[str, float]:
+    values = {}
+    for key, value in row.items():
+        if key in {"dataset", "methods"} or value == "":
+            continue
+        try:
+            values[key] = float(value)
+        except ValueError:
+            continue
+    return values
+
+
+def paper_run_matrix(dataset: str | None = None, include_robustness: bool = False) -> dict[str, Any]:
+    rows = load_results()
+    emitted = []
+    for row in rows:
+        if dataset and row["dataset"] != dataset:
+            continue
+        condition_id, condition = condition_from_row(row)
+        if condition and not include_robustness:
+            continue
+
+        method = row["methods"]
+        base_config = base_config_for(row["dataset"], method)
+        config = robustness_config(base_config, method, condition)
+        checkpoint = checkpoint_for(row["dataset"], method)
+        command_kind, command = command_for_row(row["dataset"], method, config, checkpoint)
+        config_exists = config_path_exists(config)
+        checkpoint_exists = checkpoint_path_exists(checkpoint)
+        if method not in RUNNABLE_METHODS:
+            status = "paper_result_only"
+            config = None
+            checkpoint = None
+            command_kind = None
+            command = None
+            config_exists = False
+            checkpoint_exists = False
+        elif method == "3-late fusion" and config_exists:
+            status = "pipeline_inputs_required"
+        elif config_exists:
+            status = "runnable_config"
+        else:
+            status = "missing_config"
+
+        metrics = numeric_metrics(row)
+        emitted.append(
+            {
+                "dataset": row["dataset"],
+                "dataset_prefix": dataset_prefix(row["dataset"]),
+                "method": method,
+                "condition_id": condition_id,
+                "condition": condition,
+                "AP": metrics.get("AP"),
+                "AMOTA": metrics.get("AMOTA"),
+                "metrics": metrics,
+                "config": config,
+                "checkpoint": checkpoint,
+                "command_kind": command_kind,
+                "command": command,
+                "config_exists": config_exists,
+                "checkpoint_exists": checkpoint_exists,
+                "status": status,
+            }
+        )
+
+    baseline = [row for row in emitted if row["condition_id"] == "baseline"]
+    return {
+        "rows": emitted,
+        "summary": {
+            "result_rows": len(rows),
+            "paper_result_rows": len(rows),
+            "emitted_rows": len(emitted),
+            "baseline_rows": len(baseline),
+            "baseline_complete": len(baseline) == len(DATASETS) * len(FUSION_METHODS) if dataset is None else True,
+            "runnable_config_rows": sum(row["status"] in {"runnable_config", "pipeline_inputs_required"} for row in emitted),
+            "paper_result_only_rows": sum(row["status"] == "paper_result_only" for row in emitted),
+        },
+    }
+
+
 def partial_run_plan(profile_name: str) -> dict[str, Any]:
     payload = profile_payload(profile_name)
     prefix = dataset_prefix(payload["dataset"])
@@ -962,6 +1199,11 @@ def main(argv: list[str] | None = None) -> int:
     paper_parser = subparsers.add_parser("paper-matrix")
     paper_parser.add_argument("--json", action="store_true")
 
+    paper_run_parser = subparsers.add_parser("paper-run-matrix")
+    paper_run_parser.add_argument("--dataset", choices=sorted(DATASETS))
+    paper_run_parser.add_argument("--include-robustness", action="store_true")
+    paper_run_parser.add_argument("--json", action="store_true")
+
     profiles_parser = subparsers.add_parser("list-profiles")
     profiles_parser.add_argument("--json", action="store_true")
 
@@ -1016,6 +1258,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(write_env_script(args.out), args.json)
     elif args.command == "paper-matrix":
         emit(paper_matrix(), args.json)
+    elif args.command == "paper-run-matrix":
+        emit(paper_run_matrix(args.dataset, args.include_robustness), args.json)
     elif args.command == "list-profiles":
         emit(list_profiles(), args.json)
     elif args.command == "matrix":

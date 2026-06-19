@@ -110,6 +110,65 @@ def test_paper_matrix_cli_covers_paper_scenes_metrics_fusions_and_robustness():
     assert payload["robustness"]["rotation_error_deg"] == [1, 2, 3, 4, 5]
 
 
+def test_paper_run_matrix_maps_baselines_to_runnable_official_configs():
+    result = run_cli("paper-run-matrix", "--json")
+    payload = json.loads(result.stdout)
+    rows = payload["rows"]
+    by_key = {(row["dataset"], row["method"], row["condition_id"]): row for row in rows}
+
+    assert payload["summary"]["paper_result_rows"] == 142
+    assert payload["summary"]["baseline_rows"] == 28
+    assert payload["summary"]["baseline_complete"] is True
+
+    coop = by_key[("50scenes_25m", "2b1-cooptrack", "baseline")]
+    assert coop["AP"] == 0.479
+    assert coop["AMOTA"] == 0.488
+    assert coop["config"] == "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py"
+    assert coop["checkpoint"] == "ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth"
+    assert coop["command_kind"] == "dist_eval"
+    assert coop["config_exists"] is True
+    assert coop["checkpoint_exists"] is True
+    assert coop["status"] == "runnable_config"
+
+    where2comm = by_key[("50scenes_25m", "2a2-where2comm", "baseline")]
+    assert where2comm["status"] == "paper_result_only"
+    assert where2comm["config"] is None
+    assert where2comm["command"] is None
+
+
+def test_paper_run_matrix_can_emit_25m_robustness_commands():
+    result = run_cli(
+        "paper-run-matrix",
+        "--dataset",
+        "50scenes_25m",
+        "--include-robustness",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    rows = payload["rows"]
+    by_key = {(row["method"], row["condition_id"]): row for row in rows}
+
+    assert payload["summary"]["result_rows"] == 142
+    assert payload["summary"]["emitted_rows"] > 28
+
+    packet = by_key[("2b1-cooptrack", "packet_loss_0.2")]
+    assert packet["condition"] == {"packet_loss": 0.2}
+    assert packet["config"] == "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/drop_noised/tiny_track_r50_stream_bs8_48epoch_3cls_drop20.py"
+    assert packet["checkpoint"] == "ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth"
+    assert packet["command_kind"] == "dist_eval"
+    assert packet["config_exists"] is True
+
+    early_loc = by_key[("1-early fusion", "translation_error_m_1.5")]
+    assert early_loc["config"] == "projects/configs_griffin_50scenes_25m/early-fusion/loc_noised/tiny_track_r50_stream_bs8_48epoch_3cls_loc15.py"
+    assert early_loc["command_kind"] == "dist_eval"
+
+    late_latency = by_key[("3-late fusion", "communication_latency_ms_200")]
+    assert late_latency["config"] == "projects/configs_griffin_50scenes_25m/cooperative/late_fusion/latency/tiny_track_r50_stream_bs1_3cls_late_fusion_200latency.py"
+    assert late_latency["command_kind"] == "late_fusion_pipeline"
+    assert "tools/eval_late_fusion.sh" in late_latency["command"]
+    assert "tiny_track_r50_stream_bs1_3cls_late_fusion_200latency_ab3dmot.py" in late_latency["command"]
+
+
 def test_list_profiles_marks_runnable_configs_and_expected_metrics():
     result = run_cli("list-profiles", "--json")
     payload = json.loads(result.stdout)

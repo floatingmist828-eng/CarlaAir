@@ -19,6 +19,8 @@ Repository-level helpers live in `scripts/` so they can be run from the CarlaAir
 - Metrics: AP, AMOTA, BPS, and FPS.
 - Robustness axes: 100-400 ms latency, 10-50% packet loss, 0.5-2.5 m translation error, and 1-5 degree rotation error.
 
+`scripts/griffin_repro.py paper-run-matrix` is the execution contract layered on top of the paper matrix. It expands rows from `docs/detailed_results.csv` into official config paths, expected checkpoint paths, command kinds, commands, metric values, and status labels. Runnable official configs are marked separately from `paper_result_only` methods whose results are present in the paper CSV but whose runnable configs are not included in this upstream zip.
+
 The generated `griffin_repro/setup_griffin_env_mobaxterm.sh` bootstraps the remote Linux environment when Conda is absent. It installs Miniconda in the user's home directory, creates the isolated `griffin` Python 3.8 environment, installs the paper PyTorch/MMCV/MMDetection/MMSegmentation/MMDetection3D versions, and finishes with `env-check --strict`.
 
 The generated `griffin_repro/run_smoke_25m_instance_mobaxterm.sh` is the operational closure for the user-run MobaXterm path. It auto-activates the isolated Griffin environment, stages raw-data checks, official conversion, drone track-query extraction, final evaluation asset checks, and the cooperative instance-fusion eval command.
@@ -27,6 +29,6 @@ The generated `griffin_repro/run_smoke_25m_instance_mobaxterm.sh` is the operati
 
 ## Verification
 
-The local test suite verifies that the official tree is isolated, the paper result CSV can be parsed, all 28 zero-noise baselines are represented, the selected smoke profile resolves to real Griffin eval commands, the Griffin-25m full and smoke data package manifests are explicit, the generated data script uses resumable downloads plus selected MD5 extraction checks, the generated environment script pins the paper dependency stack, eval logs can be validated against AP/AMOTA references, and remote sync dry-run scope excludes legacy driving code.
+The local test suite verifies that the official tree is isolated, the paper result CSV can be parsed, all 28 zero-noise baselines are represented, the selected smoke profile resolves to real Griffin eval commands, the paper run matrix maps baseline and Griffin-25m robustness rows to official configs or paper-only status, the Griffin-25m full and smoke data package manifests are explicit, the generated data script uses resumable downloads plus selected MD5 extraction checks, the generated environment script pins the paper dependency stack, eval logs can be validated against AP/AMOTA references, and remote sync dry-run scope excludes legacy driving code.
 
 Real experimental verification requires the Griffin Linux GPU environment plus the selected Griffin-25m raw data, drone checkpoint, cooperative instance-fusion checkpoint, and generated info/query assets. The smoke profile target is the paper's `50scenes_25m / 2b1-cooptrack` result: AP `0.479`, AMOTA `0.488`.
