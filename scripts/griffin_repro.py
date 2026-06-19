@@ -2066,6 +2066,7 @@ def main(argv: list[str] | None = None) -> int:
     materialize_parser.add_argument("--scene-limit", type=int, default=1)
     materialize_parser.add_argument("--max-samples", type=int)
     materialize_parser.add_argument("--source-ann")
+    materialize_parser.add_argument("--out-tag")
     materialize_parser.add_argument("--dry-run", action="store_true")
     materialize_parser.add_argument("--json", action="store_true")
 

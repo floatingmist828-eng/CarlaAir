@@ -446,6 +446,57 @@ def test_materialize_partial_images_dry_run_returns_plan_without_writes(tmp_path
     assert not (official / "datasets").exists()
 
 
+def test_materialize_partial_images_cli_accepts_shared_out_tag(tmp_path, capsys):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    prefix = "griffin_50scenes_25m"
+    ann = official / "data" / "infos" / prefix / "vehicle-side" / "griffin_infos_val.pkl"
+    ann.parent.mkdir(parents=True)
+    with ann.open("wb") as handle:
+        pickle.dump(
+            {
+                "infos": [
+                    {
+                        "token": "veh_001",
+                        "scene_token": "scene_0",
+                        "timestamp": 1,
+                        "cams": {"CAM_FRONT": {"data_path": "samples/CAM_FRONT/000001.png"}},
+                    }
+                ],
+                "metadata": {"version": "v1.0-trainval"},
+            },
+            handle,
+        )
+
+    module.OFFICIAL_ROOT = official
+    code = module.main(
+        [
+            "materialize-partial-images",
+            "--profile",
+            "smoke_25m_vehicle",
+            "--image-side",
+            "vehicle-side",
+            "--scene-limit",
+            "1",
+            "--max-samples",
+            "1",
+            "--out-tag",
+            "partial_1scene_1samples",
+            "--dry-run",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True
+    assert payload["planned_items"] == 1
+
+
 def test_script_writers_are_compatible_with_python38_pathlib(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
