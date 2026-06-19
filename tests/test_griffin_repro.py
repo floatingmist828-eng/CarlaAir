@@ -290,6 +290,66 @@ def test_prepare_partial_eval_writes_scene_subset_and_config(tmp_path):
     assert "test=dict(ann_file=ann_file_val)" in config
 
 
+def test_prepare_partial_eval_can_sample_each_selected_scene(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    prefix = "griffin_50scenes_25m"
+    source_ann = official / "data" / "infos" / prefix / "cooperative" / "griffin_infos_val.pkl"
+    base_config = official / module.profile_payload("smoke_25m_instance")["config"]
+    out_config = (
+        official
+        / "projects"
+        / f"configs_{prefix}"
+        / "cooperative"
+        / "instance_fusion"
+        / "tiny_track_r50_stream_bs8_48epoch_3cls_partial_3scene_2per_scene.py"
+    )
+    source_ann.parent.mkdir(parents=True)
+    base_config.parent.mkdir(parents=True)
+    base_config.write_text("# base config\n", encoding="utf-8")
+
+    infos = []
+    for scene_idx in range(3):
+        for sample_idx in range(4):
+            infos.append(
+                {
+                    "token": f"scene_{scene_idx}_{sample_idx}",
+                    "scene_token": f"scene_{scene_idx}",
+                    "timestamp": scene_idx * 100 + sample_idx,
+                    "cams": {},
+                }
+            )
+    with source_ann.open("wb") as handle:
+        pickle.dump({"infos": infos, "metadata": {"version": "v1.0-trainval"}}, handle)
+
+    module.OFFICIAL_ROOT = official
+    payload = module.prepare_partial_eval(
+        "smoke_25m_instance",
+        scene_limit=3,
+        samples_per_scene=2,
+        out_tag="partial_3scene_2per_scene",
+    )
+
+    assert payload["selected_scene_count"] == 3
+    assert payload["selected_sample_count"] == 6
+    assert payload["selected_scenes"] == ["scene_0", "scene_1", "scene_2"]
+    assert payload["config"] == module._relative_posix(out_config, official)
+    with (official / payload["ann_file"]).open("rb") as handle:
+        written = pickle.load(handle)
+    assert [info["token"] for info in written["infos"]] == [
+        "scene_0_0",
+        "scene_0_1",
+        "scene_1_0",
+        "scene_1_1",
+        "scene_2_0",
+        "scene_2_1",
+    ]
+
+
 def test_prepare_drone_query_partial_eval_matches_cooperative_air_tokens(tmp_path):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
@@ -811,6 +871,16 @@ def test_write_mobaxterm_script_can_run_partial_final_eval(tmp_path):
     assert "final_eval_to_run=\"$partial_eval_command\"" in script
     assert "eval \"$final_eval_to_run\"" in script
     assert "GRIFFIN_PARTIAL_METRIC_TOLERANCE" in script
+
+
+def test_write_mobaxterm_script_can_sample_each_scene(tmp_path):
+    out_path = tmp_path / "run_smoke.sh"
+    run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")
+    script = out_path.read_text(encoding="utf-8")
+
+    assert "GRIFFIN_PARTIAL_SAMPLES_PER_SCENE" in script
+    assert '--samples-per-scene "$partial_samples_per_scene"' in script
+    assert 'partial_${partial_scene_limit}scene_${partial_samples_per_scene}per_scene' in script
 
 
 def test_write_mobaxterm_script_prepares_partial_images_and_drone_query(tmp_path):

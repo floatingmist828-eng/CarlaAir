@@ -56,11 +56,14 @@ check_assets "preprocess" "${preprocess_assets[@]}"
 
 partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"
 partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"
+partial_samples_per_scene="${GRIFFIN_PARTIAL_SAMPLES_PER_SCENE:-}"
 partial_metric_tolerance="${GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}"
 partial_args=()
 if [ "$partial_scene_limit" -gt 0 ]; then
   partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${partial_scene_limit}scene")
-  if [ -n "$partial_max_samples" ]; then
+  if [ -n "$partial_samples_per_scene" ]; then
+    partial_args+=(--samples-per-scene "$partial_samples_per_scene" --out-tag "partial_${partial_scene_limit}scene_${partial_samples_per_scene}per_scene")
+  elif [ -n "$partial_max_samples" ]; then
     partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${partial_scene_limit}scene_${partial_max_samples}samples")
   fi
 fi

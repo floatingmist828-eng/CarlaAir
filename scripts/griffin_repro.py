@@ -1119,11 +1119,14 @@ def _select_infos_for_partial_eval(
     infos: list[dict[str, Any]],
     scene_limit: int,
     max_samples: int | None,
+    samples_per_scene: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if scene_limit < 1:
         raise SystemExit("--scene-limit must be at least 1")
     if max_samples is not None and max_samples < 1:
         raise SystemExit("--max-samples must be at least 1 when provided")
+    if samples_per_scene is not None and samples_per_scene < 1:
+        raise SystemExit("--samples-per-scene must be at least 1 when provided")
 
     sorted_infos = sorted(infos, key=lambda item: item.get("timestamp", 0))
     selected_scenes = []
@@ -1136,7 +1139,19 @@ def _select_infos_for_partial_eval(
             if len(selected_scenes) == scene_limit:
                 break
     selected_scene_set = set(selected_scenes)
-    selected_infos = [info for info in sorted_infos if info.get("scene_token") in selected_scene_set]
+    if samples_per_scene is None:
+        selected_infos = [info for info in sorted_infos if info.get("scene_token") in selected_scene_set]
+    else:
+        grouped_infos: dict[str, list[dict[str, Any]]] = {scene: [] for scene in selected_scenes}
+        for info in sorted_infos:
+            scene_token = info.get("scene_token")
+            if scene_token in grouped_infos and len(grouped_infos[scene_token]) < samples_per_scene:
+                grouped_infos[scene_token].append(info)
+        selected_infos = [
+            info
+            for scene in selected_scenes
+            for info in grouped_infos.get(scene, [])
+        ]
     if max_samples is not None:
         selected_infos = selected_infos[:max_samples]
     selected_scenes = list(dict.fromkeys(info["scene_token"] for info in selected_infos if "scene_token" in info))
@@ -1149,6 +1164,7 @@ def prepare_partial_eval(
     profile_name: str,
     scene_limit: int = 1,
     max_samples: int | None = None,
+    samples_per_scene: int | None = None,
     source_ann: str | None = None,
     out_ann: str | None = None,
     out_config: str | None = None,
@@ -1185,6 +1201,7 @@ def prepare_partial_eval(
         list(data.get("infos", [])),
         scene_limit,
         max_samples,
+        samples_per_scene,
     )
     out_payload = dict(data)
     out_payload["infos"] = selected_infos
@@ -1266,6 +1283,7 @@ def _selected_cooperative_infos(
     profile_name: str,
     scene_limit: int,
     max_samples: int | None,
+    samples_per_scene: int | None = None,
     source_ann: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[str], Path]:
     profile = profile_payload(profile_name)
@@ -1280,6 +1298,7 @@ def _selected_cooperative_infos(
         list(data.get("infos", [])),
         scene_limit,
         max_samples,
+        samples_per_scene,
     )
     return data, selected_infos, selected_scenes, source_ann_path
 
@@ -1288,6 +1307,7 @@ def prepare_drone_query_partial_eval(
     profile_name: str,
     scene_limit: int = 1,
     max_samples: int | None = None,
+    samples_per_scene: int | None = None,
     source_ann: str | None = None,
     out_ann: str | None = None,
     out_config: str | None = None,
@@ -1299,6 +1319,7 @@ def prepare_drone_query_partial_eval(
         profile_name,
         scene_limit,
         max_samples,
+        samples_per_scene,
         source_ann,
     )
     drone_ann_path = OFFICIAL_ROOT / "data" / "infos" / prefix / "drone-side" / "griffin_infos_val.pkl"
@@ -1389,6 +1410,7 @@ def _infos_for_partial_images(
     image_side: str,
     scene_limit: int,
     max_samples: int | None,
+    samples_per_scene: int | None = None,
     source_ann: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[str], Path]:
     profile = profile_payload(profile_name)
@@ -1402,6 +1424,7 @@ def _infos_for_partial_images(
             list(data.get("infos", [])),
             scene_limit,
             max_samples,
+            samples_per_scene,
         )
         return data, selected_infos, selected_scenes, source_ann_path
     if profile["method"] == "0-no fusion":
@@ -1411,6 +1434,7 @@ def _infos_for_partial_images(
             list(data.get("infos", [])),
             scene_limit,
             max_samples,
+            samples_per_scene,
         )
         return data, selected_infos, selected_scenes, source_ann_path
 
@@ -1418,6 +1442,7 @@ def _infos_for_partial_images(
         profile_name,
         scene_limit,
         max_samples,
+        samples_per_scene,
     )
     if image_side == "vehicle-side":
         return coop_data, selected_coop_infos, selected_scenes, coop_ann_path
@@ -1443,6 +1468,7 @@ def partial_image_materialization_plan(
     image_side: str,
     scene_limit: int = 1,
     max_samples: int | None = None,
+    samples_per_scene: int | None = None,
     source_ann: str | None = None,
 ) -> dict[str, Any]:
     profile = profile_payload(profile_name)
@@ -1453,6 +1479,7 @@ def partial_image_materialization_plan(
         image_side,
         scene_limit,
         max_samples,
+        samples_per_scene,
         source_ann,
     )
     archive_prefix = "drone" if image_side == "drone-side" else "vehicle"
@@ -1609,6 +1636,7 @@ def materialize_partial_images(
     image_side: str,
     scene_limit: int = 1,
     max_samples: int | None = None,
+    samples_per_scene: int | None = None,
     source_ann: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
@@ -1617,6 +1645,7 @@ def materialize_partial_images(
         image_side,
         scene_limit,
         max_samples,
+        samples_per_scene,
         source_ann,
     )
     written = 0
@@ -1732,11 +1761,14 @@ check_assets "preprocess" "${{preprocess_assets[@]}}"
 
 partial_scene_limit="${{GRIFFIN_PARTIAL_SCENE_LIMIT:-1}}"
 partial_max_samples="${{GRIFFIN_PARTIAL_MAX_SAMPLES:-20}}"
+partial_samples_per_scene="${{GRIFFIN_PARTIAL_SAMPLES_PER_SCENE:-}}"
 partial_metric_tolerance="${{GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}}"
 partial_args=()
 if [ "$partial_scene_limit" -gt 0 ]; then
   partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${{partial_scene_limit}}scene")
-  if [ -n "$partial_max_samples" ]; then
+  if [ -n "$partial_samples_per_scene" ]; then
+    partial_args+=(--samples-per-scene "$partial_samples_per_scene" --out-tag "partial_${{partial_scene_limit}}scene_${{partial_samples_per_scene}}per_scene")
+  elif [ -n "$partial_max_samples" ]; then
     partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${{partial_scene_limit}}scene_${{partial_max_samples}}samples")
   fi
 fi
@@ -2044,6 +2076,7 @@ def main(argv: list[str] | None = None) -> int:
     prepare_partial_parser.add_argument("--profile", required=True)
     prepare_partial_parser.add_argument("--scene-limit", type=int, default=1)
     prepare_partial_parser.add_argument("--max-samples", type=int)
+    prepare_partial_parser.add_argument("--samples-per-scene", type=int)
     prepare_partial_parser.add_argument("--source-ann")
     prepare_partial_parser.add_argument("--out-ann")
     prepare_partial_parser.add_argument("--out-config")
@@ -2054,6 +2087,7 @@ def main(argv: list[str] | None = None) -> int:
     drone_query_parser.add_argument("--profile", required=True)
     drone_query_parser.add_argument("--scene-limit", type=int, default=1)
     drone_query_parser.add_argument("--max-samples", type=int)
+    drone_query_parser.add_argument("--samples-per-scene", type=int)
     drone_query_parser.add_argument("--source-ann")
     drone_query_parser.add_argument("--out-ann")
     drone_query_parser.add_argument("--out-config")
@@ -2065,6 +2099,7 @@ def main(argv: list[str] | None = None) -> int:
     materialize_parser.add_argument("--image-side", required=True, choices=["vehicle-side", "drone-side"])
     materialize_parser.add_argument("--scene-limit", type=int, default=1)
     materialize_parser.add_argument("--max-samples", type=int)
+    materialize_parser.add_argument("--samples-per-scene", type=int)
     materialize_parser.add_argument("--source-ann")
     materialize_parser.add_argument("--out-tag")
     materialize_parser.add_argument("--dry-run", action="store_true")
@@ -2134,6 +2169,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.profile,
                 args.scene_limit,
                 args.max_samples,
+                args.samples_per_scene,
                 args.source_ann,
                 args.out_ann,
                 args.out_config,
@@ -2147,6 +2183,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.profile,
                 args.scene_limit,
                 args.max_samples,
+                args.samples_per_scene,
                 args.source_ann,
                 args.out_ann,
                 args.out_config,
@@ -2161,6 +2198,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.image_side,
                 args.scene_limit,
                 args.max_samples,
+                args.samples_per_scene,
                 args.source_ann,
                 args.dry_run,
             ),
