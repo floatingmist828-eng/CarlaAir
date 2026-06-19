@@ -1177,9 +1177,12 @@ def mobaxterm_script(profile_name: str) -> str:
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
-cd "${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
+ROOT="${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
+cd "$ROOT"
 {activation}
 python scripts/griffin_repro.py env-check --strict --json
+LOG_DIR="${{GRIFFIN_SMOKE_LOG_DIR:-$ROOT/griffin_repro/artifacts/logs}}"
+mkdir -p "$LOG_DIR"
 
 check_assets() {{
   local group_name="$1"
@@ -1213,15 +1216,41 @@ evaluation_assets=(
 )
 check_assets "evaluation" "${{evaluation_assets[@]}}"
 
+partial_scene_limit="${{GRIFFIN_PARTIAL_SCENE_LIMIT:-0}}"
+partial_max_samples="${{GRIFFIN_PARTIAL_MAX_SAMPLES:-}}"
+partial_metric_tolerance="${{GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}}"
+if [ "$partial_scene_limit" -gt 0 ]; then
+  partial_json="$LOG_DIR/smoke_25m_instance_partial_eval.json"
+  partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${{partial_scene_limit}}scene")
+  if [ -n "$partial_max_samples" ]; then
+    partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${{partial_scene_limit}}scene_${{partial_max_samples}}samples")
+  fi
+  python scripts/griffin_repro.py prepare-partial-eval --profile {profile_name} "${{partial_args[@]}}" --json | tee "$partial_json"
+  partial_eval_command=$(python - "$partial_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+print(payload["command"].split("&&", 1)[1].strip())
+PY
+)
+  final_eval_to_run="$partial_eval_command"
+  validation_tolerance="$partial_metric_tolerance"
+else
+  final_eval_to_run="{final_eval_command}"
+  validation_tolerance="0.02"
+fi
+
 cd griffin_repro/official
-{final_eval_command}
+eval "$final_eval_to_run"
 latest_log=$(find projects -path '*/logs/test_*.log' -type f -printf '%T@ %p\\n' | sort -nr | head -n 1 | cut -d' ' -f2-)
 if [ -z "$latest_log" ]; then
   echo "No Griffin eval log found under griffin_repro/official/projects." >&2
   exit 3
 fi
-cd ../..
-python scripts/griffin_repro.py validate-run --profile {profile_name} --log "griffin_repro/official/${{latest_log}}" --json
+cd "$ROOT"
+python scripts/griffin_repro.py validate-run --profile {profile_name} --log "griffin_repro/official/${{latest_log}}" --tolerance "$validation_tolerance" --json
 """
 
 

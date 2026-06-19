@@ -533,6 +533,21 @@ def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     assert "carlaair_active_world" not in script
 
 
+def test_write_mobaxterm_script_can_run_partial_final_eval(tmp_path):
+    out_path = tmp_path / "run_smoke.sh"
+    run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")
+    script = out_path.read_text(encoding="utf-8")
+
+    assert "GRIFFIN_PARTIAL_SCENE_LIMIT" in script
+    assert "GRIFFIN_PARTIAL_MAX_SAMPLES" in script
+    assert "prepare-partial-eval --profile smoke_25m_instance" in script
+    assert "smoke_25m_instance_partial_eval.json" in script
+    assert "partial_eval_command=" in script
+    assert "final_eval_to_run=\"$partial_eval_command\"" in script
+    assert "eval \"$final_eval_to_run\"" in script
+    assert "GRIFFIN_PARTIAL_METRIC_TOLERANCE" in script
+
+
 def test_write_supervisor_script_retries_data_download_until_smoke_ready(tmp_path):
     out_path = tmp_path / "supervise_smoke.sh"
     result = run_cli(
