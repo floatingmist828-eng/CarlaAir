@@ -129,7 +129,7 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh
 ```
 
-The smoke script auto-activates `${HOME}/miniconda3` environment `griffin` when present. It then reports and enforces the Griffin Python package environment, checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, drone query extraction, and final cooperative instance-fusion evaluation.
+The smoke script auto-activates `${HOME}/miniconda3` environment `griffin` when present. It then reports and enforces the Griffin Python package environment, checks raw Griffin-25m data and both drone/cooperative checkpoints, then runs official conversion, partial image materialization, drone query extraction, and final cooperative instance-fusion evaluation. With the default partial setting (`GRIFFIN_PARTIAL_SCENE_LIMIT=1`, `GRIFFIN_PARTIAL_MAX_SAMPLES=20`), it avoids the full drone val split by generating a drone-side partial eval config that matches the cooperative samples through `air_sample_token`.
 
 For unattended real runs, prefer the supervisor:
 
@@ -152,6 +152,8 @@ You can also inspect and run the same pieces through the Python helper:
 
 ```bash
 python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance
+python scripts/griffin_repro.py materialize-partial-images --profile smoke_25m_instance --image-side drone-side --scene-limit 1 --max-samples 20 --dry-run
+python scripts/griffin_repro.py prepare-drone-query-partial-eval --profile smoke_25m_instance --scene-limit 1 --max-samples 20
 python scripts/griffin_repro.py validate-run --profile smoke_25m_instance --log griffin_repro/official/<path-to-eval-log>
 python scripts/griffin_repro.py run-profile --profile smoke_25m_instance
 ```
@@ -187,6 +189,27 @@ validation: passed with partial tolerance 1.0
 ```
 
 This partial run is not expected to match the full paper AP/AMOTA values exactly because the validator intentionally restricts the official val split to 20 samples for closure speed. It verifies the end-to-end path: official conversion, vehicle-side partial config generation, checkpoint loading, model inference, detection metric export, tracking metric export, AP/AMOTA parsing, and scripted validation.
+
+### Verified CoopTrack Partial Run
+
+The cooperative instance-fusion closure uses the paper's CoopTrack profile (`2b1-cooptrack`) with official vehicle/drone metadata, official conversion, drone-side query extraction, and the cooperative instance-fusion checkpoint. The default script now materializes only the selected frames needed by the one-scene partial subset before running the drone query extraction and cooperative eval.
+
+Remote evidence from the partial CoopTrack run on 2026-06-19:
+
+```text
+profile: smoke_25m_instance
+method: 2b1-cooptrack
+subset: scene_0, 20 samples
+drone-query log: griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_partial_1scene_20samples/logs/test_06191620_iter_33024_tiny_track_r50_stream_bs8_24epoch_3cls_eval_partial_1scene_20samples.log
+cooperative log: griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls_partial_1scene_20samples/logs/test_06191621_iter_33024_tiny_track_r50_stream_bs8_48epoch_3cls_partial_1scene_20samples.log
+drone-side track_query files: 20
+AP: 0.1126
+AMOTA: 0.116
+missing_metrics: []
+validation: passed with partial tolerance 1.0
+```
+
+As with the vehicle-side smoke run, this is a partial closure rather than the full paper validation split. It verifies the paper-aligned scenario/method path for CoopTrack: cooperative sample selection, vehicle/drone image availability, drone query generation, instance-fusion config generation, checkpoint loading, AP parsing, AMOTA parsing, and validator comparison against the paper reference profile.
 
 ## Remote Sync
 

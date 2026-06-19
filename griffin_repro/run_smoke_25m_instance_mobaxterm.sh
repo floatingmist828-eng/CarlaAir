@@ -54,11 +54,46 @@ preprocess_assets=(
 )
 check_assets "preprocess" "${preprocess_assets[@]}"
 
+partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"
+partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"
+partial_metric_tolerance="${GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}"
+partial_args=()
+if [ "$partial_scene_limit" -gt 0 ]; then
+  partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${partial_scene_limit}scene")
+  if [ -n "$partial_max_samples" ]; then
+    partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${partial_scene_limit}scene_${partial_max_samples}samples")
+  fi
+fi
+
 cd griffin_repro/official
 bash tools/griffin_converter.sh griffin_50scenes_25m
-CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
-CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
 cd ../..
+
+if [ "$partial_scene_limit" -gt 0 ]; then
+  python scripts/griffin_repro.py materialize-partial-images --profile smoke_25m_instance --image-side vehicle-side "${partial_args[@]}" --json | tee "$LOG_DIR/smoke_25m_instance_vehicle_partial_images.json"
+  python scripts/griffin_repro.py materialize-partial-images --profile smoke_25m_instance --image-side drone-side "${partial_args[@]}" --json | tee "$LOG_DIR/smoke_25m_instance_drone_partial_images.json"
+
+  drone_query_json="$LOG_DIR/smoke_25m_instance_drone_query_partial_eval.json"
+  python scripts/griffin_repro.py prepare-drone-query-partial-eval --profile smoke_25m_instance "${partial_args[@]}" --json | tee "$drone_query_json"
+  drone_query_eval_command=$(python - "$drone_query_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+print(payload["command"].split("&&", 1)[1].strip())
+PY
+)
+  cd griffin_repro/official
+  eval "$drone_query_eval_command"
+  cd "$ROOT"
+else
+
+  cd griffin_repro/official
+  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval_train.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
+  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} bash tools/dist_eval.sh projects/configs_griffin_50scenes_25m/drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval.py ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth 1
+  cd ../..
+fi
 
 evaluation_assets=(
   "griffin_repro/official/projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py"
@@ -69,15 +104,8 @@ evaluation_assets=(
 )
 check_assets "evaluation" "${evaluation_assets[@]}"
 
-partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"
-partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"
-partial_metric_tolerance="${GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}"
 if [ "$partial_scene_limit" -gt 0 ]; then
   partial_json="$LOG_DIR/smoke_25m_instance_partial_eval.json"
-  partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${partial_scene_limit}scene")
-  if [ -n "$partial_max_samples" ]; then
-    partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${partial_scene_limit}scene_${partial_max_samples}samples")
-  fi
   python scripts/griffin_repro.py prepare-partial-eval --profile smoke_25m_instance "${partial_args[@]}" --json | tee "$partial_json"
   partial_eval_command=$(python - "$partial_json" <<'PY'
 import json

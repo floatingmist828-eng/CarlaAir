@@ -52,6 +52,17 @@ preprocess_assets=(
 )
 check_assets "preprocess" "${preprocess_assets[@]}"
 
+partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"
+partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"
+partial_metric_tolerance="${GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}"
+partial_args=()
+if [ "$partial_scene_limit" -gt 0 ]; then
+  partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${partial_scene_limit}scene")
+  if [ -n "$partial_max_samples" ]; then
+    partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${partial_scene_limit}scene_${partial_max_samples}samples")
+  fi
+fi
+
 cd griffin_repro/official
 python - <<'PY'
 import json
@@ -80,9 +91,14 @@ create_nuscenes_infos(
     split_info=split_info,
 )
 PY
-
-
 cd ../..
+
+if [ "$partial_scene_limit" -gt 0 ]; then
+  python scripts/griffin_repro.py materialize-partial-images --profile smoke_25m_vehicle --image-side vehicle-side "${partial_args[@]}" --json | tee "$LOG_DIR/smoke_25m_vehicle_vehicle_partial_images.json"
+
+else
+  :
+fi
 
 evaluation_assets=(
   "griffin_repro/official/projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py"
@@ -92,15 +108,8 @@ evaluation_assets=(
 )
 check_assets "evaluation" "${evaluation_assets[@]}"
 
-partial_scene_limit="${GRIFFIN_PARTIAL_SCENE_LIMIT:-1}"
-partial_max_samples="${GRIFFIN_PARTIAL_MAX_SAMPLES:-20}"
-partial_metric_tolerance="${GRIFFIN_PARTIAL_METRIC_TOLERANCE:-1.0}"
 if [ "$partial_scene_limit" -gt 0 ]; then
   partial_json="$LOG_DIR/smoke_25m_vehicle_partial_eval.json"
-  partial_args=(--scene-limit "$partial_scene_limit" --out-tag "partial_${partial_scene_limit}scene")
-  if [ -n "$partial_max_samples" ]; then
-    partial_args+=(--max-samples "$partial_max_samples" --out-tag "partial_${partial_scene_limit}scene_${partial_max_samples}samples")
-  fi
   python scripts/griffin_repro.py prepare-partial-eval --profile smoke_25m_vehicle "${partial_args[@]}" --json | tee "$partial_json"
   partial_eval_command=$(python - "$partial_json" <<'PY'
 import json

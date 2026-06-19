@@ -290,6 +290,162 @@ def test_prepare_partial_eval_writes_scene_subset_and_config(tmp_path):
     assert "test=dict(ann_file=ann_file_val)" in config
 
 
+def test_prepare_drone_query_partial_eval_matches_cooperative_air_tokens(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    prefix = "griffin_50scenes_25m"
+    coop_ann = official / "data" / "infos" / prefix / "cooperative" / "griffin_infos_val.pkl"
+    drone_ann = official / "data" / "infos" / prefix / "drone-side" / "griffin_infos_val.pkl"
+    base_config = official / "projects" / f"configs_{prefix}" / "drone-side" / "tiny_track_r50_stream_bs8_24epoch_3cls_eval.py"
+    coop_ann.parent.mkdir(parents=True)
+    drone_ann.parent.mkdir(parents=True)
+    base_config.parent.mkdir(parents=True)
+    base_config.write_text("# base drone eval\n", encoding="utf-8")
+
+    coop_infos = [
+        {"token": "veh_a", "air_sample_token": "air_b", "scene_token": "scene_0", "timestamp": 20, "cams": {}},
+        {"token": "veh_b", "air_sample_token": "air_a", "scene_token": "scene_0", "timestamp": 10, "cams": {}},
+    ]
+    drone_infos = [
+        {"token": "air_a", "scene_token": "scene_0", "timestamp": 10, "cams": {}},
+        {"token": "air_b", "scene_token": "scene_0", "timestamp": 20, "cams": {}},
+    ]
+    with coop_ann.open("wb") as handle:
+        pickle.dump({"infos": coop_infos, "metadata": {"version": "v1.0-trainval"}}, handle)
+    with drone_ann.open("wb") as handle:
+        pickle.dump({"infos": drone_infos, "metadata": {"version": "v1.0-trainval"}}, handle)
+
+    module.OFFICIAL_ROOT = official
+    payload = module.prepare_drone_query_partial_eval(
+        "smoke_25m_instance",
+        scene_limit=1,
+        max_samples=2,
+        out_tag="partial_1scene_2samples",
+    )
+
+    assert payload["selected_sample_count"] == 2
+    assert payload["ann_file"] == "data/infos/griffin_50scenes_25m/drone-side/griffin_infos_val_partial_1scene_2samples.pkl"
+    assert payload["config"] == (
+        "projects/configs_griffin_50scenes_25m/drone-side/"
+        "tiny_track_r50_stream_bs8_24epoch_3cls_eval_partial_1scene_2samples.py"
+    )
+    assert "bash tools/dist_eval.sh" in payload["command"]
+    with (official / payload["ann_file"]).open("rb") as handle:
+        written = pickle.load(handle)
+    assert [info["token"] for info in written["infos"]] == ["air_a", "air_b"]
+    config = (official / payload["config"]).read_text(encoding="utf-8")
+    assert "_base_ = './tiny_track_r50_stream_bs8_24epoch_3cls_eval.py'" in config
+    assert "ann_file_val = './data/infos/griffin_50scenes_25m/drone-side/griffin_infos_val_partial_1scene_2samples.pkl'" in config
+
+
+def test_partial_image_materialization_plan_maps_drone_archive_members(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    prefix = "griffin_50scenes_25m"
+    coop_ann = official / "data" / "infos" / prefix / "cooperative" / "griffin_infos_val.pkl"
+    drone_ann = official / "data" / "infos" / prefix / "drone-side" / "griffin_infos_val.pkl"
+    coop_ann.parent.mkdir(parents=True)
+    drone_ann.parent.mkdir(parents=True)
+    with coop_ann.open("wb") as handle:
+        pickle.dump(
+            {
+                "infos": [
+                    {
+                        "token": "veh_001",
+                        "air_sample_token": "air_001",
+                        "scene_token": "scene_0",
+                        "timestamp": 1,
+                        "cams": {"CAM_FRONT": {"data_path": "samples/CAM_FRONT/000001.png"}},
+                    }
+                ],
+                "metadata": {"version": "v1.0-trainval"},
+            },
+            handle,
+        )
+    with drone_ann.open("wb") as handle:
+        pickle.dump(
+            {
+                "infos": [
+                    {
+                        "token": "air_001",
+                        "scene_token": "scene_0",
+                        "timestamp": 1,
+                        "cams": {"CAM_BOTTOM": {"data_path": "samples/CAM_BOTTOM/000001.png"}},
+                    }
+                ],
+                "metadata": {"version": "v1.0-trainval"},
+            },
+            handle,
+        )
+
+    module.OFFICIAL_ROOT = official
+    payload = module.partial_image_materialization_plan(
+        "smoke_25m_instance",
+        image_side="drone-side",
+        scene_limit=1,
+        max_samples=1,
+    )
+
+    assert payload["image_side"] == "drone-side"
+    assert payload["selected_sample_count"] == 1
+    assert payload["frames"] == ["000001"]
+    assert payload["directions"] == ["bottom"]
+    assert payload["items"][0]["archive"] == "drone_camera_bottom.zip"
+    assert payload["items"][0]["member"] == (
+        "griffin_50scenes_25m/griffin-release/drone-side/camera/bottom/000001.png"
+    )
+    assert payload["items"][0]["dest"].endswith("griffin-release/drone-side/camera/bottom/000001.png")
+
+
+def test_materialize_partial_images_dry_run_returns_plan_without_writes(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    prefix = "griffin_50scenes_25m"
+    ann = official / "data" / "infos" / prefix / "vehicle-side" / "griffin_infos_val.pkl"
+    ann.parent.mkdir(parents=True)
+    with ann.open("wb") as handle:
+        pickle.dump(
+            {
+                "infos": [
+                    {
+                        "token": "veh_001",
+                        "scene_token": "scene_0",
+                        "timestamp": 1,
+                        "cams": {"CAM_FRONT": {"data_path": "samples/CAM_FRONT/000001.png"}},
+                    }
+                ],
+                "metadata": {"version": "v1.0-trainval"},
+            },
+            handle,
+        )
+
+    module.OFFICIAL_ROOT = official
+    payload = module.materialize_partial_images(
+        "smoke_25m_vehicle",
+        image_side="vehicle-side",
+        scene_limit=1,
+        max_samples=1,
+        dry_run=True,
+    )
+
+    assert payload["dry_run"] is True
+    assert payload["planned_items"] == 1
+    assert payload["written"] == 0
+    assert not (official / "datasets").exists()
+
+
 def test_script_writers_are_compatible_with_python38_pathlib(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
@@ -606,6 +762,19 @@ def test_write_mobaxterm_script_can_run_partial_final_eval(tmp_path):
     assert "GRIFFIN_PARTIAL_METRIC_TOLERANCE" in script
 
 
+def test_write_mobaxterm_script_prepares_partial_images_and_drone_query(tmp_path):
+    out_path = tmp_path / "run_smoke.sh"
+    run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")
+    script = out_path.read_text(encoding="utf-8")
+
+    assert "materialize-partial-images --profile smoke_25m_instance --image-side vehicle-side" in script
+    assert "materialize-partial-images --profile smoke_25m_instance --image-side drone-side" in script
+    assert "prepare-drone-query-partial-eval --profile smoke_25m_instance" in script
+    assert script.index("prepare-drone-query-partial-eval --profile smoke_25m_instance") < script.index(
+        "prepare-partial-eval --profile smoke_25m_instance"
+    )
+
+
 def test_write_vehicle_mobaxterm_script_uses_profile_partial_eval_file(tmp_path):
     out_path = tmp_path / "run_smoke_vehicle.sh"
     run_cli("write-mobaxterm-script", "--profile", "smoke_25m_vehicle", "--out", str(out_path), "--json")
@@ -614,6 +783,7 @@ def test_write_vehicle_mobaxterm_script_uses_profile_partial_eval_file(tmp_path)
     assert "prepare-partial-eval --profile smoke_25m_vehicle" in script
     assert "smoke_25m_vehicle_partial_eval.json" in script
     assert "smoke_25m_instance_partial_eval.json" not in script
+    assert "else\n\nfi" not in script
 
 
 def test_vehicle_partial_run_plan_uses_vehicle_only_preprocess():
