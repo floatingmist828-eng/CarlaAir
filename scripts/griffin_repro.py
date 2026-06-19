@@ -500,6 +500,7 @@ patch_mmdet3d_setup
 python -m pip install -r "$MMDET3D_SRC/requirements/runtime.txt"
 python -m pip install -v -e "$MMDET3D_SRC" --no-deps
 
+python -m pip install "filterpy==1.4.5"
 python -m pip install -r "$ROOT/griffin_repro/official/requirements.txt"
 cd "$ROOT"
 python scripts/griffin_repro.py env-check --strict --json

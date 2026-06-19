@@ -658,6 +658,37 @@ def test_curl_range_uses_retries_and_timeout(monkeypatch):
     assert "--max-time" in captured["args"]
 
 
+def test_ab3dmot_xinshuo_compat_helpers(tmp_path):
+    sys.path.insert(0, str(OFFICIAL / "projects" / "ab3dmot_plugin"))
+    try:
+        import easydict
+        import xinshuo_io
+        import xinshuo_miscellaneous
+        import xinshuo_visualization
+    finally:
+        sys.path.pop(0)
+
+    output_file = tmp_path / "nested" / "values.txt"
+    xinshuo_io.save_txt_file(["2", "1"], output_file)
+
+    lines, count = xinshuo_io.load_txt_file(output_file)
+    folder_items, folder_count = xinshuo_io.load_list_from_folder(output_file.parent)
+
+    assert lines == ["2", "1"]
+    assert count == 2
+    assert folder_items == [str(output_file)]
+    assert folder_count == 1
+    assert xinshuo_io.fileparts(output_file) == (str(output_file.parent), "values", ".txt")
+    assert xinshuo_io.is_path_exists(output_file)
+    assert xinshuo_miscellaneous.merge_listoflist([["b", "a"], ["a"]], unique=True) == ["b", "a"]
+    log_buffer = io.StringIO()
+    xinshuo_miscellaneous.print_log("tracking started", log=log_buffer, display=False)
+    assert log_buffer.getvalue() == "tracking started\n"
+    assert len(xinshuo_miscellaneous.get_timestring()) == len("20260620_022401")
+    assert xinshuo_visualization.random_colors(2) == [(1.0, 0.0, 0.0), (0.0, 1.0, 1.0)]
+    assert easydict.EasyDict({"tracker": {"name": "ab3dmot"}}).tracker.name == "ab3dmot"
+
+
 def test_materialize_partial_images_cli_accepts_shared_out_tag(tmp_path, capsys):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
@@ -761,6 +792,7 @@ def test_write_env_script_bootstraps_isolated_paper_environment(tmp_path):
     assert "Skipping mmdet3d spconv extension" in script
     assert "python -m pip install -r \"$MMDET3D_SRC/requirements/runtime.txt\"" in script
     assert "python -m pip install -v -e \"$MMDET3D_SRC\" --no-deps" in script
+    assert "python -m pip install \"filterpy==1.4.5\"" in script
     assert "CUDA_HOME=\"${CUDA_HOME:-/usr/local/cuda}\"" in script
     assert "python scripts/griffin_repro.py env-check --strict --json" in script
     assert "carlaair_active_world" not in script
