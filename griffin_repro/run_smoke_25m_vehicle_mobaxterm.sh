@@ -40,7 +40,9 @@ check_assets "preprocess" "${preprocess_assets[@]}"
 cd griffin_repro/official
 python - <<'PY'
 import json
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path.cwd() / "tools/griffin_data_converter"))
 from tools.griffin_data_converter.trans_kitti2nuscenes import GriffinKittiToNuScenesConverter
 from tools.griffin_data_converter.generate_nuscenes_pkl import create_nuscenes_infos
 

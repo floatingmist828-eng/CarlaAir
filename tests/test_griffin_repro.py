@@ -590,6 +590,8 @@ def test_vehicle_partial_run_plan_uses_vehicle_only_preprocess():
 
     assert payload["method"] == "0-no fusion"
     assert "GriffinKittiToNuScenesConverter" in "\n".join(commands)
+    assert "sys.path.insert" in "\n".join(commands)
+    assert "tools/griffin_data_converter" in "\n".join(commands)
     assert not any("drone-side/tiny_track_r50_stream_bs8_24epoch_3cls_eval" in command for command in commands)
     assert "griffin_repro/official/ckpts/griffin_50scenes_25m/vehicle-side/iter_33024.pth" in assets
     assert "griffin_repro/official/ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth" not in assets
