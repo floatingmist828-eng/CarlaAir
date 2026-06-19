@@ -652,6 +652,8 @@ def test_curl_range_uses_retries_and_timeout(monkeypatch):
     assert module._curl_range("https://example.invalid/archive.zip", 10, 20) == b"ok"
 
     assert "--retry" in captured["args"]
+    assert "--retry-all-errors" in captured["args"]
+    assert "--http1.1" in captured["args"]
     assert "--connect-timeout" in captured["args"]
     assert "--max-time" in captured["args"]
 
