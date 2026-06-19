@@ -212,6 +212,43 @@ validation: passed with partial tolerance 1.0
 
 As with the vehicle-side smoke run, this is a partial closure rather than the full paper validation split. It verifies the paper-aligned scenario/method path for CoopTrack: cooperative sample selection, vehicle/drone image availability, drone query generation, instance-fusion config generation, checkpoint loading, AP parsing, AMOTA parsing, and validator comparison against the paper reference profile.
 
+### Expanded 10-Scene Partial Verification
+
+After the one-scene closures, the remote validation subset was expanded to all 10 scenes present in the official Griffin-25m val annotation files under `data/infos/griffin_50scenes_25m/*/griffin_infos_val.pkl`. Each val scene exposes 149 frames in this release, so increasing `GRIFFIN_PARTIAL_SCENE_LIMIT` above `10` does not add more scenes; use `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE` to increase the sampled frames per scene.
+
+The following 100-frame runs were verified on `10.2.14.120` under `/home/fp/CARLA/CarlaAir-v0.1.7/code`:
+
+```text
+subset: 10 scenes, 10 samples per scene, 100 samples total
+
+method            paper AP   paper AMOTA   partial AP   partial AMOTA   script log
+0-no fusion       0.375      0.365         0.2265       0.205           griffin_repro/artifacts/logs/smoke_25m_vehicle_10scene_10per_scene_20260619_225455.log
+1-early fusion    0.607      0.670         0.2789       0.308           griffin_repro/artifacts/logs/smoke_25m_early_10scene_10per_scene_20260619_225928.log
+2b1-cooptrack     0.479      0.488         0.1654       0.184           griffin_repro/artifacts/logs/smoke_25m_instance_10scene_10per_scene_hardened_20260619_215318.log
+```
+
+The corresponding official eval logs are:
+
+```text
+vehicle-side: projects/work_dirs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_10per_scene/logs/test_06192257_iter_33024_tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_10per_scene.log
+early-fusion: projects/work_dirs_griffin_50scenes_25m/early-fusion/tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_10per_scene/logs/test_06192313_iter_33024_tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_10per_scene.log
+cooptrack: projects/work_dirs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_10per_scene/logs/test_06192245_iter_33024_tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_10per_scene.log
+```
+
+These values are real official-evaluator outputs, but they are still partial-subset results. They prove the paper-aligned scenarios, metric path, and three runnable fusion baselines can be executed, while the AP/AMOTA values remain below the full paper references because only 100 of 1490 val frames were evaluated.
+
+To rerun the same 100-frame checks from MobaXterm:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+export GRIFFIN_PARTIAL_SCENE_LIMIT=10
+export GRIFFIN_PARTIAL_SAMPLES_PER_SCENE=10
+
+bash griffin_repro/run_smoke_25m_vehicle_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_vehicle_10scene_10per_scene_$(date +%Y%m%d_%H%M%S).log
+bash griffin_repro/run_smoke_25m_early_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_early_10scene_10per_scene_$(date +%Y%m%d_%H%M%S).log
+bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_instance_10scene_10per_scene_$(date +%Y%m%d_%H%M%S).log
+```
+
 ## Remote Sync
 
 Set the password in the shell instead of committing it:
