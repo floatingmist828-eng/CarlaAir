@@ -76,12 +76,14 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 - 进一步远端真实实验显示，当前坐标链路不是主要问题。对 drone `ref_pts` 到 vehicle frame 的 4 种矩阵候选做最近 car GT 距离统计，当前代码路径 `inv(info['vehLidar2airLidar_rt']) @ point` 最优：active query `8004`，最近 car GT XY 距离 mean `2.66m`、p50 `1.246m`、p90 `5.433m`，其他候选 mean `9.35m-15.36m`。
 - 进一步远端真实实验排除了简单 query 过滤和 checkpoint 别名问题。query score 过滤 `>=0.4` 得到 AP `0.4111`、AMOTA `0.4315`，`>=0.7` 得到 AP `0.3882`、AMOTA `0.4247`，均低于 baseline；下载并测试顶层 `cooperative.pth` 后得到 AP `0.4050`、AMOTA `0.4267`，也低于当前 nested `cooperative/instance_fusion/iter_33024.pth`。
 - 进一步远端真实实验确认 val order 没有异常：`griffin_infos_val.pkl` 为 10 scenes x 149 frames，scene 内 frame step 连续，timestamp 排序与现有顺序一致。tracker 参数微调只能小幅改善：`score_thresh=0.7` 当前最好，AP `0.4228`、AMOTA `0.4599`；`score_thresh=0.9` 提高 AP 到 `0.4246` 但 AMOTA 降到 `0.4313`；`miss_tolerance=1/3` 未能闭合论文差距。
+- 已补齐 25m 顶层 `drone-side.pth`，远端 `check-checkpoint-packages --dataset 50scenes_25m` 返回 `ready=true`、`complete_count=5/5`。顶层 `drone-side.pth` 与 nested `drone-side/iter_33024.pth` 权重并不相同，继续做了独立 query 实验：top-drone query 覆盖 `1490/1490`，active query 为 `7717`，其中 `>=0.4` 为 `6672`。
+- 使用 top-drone query 加 nested CoopTrack checkpoint 得到 AP `0.391`、AMOTA `0.433`，car `TP/FP/FN/IDS = 3734/802/4573/13`。该组合的 `TP/FN` 已接近论文 `3755/4563`，但 `FP/IDS` 和 AP/AMOTA 仍明显偏离。进一步使用 top-drone query 加顶层 `cooperative.pth` 得到 AP `0.414`、AMOTA `0.437`，car `TP/FP/FN/IDS = 4539/1250/3760/21`，仍未优于当前 baseline。
 
 结论：CoopTrack 是当前唯一未达到论文容差的核心方法。复现成果汇报中应将它列为已真实运行但未完全贴合论文的保留项；目前证据更像是 released checkpoint/code/evaluator 或论文内部后处理细节存在差异，而不是 25m validation 子集缺文件、坐标矩阵、query 时序或简单阈值问题。
 
 ## 仍未闭合的论文内容
 
-- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；但原始 full package 清单仍是 `4/15` 完整，25m checkpoint 清单是 `4/5` 完整，缺 `drone-side.pth`，因此不能表述为 25m 全量包已完整下载。
+- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。但原始 full package 清单仍是 `4/15` 完整，因此不能表述为 25m 全量原始数据包已完整下载。
 - `50scenes_40m`、`50scenes_55m`、`100scenes_random`：论文矩阵和命令映射已覆盖，且本分支已补齐 Hugging Face 数据包/checkpoint 静态清单。数据包体量分别约为 40m `203.25 GB`、55m `192.91 GB`、random `403.92 GB`；checkpoint 分别约为 40m `1.54 GB`、55m `0.88 GB`、random `1.54 GB`。远端当前尚未落盘这些大包，因此还不能声称真实复现。
 - `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
 - upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
@@ -115,6 +117,15 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --json
 ```
 
+核验本地 checkpoint 是否完整：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py check-checkpoint-packages \
+  --dataset 50scenes_25m \
+  --json
+```
+
 复查 CoopTrack gap audit：
 
 ```bash
@@ -143,4 +154,4 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 
 ## 当前结论
 
-当前分支已经完成 Griffin-25m 的主要复现闭环：数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、真实远端 A100 实验日志与汇总 artifact。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack、25m 全量原始包与缺失 drone checkpoint、40m/55m/random 数据与 checkpoint、V2X-ViT/Where2Comm/UniV2X 可运行闭环、BPS/FPS 统一测速仍需继续补齐。
+当前分支已经完成 Griffin-25m 的主要复现闭环：数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、真实远端 A100 实验日志与汇总 artifact。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack、25m 全量原始包、40m/55m/random 数据与 checkpoint、V2X-ViT/Where2Comm/UniV2X 可运行闭环、BPS/FPS 统一测速仍需继续补齐。

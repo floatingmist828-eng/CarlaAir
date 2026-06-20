@@ -1038,6 +1038,44 @@ def test_checkpoint_packages_lists_released_model_weights():
     assert payload_55m["total_size_bytes"] == 882185460
 
 
+def test_check_checkpoint_packages_reports_local_file_completeness(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkey_root = tmp_path / "repo"
+    checkpoint_root = monkey_root / "griffin_repro" / "official" / "ckpts" / "tiny_prefix"
+    checkpoint_root.mkdir(parents=True)
+    complete = checkpoint_root / "complete.pth"
+    complete.write_bytes(b"1234")
+
+    module.REPO_ROOT = monkey_root
+    module.OFFICIAL_ROOT = monkey_root / "griffin_repro" / "official"
+    module.DATASETS["tiny"] = {
+        "dataset_prefix": "tiny_prefix",
+        "scene_count": 1,
+        "altitude": "unit",
+    }
+    module.CHECKPOINT_PACKAGES["tiny"] = [
+        ("ckpts/tiny_prefix/complete.pth", 4),
+        ("ckpts/tiny_prefix/missing.pth", 6),
+    ]
+
+    summary = module.check_checkpoint_packages("tiny")
+
+    assert summary["dataset"] == "tiny"
+    assert summary["checkpoint_dir"] == "griffin_repro/official/ckpts/tiny_prefix"
+    assert summary["package_count"] == 2
+    assert summary["complete_count"] == 1
+    assert summary["complete_size_bytes"] == 4
+    assert summary["ready"] is False
+    missing = next(item for item in summary["checks"] if item["path"].endswith("missing.pth"))
+    assert missing["actual_size_bytes"] == 0
+    assert missing["missing_size_bytes"] == 6
+    assert missing["complete"] is False
+
+
 def test_data_packages_can_select_smoke_eval_archives_only():
     result = run_cli(
         "data-packages",

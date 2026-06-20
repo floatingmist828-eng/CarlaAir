@@ -893,6 +893,43 @@ def check_data_packages(dataset: str, package_profile: str = "smoke_25m_instance
     }
 
 
+def check_checkpoint_packages(dataset: str) -> dict[str, Any]:
+    payload = checkpoint_packages(dataset)
+    checkpoint_dir = OFFICIAL_ROOT / "ckpts" / payload["dataset_prefix"]
+    checks = []
+    complete_size = 0
+    for item in payload["packages"]:
+        path = OFFICIAL_ROOT / item["path"]
+        actual_size = path.stat().st_size if path.exists() else 0
+        size_delta = actual_size - item["size_bytes"]
+        complete = actual_size == item["size_bytes"]
+        if complete:
+            complete_size += actual_size
+        checks.append(
+            {
+                "path": item["path"],
+                "file": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
+                "expected_size_bytes": item["size_bytes"],
+                "actual_size_bytes": actual_size,
+                "missing_size_bytes": max(item["size_bytes"] - actual_size, 0),
+                "oversize_size_bytes": max(size_delta, 0),
+                "size_delta_bytes": size_delta,
+                "complete": complete,
+            }
+        )
+    return {
+        "dataset": dataset,
+        "dataset_prefix": payload["dataset_prefix"],
+        "checkpoint_dir": str(checkpoint_dir.relative_to(REPO_ROOT)).replace("\\", "/"),
+        "package_count": len(checks),
+        "complete_count": sum(1 for item in checks if item["complete"]),
+        "total_size_bytes": payload["total_size_bytes"],
+        "complete_size_bytes": complete_size,
+        "ready": all(item["complete"] for item in checks),
+        "checks": checks,
+    }
+
+
 def paper_matrix() -> dict[str, Any]:
     manifest = load_manifest()
     rows = load_results()
@@ -3157,6 +3194,10 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint_parser.add_argument("--dataset", required=True, choices=sorted(DATASETS))
     checkpoint_parser.add_argument("--json", action="store_true")
 
+    checkpoint_check_parser = subparsers.add_parser("check-checkpoint-packages")
+    checkpoint_check_parser.add_argument("--dataset", required=True, choices=sorted(DATASETS))
+    checkpoint_check_parser.add_argument("--json", action="store_true")
+
     data_script_parser = subparsers.add_parser("write-data-script")
     data_script_parser.add_argument("--dataset", required=True)
     data_script_parser.add_argument("--out", required=True)
@@ -3331,6 +3372,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(data_packages(args.dataset, args.package_profile), args.json)
     elif args.command == "checkpoint-packages":
         emit(checkpoint_packages(args.dataset), args.json)
+    elif args.command == "check-checkpoint-packages":
+        emit(check_checkpoint_packages(args.dataset), args.json)
     elif args.command == "write-data-script":
         emit(write_data_script(args.dataset, args.out, args.package_profile), args.json)
     elif args.command == "check-data-packages":
