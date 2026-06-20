@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
 import importlib.metadata
 import importlib.util
@@ -1718,6 +1719,27 @@ def _zip_entry_from_local_archive(archive_path: Path, member: str) -> bytes:
         return archive.read(member)
 
 
+def _materialize_partial_image_item(plan: dict[str, Any], item: dict[str, Any]) -> None:
+    dest = Path(item["dest"])
+    archive_path = OFFICIAL_ROOT / "datasets" / plan["dataset_prefix"] / "archives" / item["archive"]
+    if archive_path.exists() and archive_path.stat().st_size == item["archive_size_bytes"]:
+        data = _zip_entry_from_local_archive(archive_path, item["member"])
+    else:
+        data = _zip_entry_from_url(item["url"], item["archive_size_bytes"], item["member"])
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(dest)
+
+
+def _materialize_jobs_from_env() -> int:
+    raw_value = os.environ.get("GRIFFIN_MATERIALIZE_JOBS", "1")
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        raise SystemExit(f"GRIFFIN_MATERIALIZE_JOBS must be an integer, got {raw_value!r}")
+
+
 def materialize_partial_images(
     profile_name: str,
     image_side: str,
@@ -1739,6 +1761,7 @@ def materialize_partial_images(
     skipped = 0
     if not dry_run:
         total = len(plan["items"])
+        missing_items = []
         for index, item in enumerate(plan["items"], start=1):
             dest = Path(item["dest"])
             print(
@@ -1749,22 +1772,35 @@ def materialize_partial_images(
             if dest.exists() and dest.stat().st_size > 0:
                 skipped += 1
                 continue
-            archive_path = OFFICIAL_ROOT / "datasets" / plan["dataset_prefix"] / "archives" / item["archive"]
-            if archive_path.exists() and archive_path.stat().st_size == item["archive_size_bytes"]:
-                data = _zip_entry_from_local_archive(archive_path, item["member"])
-            else:
-                data = _zip_entry_from_url(item["url"], item["archive_size_bytes"], item["member"])
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            tmp = dest.with_suffix(dest.suffix + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(dest)
-            written += 1
+            missing_items.append(item)
+        materialize_jobs = _materialize_jobs_from_env()
+        if materialize_jobs == 1:
+            for item in missing_items:
+                _materialize_partial_image_item(plan, item)
+                written += 1
+        else:
+            remote_archives = {}
+            for item in missing_items:
+                archive_path = OFFICIAL_ROOT / "datasets" / plan["dataset_prefix"] / "archives" / item["archive"]
+                if not (archive_path.exists() and archive_path.stat().st_size == item["archive_size_bytes"]):
+                    remote_archives[(item["url"], item["archive_size_bytes"])] = None
+            for url, archive_size in remote_archives:
+                _central_directory_from_url(url, archive_size)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=materialize_jobs) as executor:
+                future_to_item = {
+                    executor.submit(_materialize_partial_image_item, plan, item): item
+                    for item in missing_items
+                }
+                for future in concurrent.futures.as_completed(future_to_item):
+                    future.result()
+                    written += 1
     return {
         **plan,
         "dry_run": dry_run,
         "planned_items": len(plan["items"]),
         "written": written,
         "skipped_existing": skipped,
+        "materialize_jobs": _materialize_jobs_from_env(),
     }
 
 
@@ -1932,7 +1968,8 @@ def write_mobaxterm_script(profile_name: str, out: str) -> dict[str, Any]:
 def data_script_name(dataset: str, package_profile: str) -> str:
     if package_profile == "smoke_25m_instance":
         return f"download_{dataset}_mobaxterm.sh"
-    suffix = package_profile.removeprefix("smoke_25m_")
+    prefix = "smoke_25m_"
+    suffix = package_profile[len(prefix) :] if package_profile.startswith(prefix) else package_profile
     return f"download_{dataset}_{suffix}_mobaxterm.sh"
 
 

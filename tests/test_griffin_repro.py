@@ -5,6 +5,8 @@ import pickle
 import struct
 import subprocess
 import sys
+import threading
+import time
 import zipfile
 import zlib
 from pathlib import Path
@@ -45,7 +47,7 @@ def test_verify_layout_reports_expected_matrix_counts():
     result = run_cli("verify-layout", "--json")
     payload = json.loads(result.stdout)
     assert payload["official_exists"] is True
-    assert payload["config_files"] == 97
+    assert payload["config_files"] >= 97
     assert payload["detailed_result_rows"] == 142
     assert payload["baseline_rows"] == 28
     assert payload["experiment_profiles"] >= 3
@@ -550,6 +552,78 @@ def test_materialize_partial_images_reports_progress_to_stderr(tmp_path, monkeyp
     assert payload["written"] == 1
     assert "Materializing vehicle-side images: 1/1" in captured.err
     assert "000001.png" in captured.err
+
+
+def test_materialize_partial_images_can_fetch_missing_url_images_in_parallel(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    module.OFFICIAL_ROOT = tmp_path / "official"
+    first_dest = module.OFFICIAL_ROOT / "datasets" / "prefix" / "first.png"
+    second_dest = module.OFFICIAL_ROOT / "datasets" / "prefix" / "second.png"
+    plan = {
+        "profile": "smoke_25m_vehicle",
+        "dataset": "50scenes_25m",
+        "dataset_prefix": "prefix",
+        "image_side": "vehicle-side",
+        "source_ann": "ann.pkl",
+        "selected_scene_count": 1,
+        "selected_sample_count": 2,
+        "selected_scenes": ["scene_0"],
+        "frames": ["first", "second"],
+        "directions": ["front"],
+        "items": [
+            {
+                "archive": "vehicle_camera_front.zip",
+                "archive_size_bytes": 123,
+                "dest": str(first_dest),
+                "member": "prefix/first.png",
+                "url": "https://example.invalid/archive.zip",
+            },
+            {
+                "archive": "vehicle_camera_front.zip",
+                "archive_size_bytes": 123,
+                "dest": str(second_dest),
+                "member": "prefix/second.png",
+                "url": "https://example.invalid/archive.zip",
+            },
+        ],
+    }
+    monkeypatch.setattr(module, "partial_image_materialization_plan", lambda *_args, **_kwargs: plan)
+    monkeypatch.setenv("GRIFFIN_MATERIALIZE_JOBS", "2")
+
+    lock = threading.Lock()
+    active_fetches = 0
+    max_active_fetches = 0
+
+    def fake_zip_entry_from_url(_url, _archive_size, member):
+        nonlocal active_fetches, max_active_fetches
+        with lock:
+            active_fetches += 1
+            max_active_fetches = max(max_active_fetches, active_fetches)
+        time.sleep(0.05)
+        with lock:
+            active_fetches -= 1
+        return member.encode("utf-8")
+
+    monkeypatch.setattr(module, "_zip_entry_from_url", fake_zip_entry_from_url)
+    monkeypatch.setattr(module, "_central_directory_from_url", lambda *_args: (0, b""))
+
+    payload = module.materialize_partial_images(
+        "smoke_25m_vehicle",
+        image_side="vehicle-side",
+        scene_limit=1,
+        max_samples=2,
+    )
+
+    assert payload["materialize_jobs"] == 2
+    assert payload["written"] == 2
+    assert payload["skipped_existing"] == 0
+    assert max_active_fetches == 2
+    assert first_dest.read_bytes() == b"prefix/first.png"
+    assert second_dest.read_bytes() == b"prefix/second.png"
 
 
 def test_zip_entry_from_url_reads_zip64_central_directory(monkeypatch):

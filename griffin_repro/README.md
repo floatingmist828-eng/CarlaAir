@@ -306,13 +306,23 @@ method            paper AP   paper AMOTA   partial AP        partial AMOTA   evi
 3-late fusion     0.378      0.377         0.1404 det        0.119           griffin_repro/artifacts/logs/expanded_10scene_40per_scene_all_20260620_061121_automated.log
 ```
 
-The 250-frame run first filled 64 missing vehicle-side images and 150 missing drone-side images, then completed all four methods. The later 300-frame and 400-frame runs completed the same four-method sequence and stayed in the same metric range. Early fusion remains the strongest runnable baseline in these subsets, which agrees with the paper's broad ordering. CoopTrack remains below no-fusion in these subsets, which still disagrees with the paper's Griffin-25m result and shows the current subset is not representative enough for a paper-level effect claim.
+```text
+subset: 10 scenes, 60 samples per scene, 600 samples total
 
-Paper-fit assessment for the 200/210/220/250/300/400-frame subsets:
+method            paper AP   paper AMOTA   partial AP        partial AMOTA   evidence log
+0-no fusion       0.375      0.365         0.1932            0.167           griffin_repro/artifacts/logs/expanded_10scene_60per_scene_all_20260620_082047_automated.log
+1-early fusion    0.607      0.670         0.2375            0.270           griffin_repro/artifacts/logs/expanded_10scene_60per_scene_all_20260620_082047_automated.log
+2b1-cooptrack     0.479      0.488         0.1362            0.142           griffin_repro/artifacts/logs/expanded_10scene_60per_scene_all_20260620_082047_automated.log
+3-late fusion     0.378      0.377         0.1316 det        0.119           griffin_repro/artifacts/logs/expanded_10scene_60per_scene_all_20260620_082047_automated.log
+```
+
+The 250-frame run first filled 64 missing vehicle-side images and 150 missing drone-side images, then completed all four methods. The later 300-frame, 400-frame, and 600-frame runs completed the same four-method sequence and stayed in the same metric range. The 600-frame run used `GRIFFIN_MATERIALIZE_JOBS=8` and completed the full four-method validation sequence in about 92 minutes, including 800 newly materialized vehicle-side images and 1000 newly materialized drone-side images. Early fusion remains the strongest runnable baseline in these subsets, which agrees with the paper's broad ordering. CoopTrack remains below no-fusion in these subsets, which still disagrees with the paper's Griffin-25m result and shows the current subset is not representative enough for a paper-level effect claim.
+
+Paper-fit assessment for the 200/210/220/250/300/400/600-frame subsets:
 
 - Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
 - Does not yet match the full paper's CoopTrack behavior: the paper reports CoopTrack above no-fusion and late-fusion on Griffin-25m, while these partial subsets have CoopTrack below no-fusion.
-- Does not yet match paper-level absolute AP/AMOTA. The largest completed subset here is 400 frames out of the 1490-frame validation split, with weak bicycle and pedestrian coverage in the sampled frames.
+- Does not yet match paper-level absolute AP/AMOTA. The largest completed subset here is 600 frames out of the 1490-frame validation split, with weak bicycle and pedestrian coverage in the sampled frames.
 - `validate-run` `passed=true` in these logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not a claim that the partial result equals the paper table.
 
 The cooperative validation info currently exposes 10 val `scene_token` groups under this partial selector, even though the official raw Griffin-25m nuScenes metadata records 47 scenes and 7000 samples. Increasing `GRIFFIN_PARTIAL_SCENE_LIMIT` above 10 therefore does not expand the selected val subset yet; the current expansion axis is `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, up to the full 149 frames per val scene.
@@ -329,16 +339,17 @@ bash griffin_repro/run_smoke_25m_early_mobaxterm.sh 2>&1 | tee griffin_repro/art
 bash griffin_repro/run_smoke_25m_instance_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_instance_10scene_10per_scene_$(date +%Y%m%d_%H%M%S).log
 ```
 
-To rerun a larger partial check, set `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE` to the desired samples per val scene (`20` for 200 frames, `40` for 400 frames, up to `149` for the 1490-frame val split) and use the same smoke scripts. For late-fusion, reuse the latest matching vehicle and drone pkl outputs by running the dedicated late-fusion smoke script:
+To rerun a larger partial check, set `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE` to the desired samples per val scene (`20` for 200 frames, `40` for 400 frames, `60` for 600 frames, up to `149` for the 1490-frame val split) and use the same smoke scripts. Set `GRIFFIN_MATERIALIZE_JOBS=8` on the remote host to fetch missing image files concurrently. For late-fusion, reuse the latest matching vehicle and drone pkl outputs by running the dedicated late-fusion smoke script:
 
 ```bash
 cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 export GRIFFIN_PARTIAL_SCENE_LIMIT=10
 export GRIFFIN_PARTIAL_SAMPLES_PER_SCENE=20
+export GRIFFIN_MATERIALIZE_JOBS=8
 bash griffin_repro/run_smoke_25m_late_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_late_10scene_20per_scene_$(date +%Y%m%d_%H%M%S).log
 ```
 
-When increasing `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, the materialization step now prints per-image progress to stderr while keeping stdout JSON-compatible. If the terminal is still printing `Materializing ... images: N/M`, the job is still filling image files, not yet running model evaluation.
+When increasing `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, the materialization step now prints per-image progress to stderr while keeping stdout JSON-compatible. If the terminal is still printing `Materializing ... images: N/M`, the job is still filling image files, not yet running model evaluation. With `GRIFFIN_MATERIALIZE_JOBS>1`, the `N/M` lines represent scheduled items; after the last line, the process may still wait for the concurrent fetches to finish before evaluation starts.
 
 ## Remote Sync
 
