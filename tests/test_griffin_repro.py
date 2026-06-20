@@ -1285,6 +1285,81 @@ def test_summarize_run_log_collects_method_validation_entries(tmp_path):
     assert summary["entries"][2]["checks"]["AMOTA"]["actual"] == 0.125
 
 
+def test_summarize_run_logs_merges_parallel_method_logs(tmp_path):
+    main_log = tmp_path / "main.log"
+    instance_log = tmp_path / "instance.log"
+    late_log = tmp_path / "late.log"
+    vehicle = {
+        "profile": "smoke_25m_vehicle",
+        "dataset": "50scenes_25m",
+        "method": "0-no fusion",
+        "metrics": {"AP": 0.1986, "AMOTA": 0.16},
+        "checks": {
+            "AP": {"actual": 0.1986, "expected": 0.375, "delta": -0.1764, "abs_delta": 0.1764, "passed": False},
+            "AMOTA": {"actual": 0.16, "expected": 0.365, "delta": -0.205, "abs_delta": 0.205, "passed": False},
+        },
+        "missing_metrics": [],
+        "passed": False,
+    }
+    early = {
+        "profile": "smoke_25m_early",
+        "dataset": "50scenes_25m",
+        "method": "1-early fusion",
+        "metrics": {"AP": 0.2332, "AMOTA": 0.27},
+        "checks": {
+            "AP": {"actual": 0.2332, "expected": 0.607, "delta": -0.3738, "abs_delta": 0.3738, "passed": False},
+            "AMOTA": {"actual": 0.27, "expected": 0.67, "delta": -0.4, "abs_delta": 0.4, "passed": False},
+        },
+        "missing_metrics": [],
+        "passed": False,
+    }
+    instance = {
+        "profile": "smoke_25m_instance",
+        "dataset": "50scenes_25m",
+        "method": "2b1-cooptrack",
+        "metrics": {"AP": 0.145, "AMOTA": 0.151},
+        "checks": {
+            "AP": {"actual": 0.145, "expected": 0.479, "delta": -0.334, "abs_delta": 0.334, "passed": False},
+            "AMOTA": {"actual": 0.151, "expected": 0.488, "delta": -0.337, "abs_delta": 0.337, "passed": False},
+        },
+        "missing_metrics": [],
+        "passed": False,
+    }
+    main_log.write_text(
+        f"{json.dumps(vehicle)}\n"
+        f"{json.dumps(early)}\n",
+        encoding="utf-8",
+    )
+    instance_log.write_text(f"validation: {json.dumps(instance)}\n", encoding="utf-8")
+    late_log.write_text(
+        "Starting late fusion\n"
+        "mAP: 0.1341\n"
+        "{'pts_bbox/amota': 0.12645220901640866}\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "summarize-run-logs",
+        "--log",
+        str(main_log),
+        "--log",
+        str(instance_log),
+        "--log",
+        str(late_log),
+        "--json",
+    )
+    summary = json.loads(result.stdout)
+
+    assert summary["method_count"] == 4
+    assert summary["methods"] == ["0-no fusion", "1-early fusion", "2b1-cooptrack", "3-late fusion"]
+    assert summary["missing_runnable_methods"] == []
+    assert summary["all_within_paper_tolerance"] is False
+    assert summary["entries"][2]["metrics"] == {"AP": 0.145, "AMOTA": 0.151}
+    assert summary["entries"][3]["metrics"]["AP"] == 0.1341
+    assert summary["entries"][3]["metrics"]["AMOTA"] == 0.12645220901640866
+    assert summary["logs"] == [str(main_log), str(instance_log), str(late_log)]
+
+
 def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     out_path = tmp_path / "run_smoke.sh"
     run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")

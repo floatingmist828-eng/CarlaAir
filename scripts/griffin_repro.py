@@ -91,6 +91,13 @@ RUNNABLE_METHODS = {
     "3-late fusion",
 }
 
+RUNNABLE_METHOD_ORDER = [
+    "0-no fusion",
+    "1-early fusion",
+    "2b1-cooptrack",
+    "3-late fusion",
+]
+
 DATA_PACKAGES = {
     "50scenes_25m": [
         ("datasets/griffin_50scenes_25m/drone_camera_back.zip", 19492671867),
@@ -2462,6 +2469,60 @@ def summarize_run_log(log_path: str, paper_tolerance: float = 0.02, dataset: str
     }
 
 
+def summarize_run_logs(log_paths: list[str], paper_tolerance: float = 0.02, dataset: str = "50scenes_25m") -> dict[str, Any]:
+    paths = [Path(log_path) for log_path in log_paths]
+    entries_by_method = {}
+    input_summaries = []
+    for path in paths:
+        summary = summarize_run_log(str(path), paper_tolerance, dataset)
+        input_summaries.append(summary)
+        for entry in summary["entries"]:
+            entries_by_method[entry["method"]] = entry
+
+        if "3-late fusion" not in entries_by_method:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            late_metrics = parse_late_fusion_metrics(text)
+            if late_metrics:
+                entries_by_method["3-late fusion"] = metric_validation_entry(
+                    dataset,
+                    "3-late fusion",
+                    late_metrics,
+                    paper_tolerance,
+                )
+
+    methods = [method for method in RUNNABLE_METHOD_ORDER if method in entries_by_method]
+    entries = [entries_by_method[method] for method in methods]
+    missing_methods = [method for method in RUNNABLE_METHOD_ORDER if method not in entries_by_method]
+    paper_mismatches = []
+    for entry in entries:
+        for metric, check in entry.get("checks", {}).items():
+            abs_delta = float(check.get("abs_delta", abs(check.get("delta", 0.0))))
+            if abs_delta <= paper_tolerance:
+                continue
+            paper_mismatches.append(
+                {
+                    "method": entry["method"],
+                    "metric": metric,
+                    "actual": check.get("actual"),
+                    "expected": check.get("expected"),
+                    "abs_delta": abs_delta,
+                }
+            )
+
+    return {
+        "logs": [str(path) for path in paths],
+        "method_count": len(entries),
+        "methods": methods,
+        "missing_runnable_methods": missing_methods,
+        "all_passed": bool(entries) and all(entry.get("passed") for entry in entries),
+        "paper_tolerance": paper_tolerance,
+        "all_within_paper_tolerance": bool(entries) and not paper_mismatches,
+        "paper_mismatches": paper_mismatches,
+        "entries": entries,
+        "input_summaries": input_summaries,
+    }
+
+
 def run_profile(profile_name: str, dry_run: bool) -> int:
     payload = profile_payload(profile_name)
     print(json.dumps(payload, indent=2))
@@ -2613,6 +2674,12 @@ def main(argv: list[str] | None = None) -> int:
     run_log_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
     run_log_parser.add_argument("--json", action="store_true")
 
+    run_logs_parser = subparsers.add_parser("summarize-run-logs")
+    run_logs_parser.add_argument("--log", action="append", required=True)
+    run_logs_parser.add_argument("--paper-tolerance", type=float, default=0.02)
+    run_logs_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    run_logs_parser.add_argument("--json", action="store_true")
+
     run_parser = subparsers.add_parser("run-profile")
     run_parser.add_argument("--profile", required=True)
     run_parser.add_argument("--dry-run", action="store_true")
@@ -2713,6 +2780,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(analyze_result_pkl(args.path), args.json)
     elif args.command == "summarize-run-log":
         emit(summarize_run_log(args.log, args.paper_tolerance, args.dataset), args.json)
+    elif args.command == "summarize-run-logs":
+        emit(summarize_run_logs(args.log, args.paper_tolerance, args.dataset), args.json)
     elif args.command == "run-profile":
         return run_profile(args.profile, args.dry_run)
     return 0
