@@ -1164,6 +1164,44 @@ def test_validate_run_accepts_official_tracking_table_metrics(tmp_path):
     assert payload["metrics"]["AMOTA"] == 0.138
 
 
+def test_validate_run_can_use_paper_car_class_metrics(tmp_path):
+    log_path = tmp_path / "eval.log"
+    log_path.write_text(
+        "Per-class results:\n"
+        "Object Class\tAP\tATE\tASE\tAOE\tAVE\tAAE\n"
+        "car\t0.607\t0.380\t0.142\t0.333\t3.404\t1.000\n"
+        "bicycle\t0.092\t0.681\t0.286\t0.032\t0.913\t1.000\n"
+        "pedestrian\t0.000\t0.818\t0.577\t1.088\t1.938\t1.000\n"
+        "======\n"
+        "Aggregated results:\n"
+        "AMOTA\t0.270\n"
+        "{'pts_bbox/mAP': 0.2332, 'pts_bbox/amota': 0.2699}\n"
+        "Per-class results:\n"
+        "\t\tAMOTA\tAMOTP\tRECALL\tMOTAR\tGT\tMOTA\tMOTP\tMT\tML\tFAF\tTP\tFP\tFN\tIDS\tFRAG\tTID\tLGD\n"
+        "car     \t0.670\t0.820\t0.711\t0.933\t8320\t0.662\t0.468\t33\t18\t26.7\t5908\t398\t2403\t9\t27\t5.25\t11.21\n"
+        "bicycle \t0.140\t1.804\t0.195\t1.000\t783\t0.195\t0.694\t1\t8\t0.0\t153\t0\t630\t0\t3\t0.50\t30.25\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "validate-run",
+        "--profile",
+        "smoke_25m_early",
+        "--log",
+        str(log_path),
+        "--tolerance",
+        "0.001",
+        "--metric-scope",
+        "paper",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["metric_scope"] == "paper"
+    assert payload["passed"] is True
+    assert payload["metrics"] == {"AP": 0.607, "AMOTA": 0.67}
+
+
 def test_validate_run_rejects_missing_metrics(tmp_path):
     log_path = tmp_path / "eval.log"
     log_path.write_text("Testing done without metric summary\n", encoding="utf-8")
@@ -1283,6 +1321,58 @@ def test_summarize_run_log_collects_method_validation_entries(tmp_path):
     assert summary["entries"][1]["checks"]["AMOTA"]["delta"] == -0.4
     assert summary["entries"][2]["checks"]["AP"]["expected"] == 0.378
     assert summary["entries"][2]["checks"]["AMOTA"]["actual"] == 0.125
+
+
+def test_summarize_run_log_can_reparse_paper_car_class_metrics(tmp_path):
+    official_log = tmp_path / "official_early.log"
+    official_log.write_text(
+        "Per-class results:\n"
+        "Object Class\tAP\tATE\tASE\tAOE\tAVE\tAAE\n"
+        "car\t0.607\t0.380\t0.142\t0.333\t3.404\t1.000\n"
+        "======\n"
+        "Per-class results:\n"
+        "\t\tAMOTA\tAMOTP\tRECALL\tMOTAR\tGT\tMOTA\tMOTP\tMT\tML\tFAF\tTP\tFP\tFN\tIDS\tFRAG\tTID\tLGD\n"
+        "car     \t0.670\t0.820\t0.711\t0.933\t8320\t0.662\t0.468\t33\t18\t26.7\t5908\t398\t2403\t9\t27\t5.25\t11.21\n",
+        encoding="utf-8",
+    )
+    combined_log = tmp_path / "combined.log"
+    combined_log.write_text(
+        json.dumps(
+            {
+                "profile": "smoke_25m_early",
+                "dataset": "50scenes_25m",
+                "method": "1-early fusion",
+                "log": str(official_log),
+                "metric_scope": "aggregate",
+                "metrics": {"AP": 0.2332, "AMOTA": 0.27},
+                "checks": {
+                    "AP": {"actual": 0.2332, "expected": 0.607, "delta": -0.3738, "abs_delta": 0.3738, "passed": False},
+                    "AMOTA": {"actual": 0.27, "expected": 0.67, "delta": -0.4, "abs_delta": 0.4, "passed": False},
+                },
+                "missing_metrics": [],
+                "passed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "summarize-run-log",
+        "--log",
+        str(combined_log),
+        "--paper-tolerance",
+        "0.001",
+        "--metric-scope",
+        "paper",
+        "--json",
+    )
+    summary = json.loads(result.stdout)
+
+    assert summary["metric_scope"] == "paper"
+    assert summary["entries"][0]["metric_scope"] == "paper"
+    assert summary["entries"][0]["metrics"] == {"AP": 0.607, "AMOTA": 0.67}
+    assert summary["paper_mismatches"] == []
+    assert summary["all_within_paper_tolerance"] is True
 
 
 def test_summarize_run_logs_merges_parallel_method_logs(tmp_path):

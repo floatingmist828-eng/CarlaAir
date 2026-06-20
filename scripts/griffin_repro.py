@@ -2194,7 +2194,37 @@ def check_partial_assets(profile_name: str) -> dict[str, Any]:
     }
 
 
-def parse_run_metrics(text: str) -> dict[str, float]:
+def _metric_number(value: str) -> float:
+    return float(value)
+
+
+def parse_paper_class_metrics(text: str, class_name: str = "car") -> dict[str, float]:
+    lines = text.splitlines()
+    metrics = {}
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*Object Class\s+AP\b", line):
+            for row in lines[index + 1 :]:
+                if not row.strip() or row.strip().startswith("="):
+                    break
+                parts = row.split()
+                if parts and parts[0] == class_name and len(parts) > 1:
+                    metrics["AP"] = _metric_number(parts[1])
+                    break
+        if re.search(r"\bAMOTA\b", line) and re.search(r"\bGT\b", line):
+            for row in lines[index + 1 :]:
+                if not row.strip() or row.strip().startswith("="):
+                    break
+                parts = row.split()
+                if parts and parts[0] == class_name and len(parts) > 1:
+                    metrics["AMOTA"] = _metric_number(parts[1])
+                    break
+    return metrics
+
+
+def parse_run_metrics(text: str, metric_scope: str = "aggregate") -> dict[str, float]:
+    if metric_scope == "paper":
+        return parse_paper_class_metrics(text)
+
     patterns = {
         "AP": [
             r"(?:pts_bbox_NuScenes/)?mAP\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
@@ -2313,11 +2343,11 @@ def analyze_result_pkl(path: str) -> dict[str, Any]:
     }
 
 
-def validate_run(profile_name: str, log_path: str, tolerance: float) -> dict[str, Any]:
+def validate_run(profile_name: str, log_path: str, tolerance: float, metric_scope: str = "aggregate") -> dict[str, Any]:
     payload = profile_payload(profile_name)
     path = Path(log_path)
     text = path.read_text(encoding="utf-8", errors="replace")
-    metrics = parse_run_metrics(text)
+    metrics = parse_run_metrics(text, metric_scope)
     checks = {}
     missing = []
     for name, expected in payload["expected"].items():
@@ -2340,6 +2370,7 @@ def validate_run(profile_name: str, log_path: str, tolerance: float) -> dict[str
         "dataset": payload["dataset"],
         "method": payload["method"],
         "log": str(path),
+        "metric_scope": metric_scope,
         "metrics": metrics,
         "checks": checks,
         "missing_metrics": missing,
@@ -2361,6 +2392,8 @@ def metric_validation_entry(
     metrics: dict[str, float],
     tolerance: float,
     profile: str = "log_section",
+    metric_scope: str = "aggregate",
+    log: str | None = None,
 ) -> dict[str, Any]:
     expected_metrics = baseline_expected_metrics(dataset, method)
     checks = {}
@@ -2379,15 +2412,55 @@ def metric_validation_entry(
             "tolerance": tolerance,
             "passed": abs(delta) <= tolerance,
         }
-    return {
+    entry = {
         "profile": profile,
         "dataset": dataset,
         "method": method,
+        "metric_scope": metric_scope,
         "metrics": metrics,
         "checks": checks,
         "missing_metrics": missing,
         "passed": not missing and all(item["passed"] for item in checks.values()),
     }
+    if log:
+        entry["log"] = log
+    return entry
+
+
+def _resolve_log_path(log_value: str | None) -> Path | None:
+    if not log_value:
+        return None
+    path = Path(log_value)
+    candidates = [path] if path.is_absolute() else [REPO_ROOT / path, OFFICIAL_ROOT / path, path]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _entry_for_metric_scope(
+    entry: dict[str, Any],
+    dataset: str,
+    paper_tolerance: float,
+    metric_scope: str,
+) -> dict[str, Any]:
+    if metric_scope == entry.get("metric_scope", "aggregate"):
+        return entry
+    log_path = _resolve_log_path(entry.get("log"))
+    if not log_path:
+        return entry
+    metrics = parse_run_metrics(log_path.read_text(encoding="utf-8", errors="replace"), metric_scope)
+    if not metrics:
+        return entry
+    return metric_validation_entry(
+        dataset,
+        entry["method"],
+        metrics,
+        paper_tolerance,
+        entry.get("profile", "log_section"),
+        metric_scope,
+        entry.get("log"),
+    )
 
 
 def _late_fusion_section(text: str) -> str | None:
@@ -2416,7 +2489,12 @@ def parse_late_fusion_metrics(text: str) -> dict[str, float]:
     return metrics
 
 
-def summarize_run_log(log_path: str, paper_tolerance: float = 0.02, dataset: str = "50scenes_25m") -> dict[str, Any]:
+def summarize_run_log(
+    log_path: str,
+    paper_tolerance: float = 0.02,
+    dataset: str = "50scenes_25m",
+    metric_scope: str = "aggregate",
+) -> dict[str, Any]:
     path = Path(log_path)
     text = path.read_text(encoding="utf-8", errors="replace")
     entries = []
@@ -2431,14 +2509,26 @@ def summarize_run_log(log_path: str, paper_tolerance: float = 0.02, dataset: str
         if not isinstance(payload, dict):
             continue
         if {"profile", "method", "metrics", "checks"} <= set(payload):
-            entries.append(payload)
+            entries.append(_entry_for_metric_scope(payload, dataset, paper_tolerance, metric_scope))
 
     methods = [entry["method"] for entry in entries]
     late_section = _late_fusion_section(text)
     if late_section and "3-late fusion" not in methods:
-        late_metrics = parse_late_fusion_metrics(late_section)
+        late_metrics = (
+            parse_run_metrics(late_section, metric_scope)
+            if metric_scope == "paper"
+            else parse_late_fusion_metrics(late_section)
+        )
         if late_metrics:
-            entries.append(metric_validation_entry(dataset, "3-late fusion", late_metrics, paper_tolerance))
+            entries.append(
+                metric_validation_entry(
+                    dataset,
+                    "3-late fusion",
+                    late_metrics,
+                    paper_tolerance,
+                    metric_scope=metric_scope,
+                )
+            )
             methods.append("3-late fusion")
     missing_methods = sorted(RUNNABLE_METHODS - set(methods))
     paper_mismatches = []
@@ -2462,6 +2552,7 @@ def summarize_run_log(log_path: str, paper_tolerance: float = 0.02, dataset: str
         "methods": methods,
         "missing_runnable_methods": missing_methods,
         "all_passed": bool(entries) and all(entry.get("passed") for entry in entries),
+        "metric_scope": metric_scope,
         "paper_tolerance": paper_tolerance,
         "all_within_paper_tolerance": bool(entries) and not paper_mismatches,
         "paper_mismatches": paper_mismatches,
@@ -2469,25 +2560,35 @@ def summarize_run_log(log_path: str, paper_tolerance: float = 0.02, dataset: str
     }
 
 
-def summarize_run_logs(log_paths: list[str], paper_tolerance: float = 0.02, dataset: str = "50scenes_25m") -> dict[str, Any]:
+def summarize_run_logs(
+    log_paths: list[str],
+    paper_tolerance: float = 0.02,
+    dataset: str = "50scenes_25m",
+    metric_scope: str = "aggregate",
+) -> dict[str, Any]:
     paths = [Path(log_path) for log_path in log_paths]
     entries_by_method = {}
     input_summaries = []
     for path in paths:
-        summary = summarize_run_log(str(path), paper_tolerance, dataset)
+        summary = summarize_run_log(str(path), paper_tolerance, dataset, metric_scope)
         input_summaries.append(summary)
         for entry in summary["entries"]:
             entries_by_method[entry["method"]] = entry
 
         if "3-late fusion" not in entries_by_method:
             text = path.read_text(encoding="utf-8", errors="replace")
-            late_metrics = parse_late_fusion_metrics(text)
+            late_metrics = (
+                parse_run_metrics(text, metric_scope)
+                if metric_scope == "paper"
+                else parse_late_fusion_metrics(text)
+            )
             if late_metrics:
                 entries_by_method["3-late fusion"] = metric_validation_entry(
                     dataset,
                     "3-late fusion",
                     late_metrics,
                     paper_tolerance,
+                    metric_scope=metric_scope,
                 )
 
     methods = [method for method in RUNNABLE_METHOD_ORDER if method in entries_by_method]
@@ -2515,6 +2616,7 @@ def summarize_run_logs(log_paths: list[str], paper_tolerance: float = 0.02, data
         "methods": methods,
         "missing_runnable_methods": missing_methods,
         "all_passed": bool(entries) and all(entry.get("passed") for entry in entries),
+        "metric_scope": metric_scope,
         "paper_tolerance": paper_tolerance,
         "all_within_paper_tolerance": bool(entries) and not paper_mismatches,
         "paper_mismatches": paper_mismatches,
@@ -2662,6 +2764,7 @@ def main(argv: list[str] | None = None) -> int:
     validate_parser.add_argument("--profile", required=True)
     validate_parser.add_argument("--log", required=True)
     validate_parser.add_argument("--tolerance", type=float, default=0.02)
+    validate_parser.add_argument("--metric-scope", default="aggregate", choices=["aggregate", "paper"])
     validate_parser.add_argument("--json", action="store_true")
 
     result_pkl_parser = subparsers.add_parser("analyze-result-pkl")
@@ -2672,12 +2775,14 @@ def main(argv: list[str] | None = None) -> int:
     run_log_parser.add_argument("--log", required=True)
     run_log_parser.add_argument("--paper-tolerance", type=float, default=0.02)
     run_log_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    run_log_parser.add_argument("--metric-scope", default="aggregate", choices=["aggregate", "paper"])
     run_log_parser.add_argument("--json", action="store_true")
 
     run_logs_parser = subparsers.add_parser("summarize-run-logs")
     run_logs_parser.add_argument("--log", action="append", required=True)
     run_logs_parser.add_argument("--paper-tolerance", type=float, default=0.02)
     run_logs_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    run_logs_parser.add_argument("--metric-scope", default="aggregate", choices=["aggregate", "paper"])
     run_logs_parser.add_argument("--json", action="store_true")
 
     run_parser = subparsers.add_parser("run-profile")
@@ -2772,16 +2877,16 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "check-partial-assets":
         emit(check_partial_assets(args.profile), args.json)
     elif args.command == "validate-run":
-        validation = validate_run(args.profile, args.log, args.tolerance)
+        validation = validate_run(args.profile, args.log, args.tolerance, args.metric_scope)
         emit(validation, args.json)
         if not validation["passed"]:
             return 3
     elif args.command == "analyze-result-pkl":
         emit(analyze_result_pkl(args.path), args.json)
     elif args.command == "summarize-run-log":
-        emit(summarize_run_log(args.log, args.paper_tolerance, args.dataset), args.json)
+        emit(summarize_run_log(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
     elif args.command == "summarize-run-logs":
-        emit(summarize_run_logs(args.log, args.paper_tolerance, args.dataset), args.json)
+        emit(summarize_run_logs(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
     elif args.command == "run-profile":
         return run_profile(args.profile, args.dry_run)
     return 0

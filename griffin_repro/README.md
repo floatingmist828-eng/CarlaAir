@@ -357,16 +357,27 @@ method            paper AP   paper AMOTA   partial AP        partial AMOTA   evi
 
 For late-fusion in the 1490-frame run, the detection stage produced mAP `0.1341`; the AB3DMOT tracking stage produced tracking AMOTA `0.126` and tracking-result mAP `0.1258`.
 
-The 1490-frame outputs still fail the paper-level tolerance check. The paper gaps are: no-fusion AP `-0.1764`, AMOTA `-0.205`; early-fusion AP `-0.3738`, AMOTA `-0.400`; CoopTrack AP `-0.3340`, AMOTA `-0.337`; late-fusion AP `-0.2439`, AMOTA `-0.2505`. Early fusion remains the strongest runnable baseline, which matches the broad paper ordering, but CoopTrack remains below no-fusion and early-fusion, which still disagrees with the Griffin-25m paper table.
+The table above is the official aggregate output over all three classes. A later audit found that `docs/detailed_results.csv` aligns with the official log's `car` class rows: detection `car` AP from the first per-class table and tracking `car` AMOTA from the second per-class table. Rechecking the same 1490-frame logs with `--metric-scope paper` gives:
+
+```text
+method            paper AP   paper AMOTA   car AP   car AMOTA   paper-scope status
+0-no fusion       0.375      0.365         0.477    0.456       outside tolerance, higher than paper
+1-early fusion    0.607      0.670         0.607    0.670       matches
+2b1-cooptrack     0.479      0.488         0.420    0.453       outside tolerance, below paper
+3-late fusion     0.378      0.377         0.377    0.379       matches
+```
+
+The corrected paper-scope check changes the interpretation: early-fusion and late-fusion now match the paper table within tolerance; CoopTrack is close but still below the paper by AP `0.059` and AMOTA `0.035`; no-fusion is above the paper reference by AP `0.102` and AMOTA `0.091`, so it is not a table match either.
 
 The class-level 1490-frame metrics show the same paper-fit problem as the smaller subsets. Detection AP@2m is: no-fusion car `0.5401`, bicycle `0.1560`, pedestrian `0.0004`; early-fusion car `0.7570`, bicycle `0.1344`, pedestrian `0.0`; CoopTrack car `0.5061`, bicycle `0.0233`, pedestrian `0.0`; late-fusion car `0.4658`, bicycle `0.0124`, pedestrian `0.0`. Result-pkl diagnostics confirm the usable tracking predictions are heavily car-dominated: early-fusion tracking contains 6911 car, 289 bicycle, and 40 pedestrian predictions; CoopTrack tracking contains 6776 car, 81 bicycle, and 100 pedestrian predictions.
 
 Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000/1490-frame subsets:
 
-- Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
-- Does not yet match the full paper's CoopTrack behavior: the paper reports CoopTrack above no-fusion and late-fusion on Griffin-25m, while these partial subsets have CoopTrack below no-fusion.
-- Does not yet match paper-level absolute AP/AMOTA. The largest completed subset here is the available 1490-frame validation pkl subset, with weak bicycle and pedestrian performance in the sampled frames.
-- `validate-run` `passed=true` in these logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not a claim that the partial result equals the paper table.
+- Use `--metric-scope paper` for paper-table comparison; it reads the car-class AP/AMOTA rows that match the CSV metric convention.
+- Under the corrected paper-table scope, early-fusion and late-fusion match the paper on the completed 1490-frame validation split.
+- CoopTrack still does not fully match the paper table: it remains below the paper reference and below early-fusion in this run.
+- The aggregate three-class outputs remain useful diagnostics. They expose weak bicycle/pedestrian predictions, but they should not be used as the paper-table AP/AMOTA comparison.
+- `validate-run` `passed=true` in old aggregate logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not by itself a claim that the result equals the paper table.
 
 The cooperative validation info currently exposes 10 val `scene_token` groups under this partial selector, even though the official raw Griffin-25m nuScenes metadata records 47 scenes and 7000 samples. Increasing `GRIFFIN_PARTIAL_SCENE_LIMIT` above 10 therefore does not expand the selected val subset yet; the current expansion axis is `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, up to the full 149 frames per val scene.
 
@@ -427,6 +438,7 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 /home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py summarize-run-log \
   --log griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log \
   --paper-tolerance 0.02 \
+  --metric-scope paper \
   --json
 ```
 
@@ -439,10 +451,11 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --log griffin_repro/artifacts/logs/parallel_instance_10scene_149per_scene_20260620_172629.log \
   --log griffin_repro/artifacts/logs/parallel_late_10scene_149per_scene_20260620_172540.log \
   --paper-tolerance 0.02 \
+  --metric-scope paper \
   --json
 ```
 
-In that summary, `all_passed` reflects the tolerance used by each `validate-run` call, while `all_within_paper_tolerance` applies the explicit paper-level tolerance above. Use `paper_mismatches` when deciding whether a partial or expanded run actually matches the paper table.
+In that summary, `metric_scope=paper` means the parser reparses each official eval log and compares the car-class rows against `docs/detailed_results.csv`. `all_within_paper_tolerance` applies the explicit paper-level tolerance above; use `paper_mismatches` when deciding whether a partial or expanded run actually matches the paper table.
 
 To inspect coverage before a longer run:
 
