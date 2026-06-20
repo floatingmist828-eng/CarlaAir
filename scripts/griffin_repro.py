@@ -1866,10 +1866,20 @@ def materialize_partial_images(
                 continue
             missing_items.append(item)
         materialize_jobs = _materialize_jobs_from_env()
+        print(
+            f"Materializing {image_side} images: submitted {len(missing_items)}/{total} missing downloads with {materialize_jobs} job(s)",
+            file=sys.stderr,
+            flush=True,
+        )
         if materialize_jobs == 1:
             for item in missing_items:
                 _materialize_partial_image_item(plan, item)
                 written += 1
+                print(
+                    f"Materializing {image_side} images: completed {written}/{len(missing_items)}",
+                    file=sys.stderr,
+                    flush=True,
+                )
         else:
             remote_archives = {}
             for item in missing_items:
@@ -1886,6 +1896,11 @@ def materialize_partial_images(
                 for future in concurrent.futures.as_completed(future_to_item):
                     future.result()
                     written += 1
+                    print(
+                        f"Materializing {image_side} images: completed {written}/{len(missing_items)}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
     return {
         **plan,
         "dry_run": dry_run,

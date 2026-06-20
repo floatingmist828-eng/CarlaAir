@@ -608,7 +608,7 @@ def test_materialize_partial_images_reports_progress_to_stderr(tmp_path, monkeyp
     assert "000001.png" in captured.err
 
 
-def test_materialize_partial_images_can_fetch_missing_url_images_in_parallel(tmp_path, monkeypatch):
+def test_materialize_partial_images_can_fetch_missing_url_images_in_parallel(tmp_path, monkeypatch, capsys):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -678,6 +678,9 @@ def test_materialize_partial_images_can_fetch_missing_url_images_in_parallel(tmp
     assert max_active_fetches == 2
     assert first_dest.read_bytes() == b"prefix/first.png"
     assert second_dest.read_bytes() == b"prefix/second.png"
+    captured = capsys.readouterr()
+    assert "Materializing vehicle-side images: submitted 2/2" in captured.err
+    assert "Materializing vehicle-side images: completed 2/2" in captured.err
 
 
 def test_zip_entry_from_url_reads_zip64_central_directory(monkeypatch):
