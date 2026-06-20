@@ -344,6 +344,16 @@ The added subset coverage diagnostic records the exact annotation coverage used 
 
 The result-pkl diagnostic adds a second check on the same 1000-frame outputs. Official detection mAP is computed from `boxes_3d_det/scores_3d_det/labels_3d_det`, while official tracking AMOTA is computed from `boxes_3d/scores_3d/labels_3d`. For the 1000-frame CoopTrack pkl, the tracking output contains 4652 car predictions but only 47 bicycle and 87 pedestrian predictions; its detection output has only 55 bicycle and 100 pedestrian boxes at score `>=0.3`. For early fusion, the tracking output contains 4745 car predictions, 213 bicycle predictions, and only 30 pedestrian predictions. This confirms the paper-fit gap is caused by weak bicycle/pedestrian usable predictions in the current subset/checkpoint path, not by missing annotations or a class-name ordering mismatch.
 
+The 1490-frame validation split expansion is now running as `griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log`. The first completed method is the vehicle-side no-fusion baseline:
+
+```text
+subset: 10 scenes, 149 samples per scene, 1490 samples total
+method            paper AP   paper AMOTA   partial AP        partial AMOTA   evidence log
+0-no fusion       0.375      0.365         0.1986            0.160           griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log
+```
+
+The 1490-frame no-fusion result is a small improvement over the 1000-frame no-fusion run, but it still fails the paper-level tolerance check: AP delta `-0.1764`, AMOTA delta `-0.205`. Its detection AP@2m is car `0.5401`, bicycle `0.1560`, and pedestrian `0.0004`; the result pkl has 5315 tracked car predictions, 98 tracked bicycle predictions, and 146 tracked pedestrian predictions. Early fusion is currently in the materialization stage for the same 1490-frame subset, so the four-method 1490-frame comparison is not complete yet.
+
 Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000-frame subsets:
 
 - Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
