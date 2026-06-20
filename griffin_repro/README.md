@@ -369,12 +369,32 @@ method            paper AP   paper AMOTA   car AP   car AMOTA   paper-scope stat
 
 The corrected paper-scope check changes the interpretation: early-fusion and late-fusion now match the paper table within tolerance; CoopTrack is close but still below the paper by AP `0.059` and AMOTA `0.035`; no-fusion is above the paper reference by AP `0.102` and AMOTA `0.091`, so it is not a table match either.
 
+The no-fusion mismatch above is now explained by the GT side used for evaluation, not by model quality. The vehicle-side no-fusion log evaluates vehicle predictions against vehicle-side GT (`car GT=6932`), while the paper table uses the cooperative/benchmark GT (`car GT=8320`). Re-evaluating the saved vehicle-side predictions from `results-06201519.pkl` against the cooperative 1490-frame GT with the official nuScenes evaluator gives:
+
+```text
+method            paper AP   paper AMOTA   re-eval car AP   re-eval car AMOTA   GT     TP     FP    FN     IDS   status
+0-no fusion       0.375      0.365         0.3748           0.3651              8320   3141   418   5177   2     matches
+2b1-cooptrack     0.479      0.488         0.4203           0.4532              8320   4685   1293  3611   24    below paper
+```
+
+The command used to summarize those evaluator JSON outputs is:
+
+```bash
+python scripts/griffin_repro.py summarize-eval-json \
+  --eval-dir griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/vehicle-side/reeval_vehicle_as_coop_1490/json_output \
+  --dataset 50scenes_25m \
+  --method "0-no fusion" \
+  --json
+```
+
+For CoopTrack, the remaining mismatch is now isolated to the instance-fusion output quality. The 1490-frame track-query cache has complete coverage (`1490/1490` files, no missing air-token files), the successful CoopTrack run loaded `ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth`, and the saved tracking output has no negative track ids or duplicate ids within a frame. The difference from the paper is that this run produces more car matches but many more high-confidence false positives and identity switches: paper `TP/FP/FN/IDS = 3755/599/4563/2`, current `4685/1293/3611/24`.
+
 The class-level 1490-frame metrics show the same paper-fit problem as the smaller subsets. Detection AP@2m is: no-fusion car `0.5401`, bicycle `0.1560`, pedestrian `0.0004`; early-fusion car `0.7570`, bicycle `0.1344`, pedestrian `0.0`; CoopTrack car `0.5061`, bicycle `0.0233`, pedestrian `0.0`; late-fusion car `0.4658`, bicycle `0.0124`, pedestrian `0.0`. Result-pkl diagnostics confirm the usable tracking predictions are heavily car-dominated: early-fusion tracking contains 6911 car, 289 bicycle, and 40 pedestrian predictions; CoopTrack tracking contains 6776 car, 81 bicycle, and 100 pedestrian predictions.
 
 Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000/1490-frame subsets:
 
 - Use `--metric-scope paper` for paper-table comparison; it reads the car-class AP/AMOTA rows that match the CSV metric convention.
-- Under the corrected paper-table scope, early-fusion and late-fusion match the paper on the completed 1490-frame validation split.
+- Under the corrected paper-table scope, no-fusion, early-fusion, and late-fusion match the paper on the completed 1490-frame validation split when no-fusion is evaluated against the cooperative GT used by the paper table.
 - CoopTrack still does not fully match the paper table: it remains below the paper reference and below early-fusion in this run.
 - The aggregate three-class outputs remain useful diagnostics. They expose weak bicycle/pedestrian predictions, but they should not be used as the paper-table AP/AMOTA comparison.
 - `validate-run` `passed=true` in old aggregate logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not by itself a claim that the result equals the paper table.

@@ -2427,6 +2427,64 @@ def metric_validation_entry(
     return entry
 
 
+def _summary_file(eval_dir: Path, relative: str) -> Path:
+    direct = eval_dir / relative
+    if direct.exists():
+        return direct
+    matches = sorted(eval_dir.glob(f"*/{relative}"))
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise FileNotFoundError(f"Missing {relative} under {eval_dir}")
+    raise ValueError(f"Multiple {relative} files under {eval_dir}; pass the exact run directory")
+
+
+def _class_value(mapping: dict[str, Any], metric: str, class_name: str) -> float:
+    return float(mapping[metric][class_name])
+
+
+def summarize_eval_json(
+    eval_dir: str,
+    dataset: str,
+    method: str,
+    paper_tolerance: float = 0.02,
+    class_name: str = "car",
+) -> dict[str, Any]:
+    root = Path(eval_dir)
+    det_path = _summary_file(root, Path("det/metrics_summary.json").as_posix())
+    track_path = _summary_file(root, Path("track/metrics_summary.json").as_posix())
+    det = json.loads(det_path.read_text(encoding="utf-8"))
+    track = json.loads(track_path.read_text(encoding="utf-8"))
+    label_metrics = track["label_metrics"]
+    metrics = {
+        "AP": float(det["mean_dist_aps"][class_name]),
+        "AMOTA": _class_value(label_metrics, "amota", class_name),
+    }
+    for output_name, metric_name in (
+        ("GT", "gt"),
+        ("TP", "tp"),
+        ("FP", "fp"),
+        ("FN", "fn"),
+        ("IDS", "ids"),
+        ("FRAG", "frag"),
+    ):
+        if metric_name in label_metrics and class_name in label_metrics[metric_name]:
+            metrics[output_name] = _class_value(label_metrics, metric_name, class_name)
+    entry = metric_validation_entry(dataset, method, metrics, paper_tolerance, "eval_json", "paper")
+    entry.update(
+        {
+            "eval_dir": str(root),
+            "class_name": class_name,
+            "source_files": {
+                "detection": str(det_path),
+                "tracking": str(track_path),
+            },
+            "ap_distances": det.get("label_aps", {}).get(class_name, {}),
+        }
+    )
+    return entry
+
+
 def _resolve_log_path(log_value: str | None) -> Path | None:
     if not log_value:
         return None
@@ -2785,6 +2843,14 @@ def main(argv: list[str] | None = None) -> int:
     run_logs_parser.add_argument("--metric-scope", default="aggregate", choices=["aggregate", "paper"])
     run_logs_parser.add_argument("--json", action="store_true")
 
+    eval_json_parser = subparsers.add_parser("summarize-eval-json")
+    eval_json_parser.add_argument("--eval-dir", required=True)
+    eval_json_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    eval_json_parser.add_argument("--method", required=True)
+    eval_json_parser.add_argument("--paper-tolerance", type=float, default=0.02)
+    eval_json_parser.add_argument("--class-name", default="car")
+    eval_json_parser.add_argument("--json", action="store_true")
+
     run_parser = subparsers.add_parser("run-profile")
     run_parser.add_argument("--profile", required=True)
     run_parser.add_argument("--dry-run", action="store_true")
@@ -2887,6 +2953,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(summarize_run_log(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
     elif args.command == "summarize-run-logs":
         emit(summarize_run_logs(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
+    elif args.command == "summarize-eval-json":
+        emit(summarize_eval_json(args.eval_dir, args.dataset, args.method, args.paper_tolerance, args.class_name), args.json)
     elif args.command == "run-profile":
         return run_profile(args.profile, args.dry_run)
     return 0

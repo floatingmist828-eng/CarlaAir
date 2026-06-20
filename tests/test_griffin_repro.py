@@ -1375,6 +1375,58 @@ def test_summarize_run_log_can_reparse_paper_car_class_metrics(tmp_path):
     assert summary["all_within_paper_tolerance"] is True
 
 
+def test_summarize_eval_json_extracts_paper_scope_metrics(tmp_path):
+    eval_dir = tmp_path / "json_output"
+    det_dir = eval_dir / "det"
+    track_dir = eval_dir / "track"
+    det_dir.mkdir(parents=True)
+    track_dir.mkdir(parents=True)
+    (det_dir / "metrics_summary.json").write_text(
+        json.dumps(
+            {
+                "mean_dist_aps": {"car": 0.3747686248091491},
+                "label_aps": {"car": {"0.5": 0.1978, "1.0": 0.3054, "2.0": 0.4263, "4.0": 0.5696}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (track_dir / "metrics_summary.json").write_text(
+        json.dumps(
+            {
+                "label_metrics": {
+                    "amota": {"car": 0.3651430631449719},
+                    "gt": {"car": 8320.0},
+                    "tp": {"car": 3141.0},
+                    "fp": {"car": 418.0},
+                    "fn": {"car": 5177.0},
+                    "ids": {"car": 2.0},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "summarize-eval-json",
+        "--eval-dir",
+        str(eval_dir),
+        "--dataset",
+        "50scenes_25m",
+        "--method",
+        "0-no fusion",
+        "--json",
+    )
+    summary = json.loads(result.stdout)
+
+    assert summary["metric_scope"] == "paper"
+    assert summary["metrics"]["AP"] == 0.3747686248091491
+    assert summary["metrics"]["AMOTA"] == 0.3651430631449719
+    assert summary["metrics"]["GT"] == 8320.0
+    assert summary["checks"]["AP"]["passed"] is True
+    assert summary["checks"]["AMOTA"]["passed"] is True
+    assert summary["passed"] is True
+
+
 def test_summarize_run_logs_merges_parallel_method_logs(tmp_path):
     main_log = tmp_path / "main.log"
     instance_log = tmp_path / "instance.log"
