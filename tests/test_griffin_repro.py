@@ -1191,6 +1191,39 @@ def test_validate_run_rejects_missing_metrics(tmp_path):
     assert payload["missing_metrics"] == ["AP", "AMOTA"]
 
 
+def test_analyze_result_pkl_reports_prediction_class_coverage(tmp_path):
+    result_path = tmp_path / "results.pkl"
+    payload = {
+        "bbox_results": [
+            {
+                "labels_3d": [0, 0, 1],
+                "scores_3d": [0.95, 0.45, 0.2],
+                "labels_3d_det": [0, 1, 2],
+                "scores_3d_det": [0.8, 0.12, 0.04],
+            },
+            {
+                "labels_3d": [2],
+                "scores_3d": [0.55],
+                "labels_3d_det": [1, 2],
+                "scores_3d_det": [0.31, 0.51],
+            },
+        ]
+    }
+    result_path.write_bytes(pickle.dumps(payload))
+
+    result = run_cli("analyze-result-pkl", "--path", str(result_path), "--json")
+    summary = json.loads(result.stdout)
+
+    assert summary["samples"] == 2
+    assert summary["prediction_sets"]["tracking"]["total_predictions"] == 4
+    assert summary["prediction_sets"]["tracking"]["classes"]["car"]["count"] == 2
+    assert summary["prediction_sets"]["tracking"]["classes"]["car"]["frames"] == 1
+    assert summary["prediction_sets"]["tracking"]["classes"]["pedestrian"]["score_bins"][">=0.5"] == 1
+    assert summary["prediction_sets"]["detection"]["total_predictions"] == 5
+    assert summary["prediction_sets"]["detection"]["classes"]["bicycle"]["frames"] == 2
+    assert summary["prediction_sets"]["detection"]["classes"]["pedestrian"]["score_bins"][">=0.5"] == 1
+
+
 def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     out_path = tmp_path / "run_smoke.sh"
     run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")

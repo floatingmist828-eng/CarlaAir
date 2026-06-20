@@ -2209,6 +2209,103 @@ def parse_run_metrics(text: str) -> dict[str, float]:
     return metrics
 
 
+def _flat_values(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if isinstance(value, tuple):
+        value = list(value)
+    if not isinstance(value, list):
+        return [value]
+    flattened: list[Any] = []
+    for item in value:
+        if isinstance(item, list):
+            flattened.extend(_flat_values(item))
+        else:
+            flattened.append(item)
+    return flattened
+
+
+def _prediction_set_summary(samples: list[dict[str, Any]], label_key: str, score_key: str) -> dict[str, Any]:
+    class_names = ["car", "bicycle", "pedestrian"]
+    thresholds = [0.05, 0.1, 0.3, 0.5]
+    classes = {
+        name: {
+            "count": 0,
+            "frames": 0,
+            "score_bins": {"all": 0, **{f">={threshold:g}": 0 for threshold in thresholds}},
+            "mean_score": None,
+            "max_score": None,
+        }
+        for name in class_names
+    }
+    score_lists = {name: [] for name in class_names}
+    missing_key_frames = 0
+    empty_frames = 0
+    total_predictions = 0
+
+    for sample in samples:
+        payload = sample.get("pts_bbox", sample) if isinstance(sample, dict) else {}
+        if label_key not in payload:
+            missing_key_frames += 1
+            continue
+        labels = [int(label) for label in _flat_values(payload.get(label_key))]
+        scores = [float(score) for score in _flat_values(payload.get(score_key))]
+        if len(scores) != len(labels):
+            scores = [1.0] * len(labels)
+        if not labels:
+            empty_frames += 1
+        total_predictions += len(labels)
+
+        frame_labels = set(labels)
+        for class_id, class_name in enumerate(class_names):
+            if class_id in frame_labels:
+                classes[class_name]["frames"] += 1
+            for label, score in zip(labels, scores):
+                if label != class_id:
+                    continue
+                classes[class_name]["count"] += 1
+                classes[class_name]["score_bins"]["all"] += 1
+                score_lists[class_name].append(score)
+                for threshold in thresholds:
+                    if score >= threshold:
+                        classes[class_name]["score_bins"][f">={threshold:g}"] += 1
+
+    for class_name, scores in score_lists.items():
+        if not scores:
+            continue
+        classes[class_name]["mean_score"] = round(sum(scores) / len(scores), 4)
+        classes[class_name]["max_score"] = round(max(scores), 4)
+
+    return {
+        "total_predictions": total_predictions,
+        "empty_frames": empty_frames,
+        "missing_key_frames": missing_key_frames,
+        "classes": classes,
+    }
+
+
+def analyze_result_pkl(path: str) -> dict[str, Any]:
+    result_path = Path(path)
+    payload = _load_pickle(result_path)
+    samples = payload.get("bbox_results", payload.get("outputs", payload))
+    if not isinstance(samples, list):
+        raise ValueError(f"Unsupported result pkl structure in {result_path}")
+    return {
+        "path": str(result_path),
+        "samples": len(samples),
+        "prediction_sets": {
+            "tracking": _prediction_set_summary(samples, "labels_3d", "scores_3d"),
+            "detection": _prediction_set_summary(samples, "labels_3d_det", "scores_3d_det"),
+        },
+    }
+
+
 def validate_run(profile_name: str, log_path: str, tolerance: float) -> dict[str, Any]:
     payload = profile_payload(profile_name)
     path = Path(log_path)
@@ -2384,6 +2481,10 @@ def main(argv: list[str] | None = None) -> int:
     validate_parser.add_argument("--tolerance", type=float, default=0.02)
     validate_parser.add_argument("--json", action="store_true")
 
+    result_pkl_parser = subparsers.add_parser("analyze-result-pkl")
+    result_pkl_parser.add_argument("--path", required=True)
+    result_pkl_parser.add_argument("--json", action="store_true")
+
     run_parser = subparsers.add_parser("run-profile")
     run_parser.add_argument("--profile", required=True)
     run_parser.add_argument("--dry-run", action="store_true")
@@ -2480,6 +2581,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(validation, args.json)
         if not validation["passed"]:
             return 3
+    elif args.command == "analyze-result-pkl":
+        emit(analyze_result_pkl(args.path), args.json)
     elif args.command == "run-profile":
         return run_profile(args.profile, args.dry_run)
     return 0

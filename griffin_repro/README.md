@@ -342,6 +342,8 @@ The 250-frame run first filled 64 missing vehicle-side images and 150 missing dr
 
 The added subset coverage diagnostic records the exact annotation coverage used by the partial runs. For the 600-frame subset, cooperative annotations contain 7165 car, 851 bicycle, and 2359 pedestrian labels, with class frame-presence of 600/528/360 frames respectively. For the 800-frame subset, cooperative annotations contain 9548 car, 1102 bicycle, and 3117 pedestrian labels, with class frame-presence of 800/684/488 frames; vehicle-side annotations contain 5742 car, 449 bicycle, and 1687 pedestrian labels, with frame-presence of 800/407/303 frames. For the 1000-frame subset, cooperative annotations contain 12003 car, 1411 bicycle, and 3809 pedestrian labels, with class frame-presence of 1000/855/628 frames; vehicle-side annotations contain 6993 car, 549 bicycle, and 2045 pedestrian labels, with frame-presence of 1000/506/395 frames. For the complete local Griffin-25m val annotation exposed by the official pkl files, the diagnostic reports 10 scenes and 1490 samples, not the 47-scene / 7000-sample paper-level raw scope. Its cooperative annotations contain 17926 car, 2096 bicycle, and 5123 pedestrian labels. The 1000-frame metric blocks show the current paper-fit problem is not empty data but weak non-car performance: CoopTrack reaches car AP@2m `0.4840`, bicycle AP@2m `0.0067`, and pedestrian AP@2m `0.0`; early fusion reaches car AP@2m `0.7797`, bicycle AP@2m `0.1174`, and pedestrian AP@2m `0.0`.
 
+The result-pkl diagnostic adds a second check on the same 1000-frame outputs. Official detection mAP is computed from `boxes_3d_det/scores_3d_det/labels_3d_det`, while official tracking AMOTA is computed from `boxes_3d/scores_3d/labels_3d`. For the 1000-frame CoopTrack pkl, the tracking output contains 4652 car predictions but only 47 bicycle and 87 pedestrian predictions; its detection output has only 55 bicycle and 100 pedestrian boxes at score `>=0.3`. For early fusion, the tracking output contains 4745 car predictions, 213 bicycle predictions, and only 30 pedestrian predictions. This confirms the paper-fit gap is caused by weak bicycle/pedestrian usable predictions in the current subset/checkpoint path, not by missing annotations or a class-name ordering mismatch.
+
 Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000-frame subsets:
 
 - Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
@@ -374,6 +376,15 @@ bash griffin_repro/run_smoke_25m_late_mobaxterm.sh 2>&1 | tee griffin_repro/arti
 ```
 
 When increasing `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, the materialization step now prints per-image progress to stderr while keeping stdout JSON-compatible. If the terminal is still printing `Materializing ... images: N/M`, the job is still filling image files, not yet running model evaluation. With `GRIFFIN_MATERIALIZE_JOBS>1`, the `N/M` lines represent plan traversal, not completed downloads; the script now also prints `submitted ... missing downloads` and `completed ...` lines so a terminal can distinguish queued work from finished fetches.
+
+To audit class-level prediction coverage from a saved official result pkl:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py analyze-result-pkl \
+  --path griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_100per_scene/results-06201404.pkl \
+  --json
+```
 
 To inspect coverage before a longer run:
 
