@@ -344,21 +344,28 @@ The added subset coverage diagnostic records the exact annotation coverage used 
 
 The result-pkl diagnostic adds a second check on the same 1000-frame outputs. Official detection mAP is computed from `boxes_3d_det/scores_3d_det/labels_3d_det`, while official tracking AMOTA is computed from `boxes_3d/scores_3d/labels_3d`. For the 1000-frame CoopTrack pkl, the tracking output contains 4652 car predictions but only 47 bicycle and 87 pedestrian predictions; its detection output has only 55 bicycle and 100 pedestrian boxes at score `>=0.3`. For early fusion, the tracking output contains 4745 car predictions, 213 bicycle predictions, and only 30 pedestrian predictions. This confirms the paper-fit gap is caused by weak bicycle/pedestrian usable predictions in the current subset/checkpoint path, not by missing annotations or a class-name ordering mismatch.
 
-The 1490-frame validation split expansion is now running as `griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log`. The first completed method is the vehicle-side no-fusion baseline:
+The 1490-frame validation split expansion covers the full local Griffin-25m validation subset exposed by the available official pkl files: 10 scenes, 149 samples per scene. The run first completed the sequential no-fusion and early-fusion baselines in `griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log`, then used additional A100 GPUs to run CoopTrack and late-fusion in isolated output tags:
 
 ```text
 subset: 10 scenes, 149 samples per scene, 1490 samples total
 method            paper AP   paper AMOTA   partial AP        partial AMOTA   evidence log
 0-no fusion       0.375      0.365         0.1986            0.160           griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log
+1-early fusion    0.607      0.670         0.2332            0.270           griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log
+2b1-cooptrack     0.479      0.488         0.1450            0.151           griffin_repro/artifacts/logs/parallel_instance_10scene_149per_scene_20260620_172629.log
+3-late fusion     0.378      0.377         0.1341 det        0.126           griffin_repro/artifacts/logs/parallel_late_10scene_149per_scene_20260620_172540.log
 ```
 
-The 1490-frame no-fusion result is a small improvement over the 1000-frame no-fusion run, but it still fails the paper-level tolerance check: AP delta `-0.1764`, AMOTA delta `-0.205`. Its detection AP@2m is car `0.5401`, bicycle `0.1560`, and pedestrian `0.0004`; the result pkl has 5315 tracked car predictions, 98 tracked bicycle predictions, and 146 tracked pedestrian predictions. Early fusion is currently in the materialization stage for the same 1490-frame subset, so the four-method 1490-frame comparison is not complete yet.
+For late-fusion in the 1490-frame run, the detection stage produced mAP `0.1341`; the AB3DMOT tracking stage produced tracking AMOTA `0.126` and tracking-result mAP `0.1258`.
 
-Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000-frame subsets:
+The 1490-frame outputs still fail the paper-level tolerance check. The paper gaps are: no-fusion AP `-0.1764`, AMOTA `-0.205`; early-fusion AP `-0.3738`, AMOTA `-0.400`; CoopTrack AP `-0.3340`, AMOTA `-0.337`; late-fusion AP `-0.2439`, AMOTA `-0.2505`. Early fusion remains the strongest runnable baseline, which matches the broad paper ordering, but CoopTrack remains below no-fusion and early-fusion, which still disagrees with the Griffin-25m paper table.
+
+The class-level 1490-frame metrics show the same paper-fit problem as the smaller subsets. Detection AP@2m is: no-fusion car `0.5401`, bicycle `0.1560`, pedestrian `0.0004`; early-fusion car `0.7570`, bicycle `0.1344`, pedestrian `0.0`; CoopTrack car `0.5061`, bicycle `0.0233`, pedestrian `0.0`; late-fusion car `0.4658`, bicycle `0.0124`, pedestrian `0.0`. Result-pkl diagnostics confirm the usable tracking predictions are heavily car-dominated: early-fusion tracking contains 6911 car, 289 bicycle, and 40 pedestrian predictions; CoopTrack tracking contains 6776 car, 81 bicycle, and 100 pedestrian predictions.
+
+Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000/1490-frame subsets:
 
 - Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
 - Does not yet match the full paper's CoopTrack behavior: the paper reports CoopTrack above no-fusion and late-fusion on Griffin-25m, while these partial subsets have CoopTrack below no-fusion.
-- Does not yet match paper-level absolute AP/AMOTA. The largest completed subset here is 1000 frames out of the 1490-frame validation split, with weak bicycle and pedestrian performance in the sampled frames.
+- Does not yet match paper-level absolute AP/AMOTA. The largest completed subset here is the available 1490-frame validation pkl subset, with weak bicycle and pedestrian performance in the sampled frames.
 - `validate-run` `passed=true` in these logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not a claim that the partial result equals the paper table.
 
 The cooperative validation info currently exposes 10 val `scene_token` groups under this partial selector, even though the official raw Griffin-25m nuScenes metadata records 47 scenes and 7000 samples. Increasing `GRIFFIN_PARTIAL_SCENE_LIMIT` above 10 therefore does not expand the selected val subset yet; the current expansion axis is `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, up to the full 149 frames per val scene.
@@ -383,6 +390,23 @@ export GRIFFIN_PARTIAL_SCENE_LIMIT=10
 export GRIFFIN_PARTIAL_SAMPLES_PER_SCENE=20
 export GRIFFIN_MATERIALIZE_JOBS=8
 bash griffin_repro/run_smoke_25m_late_mobaxterm.sh 2>&1 | tee griffin_repro/artifacts/logs/manual_late_10scene_20per_scene_$(date +%Y%m%d_%H%M%S).log
+```
+
+On the multi-A100 remote host, safe parallelism is possible after the shared drone-side query outputs have been generated. Do not run multiple drone-query producers against the same tag at once because the official configs share `data/infos/griffin_50scenes_25m/drone-side/track_query/`. The safe pattern used for the 1490-frame closure was:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+export GRIFFIN_PARTIAL_SCENE_LIMIT=10
+export GRIFFIN_PARTIAL_SAMPLES_PER_SCENE=149
+export GRIFFIN_SKIP_CONVERTER=1
+export GRIFFIN_MATERIALIZE_JOBS=8
+
+# First produce shared vehicle/drone-side pkl and track_query outputs.
+CUDA_VISIBLE_DEVICES=0 bash griffin_repro/run_smoke_25m_early_mobaxterm.sh
+
+# Then run independent final evaluators with isolated out-tags and unique MASTER_PORT values.
+# Use scripts/griffin_repro.py prepare-partial-eval --out-tag <unique_tag>
+# and assign CUDA_VISIBLE_DEVICES / MASTER_PORT per process.
 ```
 
 When increasing `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, the materialization step now prints per-image progress to stderr while keeping stdout JSON-compatible. If the terminal is still printing `Materializing ... images: N/M`, the job is still filling image files, not yet running model evaluation. With `GRIFFIN_MATERIALIZE_JOBS>1`, the `N/M` lines represent plan traversal, not completed downloads; the script now also prints `submitted ... missing downloads` and `completed ...` lines so a terminal can distinguish queued work from finished fetches.
