@@ -1251,12 +1251,14 @@ def test_analyze_result_pkl_reports_prediction_class_coverage(tmp_path):
             {
                 "labels_3d": [0, 0, 1],
                 "scores_3d": [0.95, 0.45, 0.2],
+                "track_ids": [4, 4, -1],
                 "labels_3d_det": [0, 1, 2],
                 "scores_3d_det": [0.8, 0.12, 0.04],
             },
             {
                 "labels_3d": [2],
                 "scores_3d": [0.55],
+                "track_ids": [7],
                 "labels_3d_det": [1, 2],
                 "scores_3d_det": [0.31, 0.51],
             },
@@ -1271,7 +1273,12 @@ def test_analyze_result_pkl_reports_prediction_class_coverage(tmp_path):
     assert summary["prediction_sets"]["tracking"]["total_predictions"] == 4
     assert summary["prediction_sets"]["tracking"]["classes"]["car"]["count"] == 2
     assert summary["prediction_sets"]["tracking"]["classes"]["car"]["frames"] == 1
+    assert summary["prediction_sets"]["tracking"]["classes"]["car"]["score_bins"][">=0.4"] == 2
     assert summary["prediction_sets"]["tracking"]["classes"]["pedestrian"]["score_bins"][">=0.5"] == 1
+    assert summary["prediction_sets"]["tracking"]["track_ids"]["duplicate_id_frames"] == 1
+    assert summary["prediction_sets"]["tracking"]["track_ids"]["negative_ids"] == 1
+    assert summary["prediction_sets"]["tracking"]["track_ids"]["unique_id_count"] == 2
+    assert summary["prediction_sets"]["tracking"]["track_ids"]["ids_per_frame"]["max"] == 2
     assert summary["prediction_sets"]["detection"]["total_predictions"] == 5
     assert summary["prediction_sets"]["detection"]["classes"]["bicycle"]["frames"] == 2
     assert summary["prediction_sets"]["detection"]["classes"]["pedestrian"]["score_bins"][">=0.5"] == 1
@@ -1345,6 +1352,82 @@ def test_analyze_track_query_cache_summarizes_coverage_and_fields(tmp_path):
     assert summary["valid_obj_idx_ge0"] == {"count": 3, "max": 1, "mean": 0.6667, "min": 0, "sum": 2}
     assert summary["keys"]["query_feats"]["present_files"] == 3
     assert summary["keys"]["query_feats"]["shapes"] == {"[0]": 1, "[1, 2]": 1, "[2, 2]": 1}
+    assert summary["active_score_bins"] == {"all": 2, ">=0.05": 2, ">=0.1": 2, ">=0.3": 2, ">=0.35": 2, ">=0.4": 2, ">=0.5": 2}
+    assert summary["query_timing"]["first_missing_index"] == 2
+
+
+def test_audit_cooptrack_gap_combines_eval_result_query_and_config(tmp_path):
+    result_path = tmp_path / "results.pkl"
+    result_path.write_bytes(
+        pickle.dumps(
+            {
+                "bbox_results": [
+                    {
+                        "labels_3d": [0, 0],
+                        "scores_3d": [0.9, 0.2],
+                        "track_ids": [3, 3],
+                        "labels_3d_det": [0],
+                        "scores_3d_det": [0.8],
+                    }
+                ]
+            }
+        )
+    )
+    query_dir = tmp_path / "track_query"
+    query_dir.mkdir()
+    (query_dir / "air_a.pkl").write_bytes(
+        pickle.dumps(
+            {
+                "query_feats": [[1.0, 2.0]],
+                "query_embeds": [[0.0, 0.0]],
+                "ref_pts": [[0.2, 0.3, 0.4]],
+                "obj_idxes": [9],
+                "scores": [0.6],
+            }
+        )
+    )
+    ann_file = tmp_path / "griffin_infos_val.pkl"
+    ann_file.write_bytes(pickle.dumps({"infos": [{"air_sample_token": "air_a"}]}))
+    eval_dir = tmp_path / "json_output"
+    (eval_dir / "det").mkdir(parents=True)
+    (eval_dir / "track").mkdir()
+    (eval_dir / "det" / "metrics_summary.json").write_text(
+        json.dumps({"mean_dist_aps": {"car": 0.42}, "label_aps": {"car": {"1.0": 0.3}}}),
+        encoding="utf-8",
+    )
+    (eval_dir / "track" / "metrics_summary.json").write_text(
+        json.dumps({"label_metrics": {"amota": {"car": 0.453}, "tp": {"car": 10.0}, "fp": {"car": 4.0}, "fn": {"car": 5.0}, "ids": {"car": 1.0}}}),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.py"
+    config_path.write_text(
+        "score_thresh=0.4\nfilter_score_thresh=0.35\nbbox_coder=dict(type=\"NMSFreeCoder\", max_num=300)\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "audit-cooptrack-gap",
+        "--result-pkl",
+        str(result_path),
+        "--query-dir",
+        str(query_dir),
+        "--ann-file",
+        str(ann_file),
+        "--eval-dir",
+        str(eval_dir),
+        "--config",
+        str(config_path),
+        "--json",
+    )
+    audit = json.loads(result.stdout)
+
+    assert audit["method"] == "2b1-cooptrack"
+    assert audit["summary"]["metrics"] == {"AMOTA": 0.453, "AP": 0.42, "FN": 5.0, "FP": 4.0, "IDS": 1.0, "TP": 10.0}
+    assert audit["result_pkl"]["prediction_sets"]["tracking"]["track_ids"]["duplicate_id_frames"] == 1
+    assert audit["track_query"]["expected_coverage"] == 1
+    assert audit["config_thresholds"]["score_thresh"] == 0.4
+    assert audit["config_thresholds"]["filter_score_thresh"] == 0.35
+    assert audit["config_thresholds"]["bbox_coder_type"] == "NMSFreeCoder"
 
 
 def test_summarize_run_log_collects_method_validation_entries(tmp_path):

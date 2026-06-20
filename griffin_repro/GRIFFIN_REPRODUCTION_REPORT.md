@@ -70,8 +70,18 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 - cooperative instance-fusion checkpoint md5 与 upstream release 一致：`7e1448188b6e99ca6303575c3466b97f`。
 - track-query cache 覆盖 `1490/1490` frames，无缺失 air-token 文件，无 NaN/inf tensor，无负 track id 或帧内重复 id。
 - 当前 CoopTrack car 统计为 `TP/FP/FN/IDS = 4685/1293/3611/24`，论文为 `3755/599/4563/2`。当前输出不是漏检，而是 false positives 和 ID switches 明显更多。
+- 新增 `audit-cooptrack-gap` 诊断命令后，远端复核文件为 `griffin_repro/artifacts/logs/official_25m_cooptrack_gap_audit_20260620.json`。该文件确认：query 时序完整，`expected_sequence_count=1490`、`missing_expected_count=0`、`first_missing_index=null`；query cache 中 active queries 为 `8004`，其中 `>=0.35` 为 `7047`、`>=0.4` 为 `6822`；tracking result 的 `track_ids` 无负数、无帧内重复，`unique_id_count=216`、每帧有效 id 平均 `4.6691`。因此当前差距不来自 query 文件缺失或明显 track-id 写坏。
+- score threshold 离线扫描显示，提高 detection score threshold 会继续降低 car AP：`thresh_0` car AP `0.4203`，`0.3` 为 `0.3773`，`0.5` 为 `0.3659`，`0.9` 为 `0.2982`。因此当前 CoopTrack 偏差也不是简单提高 score threshold 就能修复。
+- 当前配置阈值已复核：`score_thresh=0.4`、`filter_score_thresh=0.35`、`train_gt_iou_threshold=0.3`、`bbox_coder=NMSFreeCoder(max_num=300)`。下一步应优先检查 cross-agent query matching/补全策略和 evaluator/后处理细节，而不是盲目调高 NMS 或 score 阈值。
 
 结论：CoopTrack 是当前唯一未达到论文容差的核心方法。复现成果汇报中应将它列为已真实运行但未完全贴合论文的保留项。
+
+## 仍未闭合的论文内容
+
+- `50scenes_40m`、`50scenes_55m`、`100scenes_random`：论文矩阵和命令映射已覆盖，但远端当前只有 `griffin_50scenes_25m` 数据与四个 25m checkpoint。40m、55m、random 的数据与 checkpoint 尚未落盘，因此还不能声称真实复现。
+- `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
+- upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
+- `BPS/FPS`：指标体系已建模，官方 `tools/analysis_tools/compute_BPS.py` 存在，但脚本硬编码路径且 CoopTrack BPS 段为注释状态；未发现官方 `compute_FPS.py`。因此 AP/AMOTA 已真实验证，BPS/FPS 还需要统一硬件测速脚本补齐。
 
 ## 验证命令
 
@@ -79,7 +89,7 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 ```bash
 cd /home/fp/CARLA/CarlaAir-v0.1.7/code
-/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py doctor --json
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py env-check --strict --json
 ```
 
 查看论文矩阵覆盖：
@@ -89,6 +99,19 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 /home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py paper-run-matrix \
   --dataset 50scenes_25m \
   --include-robustness \
+  --json
+```
+
+复查 CoopTrack gap audit：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py audit-cooptrack-gap \
+  --result-pkl griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls/results-06201945.pkl \
+  --query-dir griffin_repro/official/data/infos/griffin_50scenes_25m/drone-side/track_query \
+  --ann-file griffin_repro/official/data/infos/griffin_50scenes_25m/cooperative/griffin_infos_val.pkl \
+  --eval-dir griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls/json_output/Sat_Jun_20_19_49_34_2026 \
+  --config griffin_repro/official/projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py \
   --json
 ```
 
@@ -107,4 +130,4 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 
 ## 当前结论
 
-当前分支已经完成 Griffin-25m 的主要复现闭环：数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、真实远端 A100 实验日志与汇总 artifact。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack 仍需继续定位。
+当前分支已经完成 Griffin-25m 的主要复现闭环：数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、真实远端 A100 实验日志与汇总 artifact。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack、40m/55m/random 数据与 checkpoint、V2X-ViT/Where2Comm/UniV2X 可运行闭环、BPS/FPS 统一测速仍需继续补齐。

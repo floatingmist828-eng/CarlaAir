@@ -2269,9 +2269,59 @@ def _flat_values(value: Any) -> list[Any]:
     return flattened
 
 
-def _prediction_set_summary(samples: list[dict[str, Any]], label_key: str, score_key: str) -> dict[str, Any]:
+def _threshold_bins(values: list[float], thresholds: list[float]) -> dict[str, int]:
+    return {
+        "all": len(values),
+        **{f">={threshold:g}": sum(1 for value in values if value >= threshold) for threshold in thresholds},
+    }
+
+
+def _track_id_summary(samples: list[dict[str, Any]], id_key: str = "track_ids") -> dict[str, Any]:
+    lifetimes: Counter[int] = Counter()
+    negative_ids = 0
+    duplicate_id_frames = 0
+    present_frames = 0
+    missing_key_frames = 0
+    ids_per_frame = _running_int_stat()
+
+    for sample in samples:
+        payload = sample.get("pts_bbox", sample) if isinstance(sample, dict) else {}
+        if id_key not in payload:
+            missing_key_frames += 1
+            continue
+        present_frames += 1
+        ids = [int(track_id) for track_id in _flat_values(payload.get(id_key))]
+        valid_ids = [track_id for track_id in ids if track_id >= 0]
+        negative_ids += sum(1 for track_id in ids if track_id < 0)
+        _add_int_stat(ids_per_frame, len(valid_ids))
+        if len(valid_ids) != len(set(valid_ids)):
+            duplicate_id_frames += 1
+        lifetimes.update(valid_ids)
+
+    _finish_int_stat(ids_per_frame)
+    lifetime_stats = _running_int_stat()
+    for value in lifetimes.values():
+        _add_int_stat(lifetime_stats, value)
+    _finish_int_stat(lifetime_stats)
+    return {
+        "present_frames": present_frames,
+        "missing_key_frames": missing_key_frames,
+        "negative_ids": negative_ids,
+        "duplicate_id_frames": duplicate_id_frames,
+        "unique_id_count": len(lifetimes),
+        "ids_per_frame": ids_per_frame,
+        "id_lifetime_frames": lifetime_stats,
+    }
+
+
+def _prediction_set_summary(
+    samples: list[dict[str, Any]],
+    label_key: str,
+    score_key: str,
+    id_key: str | None = None,
+) -> dict[str, Any]:
     class_names = ["car", "bicycle", "pedestrian"]
-    thresholds = [0.05, 0.1, 0.3, 0.5]
+    thresholds = [0.05, 0.1, 0.3, 0.35, 0.4, 0.5, 0.7, 0.9]
     classes = {
         name: {
             "count": 0,
@@ -2320,12 +2370,15 @@ def _prediction_set_summary(samples: list[dict[str, Any]], label_key: str, score
         classes[class_name]["mean_score"] = round(sum(scores) / len(scores), 4)
         classes[class_name]["max_score"] = round(max(scores), 4)
 
-    return {
+    summary = {
         "total_predictions": total_predictions,
         "empty_frames": empty_frames,
         "missing_key_frames": missing_key_frames,
         "classes": classes,
     }
+    if id_key:
+        summary["track_ids"] = _track_id_summary(samples, id_key)
+    return summary
 
 
 def analyze_result_pkl(path: str) -> dict[str, Any]:
@@ -2338,7 +2391,7 @@ def analyze_result_pkl(path: str) -> dict[str, Any]:
         "path": str(result_path),
         "samples": len(samples),
         "prediction_sets": {
-            "tracking": _prediction_set_summary(samples, "labels_3d", "scores_3d"),
+            "tracking": _prediction_set_summary(samples, "labels_3d", "scores_3d", "track_ids"),
             "detection": _prediction_set_summary(samples, "labels_3d_det", "scores_3d_det"),
         },
     }
@@ -2438,14 +2491,30 @@ def analyze_track_query_cache(
         "keys": {key: {"present_files": 0, "shapes": {}} for key in keys},
         "rows": _running_int_stat(),
         "valid_obj_idx_ge0": _running_int_stat(),
+        "active_score_bins": _threshold_bins([], [0.05, 0.1, 0.3, 0.35, 0.4, 0.5]),
+        "query_timing": {
+            "expected_sequence_count": len(expected_tokens),
+            "first_missing_index": None,
+            "missing_expected_count": 0,
+            "extra_file_count": len(file_stems - expected_set) if expected_tokens else 0,
+        },
         "nan_or_inf_files": [],
         "ref_pts_outside_0_1_files": [],
         "samples": [],
     }
+    active_scores: list[float] = []
+    if expected_tokens:
+        missing_indexes = [index for index, token in enumerate(expected_tokens) if token not in file_stems]
+        summary["query_timing"]["missing_expected_count"] = len(missing_indexes)
+        summary["query_timing"]["first_missing_index"] = missing_indexes[0] if missing_indexes else None
 
     for index, path in enumerate(files):
         payload = _load_pickle(path)
         sample = {"file": path.name, "type": type(payload).__name__} if index < sample_limit else None
+        obj_numbers = _flat_numbers(_object_value(payload, "obj_idxes"))
+        score_numbers = _flat_numbers(_object_value(payload, "scores"))
+        if len(score_numbers) == len(obj_numbers):
+            active_scores.extend(score for obj_idx, score in zip(obj_numbers, score_numbers) if obj_idx >= 0)
         for key in keys:
             value = _object_value(payload, key)
             shape = _shape_of(value)
@@ -2471,6 +2540,7 @@ def analyze_track_query_cache(
 
     _finish_int_stat(summary["rows"])
     _finish_int_stat(summary["valid_obj_idx_ge0"])
+    summary["active_score_bins"] = _threshold_bins(active_scores, [0.05, 0.1, 0.3, 0.35, 0.4, 0.5])
     summary["nan_or_inf_files"] = summary["nan_or_inf_files"][:20]
     summary["ref_pts_outside_0_1_files"] = summary["ref_pts_outside_0_1_files"][:20]
     return summary
@@ -2645,6 +2715,63 @@ def summarize_eval_json(
         }
     )
     return entry
+
+
+def config_thresholds(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8", errors="replace")
+
+    def number(pattern: str) -> float | None:
+        match = re.search(pattern, text, flags=re.MULTILINE)
+        return float(match.group(1)) if match else None
+
+    def string(pattern: str) -> str | None:
+        match = re.search(pattern, text, flags=re.MULTILINE | re.DOTALL)
+        return match.group(1) if match else None
+
+    return {
+        "config": str(config_path),
+        "score_thresh": number(r"(?m)^\s*score_thresh\s*=\s*([0-9]+(?:\.[0-9]+)?)"),
+        "filter_score_thresh": number(r"(?m)^\s*filter_score_thresh\s*=\s*([0-9]+(?:\.[0-9]+)?)"),
+        "train_gt_iou_threshold": number(r"(?m)^\s*train_gt_iou_threshold\s*=\s*([0-9]+(?:\.[0-9]+)?)"),
+        "bbox_coder_type": string(r"bbox_coder\s*=\s*dict\([\s\S]*?type\s*=\s*[\"']([^\"']+)[\"']"),
+        "bbox_coder_max_num": number(r"bbox_coder\s*=\s*dict\([\s\S]*?max_num\s*=\s*([0-9]+)"),
+    }
+
+
+def audit_cooptrack_gap(
+    result_pkl: str,
+    query_dir: str,
+    ann_file: str,
+    eval_dir: str,
+    config: str | None,
+    dataset: str = "50scenes_25m",
+    paper_tolerance: float = 0.02,
+    class_name: str = "car",
+    condition_id: str = "baseline",
+) -> dict[str, Any]:
+    return {
+        "method": "2b1-cooptrack",
+        "dataset": dataset,
+        "condition_id": condition_id,
+        "summary": summarize_eval_json(
+            eval_dir,
+            dataset,
+            "2b1-cooptrack",
+            paper_tolerance,
+            class_name,
+            condition_id,
+        ),
+        "result_pkl": analyze_result_pkl(result_pkl),
+        "track_query": analyze_track_query_cache(
+            query_dir,
+            ann_file,
+            ["query_feats", "query_embeds", "obj_idxes", "ref_pts", "scores", "cache_motion_feats"],
+        ),
+        "config_thresholds": config_thresholds(config),
+    }
 
 
 def summarize_official_log(
@@ -3045,6 +3172,18 @@ def main(argv: list[str] | None = None) -> int:
     eval_json_parser.add_argument("--condition-id", default="baseline")
     eval_json_parser.add_argument("--json", action="store_true")
 
+    coop_audit_parser = subparsers.add_parser("audit-cooptrack-gap")
+    coop_audit_parser.add_argument("--result-pkl", required=True)
+    coop_audit_parser.add_argument("--query-dir", required=True)
+    coop_audit_parser.add_argument("--ann-file", required=True)
+    coop_audit_parser.add_argument("--eval-dir", required=True)
+    coop_audit_parser.add_argument("--config")
+    coop_audit_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    coop_audit_parser.add_argument("--paper-tolerance", type=float, default=0.02)
+    coop_audit_parser.add_argument("--class-name", default="car")
+    coop_audit_parser.add_argument("--condition-id", default="baseline")
+    coop_audit_parser.add_argument("--json", action="store_true")
+
     official_log_parser = subparsers.add_parser("summarize-official-log")
     official_log_parser.add_argument("--log", required=True)
     official_log_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
@@ -3164,6 +3303,21 @@ def main(argv: list[str] | None = None) -> int:
                 args.eval_dir,
                 args.dataset,
                 args.method,
+                args.paper_tolerance,
+                args.class_name,
+                args.condition_id,
+            ),
+            args.json,
+        )
+    elif args.command == "audit-cooptrack-gap":
+        emit(
+            audit_cooptrack_gap(
+                args.result_pkl,
+                args.query_dir,
+                args.ann_file,
+                args.eval_dir,
+                args.config,
+                args.dataset,
                 args.paper_tolerance,
                 args.class_name,
                 args.condition_id,
