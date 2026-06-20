@@ -1002,6 +1002,42 @@ def test_data_packages_lists_griffin_25m_archives_and_download_size():
     assert payload["full_total_size_bytes"] == 167190016122
 
 
+def test_data_packages_lists_released_non_25m_subsets():
+    result_55m = run_cli("data-packages", "--dataset", "50scenes_55m", "--json")
+    payload_55m = json.loads(result_55m.stdout)
+    packages_55m = {item["path"]: item for item in payload_55m["packages"]}
+
+    assert payload_55m["dataset_prefix"] == "griffin_50scenes_55m"
+    assert payload_55m["package_count"] == 15
+    assert payload_55m["total_size_bytes"] == 192907983888
+    assert packages_55m["datasets/griffin_50scenes_55m/vehicle_lidar.zip"]["size_bytes"] == 1811791394
+
+    result_random = run_cli("data-packages", "--dataset", "100scenes_random", "--json")
+    payload_random = json.loads(result_random.stdout)
+    package_paths = {item["path"] for item in payload_random["packages"]}
+
+    assert payload_random["dataset_prefix"] == "griffin_100scenes_random"
+    assert payload_random["package_count"] == 24
+    assert payload_random["total_size_bytes"] == 403922969356
+    assert "datasets/griffin_100scenes_random/drone_camera_front.z01" in package_paths
+
+
+def test_checkpoint_packages_lists_released_model_weights():
+    result = run_cli("checkpoint-packages", "--dataset", "50scenes_40m", "--json")
+    payload = json.loads(result.stdout)
+    packages = {item["path"]: item for item in payload["packages"]}
+
+    assert payload["dataset_prefix"] == "griffin_50scenes_40m"
+    assert payload["package_count"] == 7
+    assert payload["total_size_bytes"] == 1544556037
+    assert packages["ckpts/griffin_50scenes_40m/cooperative/instance_fusion/iter_38784.pth"]["size_bytes"] == 222769163
+
+    result_55m = run_cli("checkpoint-packages", "--dataset", "50scenes_55m", "--json")
+    payload_55m = json.loads(result_55m.stdout)
+    assert payload_55m["package_count"] == 4
+    assert payload_55m["total_size_bytes"] == 882185460
+
+
 def test_data_packages_can_select_smoke_eval_archives_only():
     result = run_cli(
         "data-packages",

@@ -78,7 +78,7 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 ## 仍未闭合的论文内容
 
-- `50scenes_40m`、`50scenes_55m`、`100scenes_random`：论文矩阵和命令映射已覆盖，但远端当前只有 `griffin_50scenes_25m` 数据与四个 25m checkpoint。40m、55m、random 的数据与 checkpoint 尚未落盘，因此还不能声称真实复现。
+- `50scenes_40m`、`50scenes_55m`、`100scenes_random`：论文矩阵和命令映射已覆盖，且本分支已补齐 Hugging Face 数据包/checkpoint 静态清单。数据包体量分别约为 40m `203.25 GB`、55m `192.91 GB`、random `403.92 GB`；checkpoint 分别约为 40m `1.54 GB`、55m `0.88 GB`、random `1.54 GB`。远端当前只有 `griffin_50scenes_25m` 数据与四个 25m checkpoint，尚未落盘这些大包，因此还不能声称真实复现。
 - `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
 - upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
 - `BPS/FPS`：指标体系已建模，官方 `tools/analysis_tools/compute_BPS.py` 存在，但脚本硬编码路径且 CoopTrack BPS 段为注释状态；未发现官方 `compute_FPS.py`。因此 AP/AMOTA 已真实验证，BPS/FPS 还需要统一硬件测速脚本补齐。
@@ -99,6 +99,15 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 /home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py paper-run-matrix \
   --dataset 50scenes_25m \
   --include-robustness \
+  --json
+```
+
+查看待补 checkpoint 清单：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py checkpoint-packages \
+  --dataset 50scenes_55m \
   --json
 ```
 

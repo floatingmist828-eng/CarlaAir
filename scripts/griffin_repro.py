@@ -117,6 +117,100 @@ DATA_PACKAGES = {
         ("datasets/griffin_50scenes_25m/vehicle_lidar.zip", 214487013),
         ("datasets/griffin_50scenes_25m/vehicle_metadata.zip", 10876283),
     ],
+    "50scenes_40m": [
+        ("datasets/griffin_50scenes_40m/drone_camera_back.zip", 23319394459),
+        ("datasets/griffin_50scenes_40m/drone_camera_bottom.zip", 23848154254),
+        ("datasets/griffin_50scenes_40m/drone_camera_front.zip", 22841754619),
+        ("datasets/griffin_50scenes_40m/drone_camera_instance_segmentation.zip", 5309195881),
+        ("datasets/griffin_50scenes_40m/drone_camera_left.zip", 23623491572),
+        ("datasets/griffin_50scenes_40m/drone_camera_right.zip", 23626949339),
+        ("datasets/griffin_50scenes_40m/drone_metadata.zip", 25638899),
+        ("datasets/griffin_50scenes_40m/md5.txt", 898),
+        ("datasets/griffin_50scenes_40m/vehicle_camera_back.zip", 20665470441),
+        ("datasets/griffin_50scenes_40m/vehicle_camera_front.zip", 19841242560),
+        ("datasets/griffin_50scenes_40m/vehicle_camera_instance_segmentation.zip", 1283111999),
+        ("datasets/griffin_50scenes_40m/vehicle_camera_left.zip", 19143383471),
+        ("datasets/griffin_50scenes_40m/vehicle_camera_right.zip", 19458460759),
+        ("datasets/griffin_50scenes_40m/vehicle_lidar.zip", 244706224),
+        ("datasets/griffin_50scenes_40m/vehicle_metadata.zip", 14514388),
+    ],
+    "50scenes_55m": [
+        ("datasets/griffin_50scenes_55m/drone_camera_back.zip", 21765960515),
+        ("datasets/griffin_50scenes_55m/drone_camera_bottom.zip", 23100690201),
+        ("datasets/griffin_50scenes_55m/drone_camera_front.zip", 21469270588),
+        ("datasets/griffin_50scenes_55m/drone_camera_instance_segmentation.zip", 5504301540),
+        ("datasets/griffin_50scenes_55m/drone_camera_left.zip", 22432223813),
+        ("datasets/griffin_50scenes_55m/drone_camera_right.zip", 21955252146),
+        ("datasets/griffin_50scenes_55m/drone_metadata.zip", 15384290),
+        ("datasets/griffin_50scenes_55m/md5.txt", 854),
+        ("datasets/griffin_50scenes_55m/vehicle_camera_back.zip", 19158854345),
+        ("datasets/griffin_50scenes_55m/vehicle_camera_front.zip", 18645932438),
+        ("datasets/griffin_50scenes_55m/vehicle_camera_instance_segmentation.zip", 1176925071),
+        ("datasets/griffin_50scenes_55m/vehicle_camera_left.zip", 17695934282),
+        ("datasets/griffin_50scenes_55m/vehicle_camera_right.zip", 18165322687),
+        ("datasets/griffin_50scenes_55m/vehicle_lidar.zip", 1811791394),
+        ("datasets/griffin_50scenes_55m/vehicle_metadata.zip", 10139724),
+    ],
+    "100scenes_random": [
+        ("datasets/griffin_100scenes_random/drone_camera_back.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/drone_camera_back.zip", 20158250379),
+        ("datasets/griffin_100scenes_random/drone_camera_bottom.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/drone_camera_bottom.zip", 19867243348),
+        ("datasets/griffin_100scenes_random/drone_camera_front.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/drone_camera_front.zip", 19799017237),
+        ("datasets/griffin_100scenes_random/drone_camera_instance_segmentation.zip", 9395282035),
+        ("datasets/griffin_100scenes_random/drone_camera_left.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/drone_camera_left.zip", 21120022120),
+        ("datasets/griffin_100scenes_random/drone_camera_right.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/drone_camera_right.zip", 20389183698),
+        ("datasets/griffin_100scenes_random/drone_metadata.zip", 44243799),
+        ("datasets/griffin_100scenes_random/md5.txt", 1434),
+        ("datasets/griffin_100scenes_random/vehicle_camera_back.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/vehicle_camera_back.zip", 13997653486),
+        ("datasets/griffin_100scenes_random/vehicle_camera_front.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/vehicle_camera_front.zip", 12308592138),
+        ("datasets/griffin_100scenes_random/vehicle_camera_instance_segmentation.zip", 2409290123),
+        ("datasets/griffin_100scenes_random/vehicle_camera_left.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/vehicle_camera_left.zip", 10586150139),
+        ("datasets/griffin_100scenes_random/vehicle_camera_right.z01", 26843545600),
+        ("datasets/griffin_100scenes_random/vehicle_camera_right.zip", 11756681902),
+        ("datasets/griffin_100scenes_random/vehicle_lidar.zip", 472865064),
+        ("datasets/griffin_100scenes_random/vehicle_metadata.zip", 26582054),
+    ],
+}
+
+CHECKPOINT_PACKAGES = {
+    "50scenes_25m": [
+        ("ckpts/griffin_50scenes_25m/cooperative.pth", 222768971),
+        ("ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth", 222769163),
+        ("ckpts/griffin_50scenes_25m/drone-side.pth", 219802339),
+        ("ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth", 219802531),
+        ("ckpts/griffin_50scenes_25m/early-fusion/iter_33024.pth", 219814563),
+    ],
+    "50scenes_40m": [
+        ("ckpts/griffin_50scenes_40m/cooperative.pth", 222769035),
+        ("ckpts/griffin_50scenes_40m/cooperative/instance_fusion/iter_38784.pth", 222769163),
+        ("ckpts/griffin_50scenes_40m/drone-side.pth", 219802467),
+        ("ckpts/griffin_50scenes_40m/drone-side/iter_38784.pth", 219802531),
+        ("ckpts/griffin_50scenes_40m/early-fusion/iter_38784.pth", 219814563),
+        ("ckpts/griffin_50scenes_40m/vehicle-side.pth", 219799075),
+        ("ckpts/griffin_50scenes_40m/vehicle-side/iter_38784.pth", 219799203),
+    ],
+    "50scenes_55m": [
+        ("ckpts/griffin_50scenes_55m/cooperative/instance_fusion/iter_35760.pth", 222769163),
+        ("ckpts/griffin_50scenes_55m/drone-side/iter_35760.pth", 219802531),
+        ("ckpts/griffin_50scenes_55m/early-fusion/iter_35760.pth", 219814563),
+        ("ckpts/griffin_50scenes_55m/vehicle-side/iter_35760.pth", 219799203),
+    ],
+    "100scenes_random": [
+        ("ckpts/griffin_100scenes_random/cooperative.pth", 222769227),
+        ("ckpts/griffin_100scenes_random/cooperative/instance_fusion/iter_36072.pth", 222769355),
+        ("ckpts/griffin_100scenes_random/drone-side.pth", 219802531),
+        ("ckpts/griffin_100scenes_random/drone-side/iter_36072.pth", 219802659),
+        ("ckpts/griffin_100scenes_random/early-fusion/iter_36072.pth", 219814691),
+        ("ckpts/griffin_100scenes_random/vehicle-side.pth", 219799267),
+        ("ckpts/griffin_100scenes_random/vehicle-side/iter_36072.pth", 219799331),
+    ],
 }
 
 SMOKE_25M_INSTANCE_PACKAGES = {
@@ -557,6 +651,28 @@ def data_packages(dataset: str, package_profile: str = "full") -> dict[str, Any]
         "full_package_count": len(DATA_PACKAGES[dataset]),
         "total_size_bytes": sum(item["size_bytes"] for item in packages),
         "full_total_size_bytes": full_total,
+        "packages": packages,
+    }
+
+
+def checkpoint_packages(dataset: str) -> dict[str, Any]:
+    if dataset not in CHECKPOINT_PACKAGES:
+        raise SystemExit(f"No checkpoint package manifest is recorded for dataset {dataset!r}")
+    prefix = dataset_prefix(dataset)
+    packages = [
+        {
+            "path": path,
+            "size_bytes": size,
+            "url": f"https://huggingface.co/datasets/wjh-svm/Griffin/resolve/main/{path}",
+        }
+        for path, size in CHECKPOINT_PACKAGES[dataset]
+    ]
+    return {
+        "dataset": dataset,
+        "dataset_prefix": prefix,
+        "source": "https://huggingface.co/datasets/wjh-svm/Griffin",
+        "package_count": len(packages),
+        "total_size_bytes": sum(item["size_bytes"] for item in packages),
         "packages": packages,
     }
 
@@ -3037,6 +3153,10 @@ def main(argv: list[str] | None = None) -> int:
     data_parser.add_argument("--package-profile", default="full", choices=sorted(DATA_PACKAGE_PROFILES))
     data_parser.add_argument("--json", action="store_true")
 
+    checkpoint_parser = subparsers.add_parser("checkpoint-packages")
+    checkpoint_parser.add_argument("--dataset", required=True, choices=sorted(DATASETS))
+    checkpoint_parser.add_argument("--json", action="store_true")
+
     data_script_parser = subparsers.add_parser("write-data-script")
     data_script_parser.add_argument("--dataset", required=True)
     data_script_parser.add_argument("--out", required=True)
@@ -3209,6 +3329,8 @@ def main(argv: list[str] | None = None) -> int:
             return 4
     elif args.command == "data-packages":
         emit(data_packages(args.dataset, args.package_profile), args.json)
+    elif args.command == "checkpoint-packages":
+        emit(checkpoint_packages(args.dataset), args.json)
     elif args.command == "write-data-script":
         emit(write_data_script(args.dataset, args.out, args.package_profile), args.json)
     elif args.command == "check-data-packages":
