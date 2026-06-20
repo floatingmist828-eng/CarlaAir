@@ -386,6 +386,18 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --json
 ```
 
+To summarize paper-reference deltas from a combined run log after each smoke script writes its `validate-run` JSON:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py summarize-run-log \
+  --log griffin_repro/artifacts/logs/expanded_10scene_149per_scene_all_20260620_143510_automated.log \
+  --paper-tolerance 0.02 \
+  --json
+```
+
+In that summary, `all_passed` reflects the tolerance used by each `validate-run` call, while `all_within_paper_tolerance` applies the explicit paper-level tolerance above. Use `paper_mismatches` when deciding whether a partial or expanded run actually matches the paper table.
+
 To inspect coverage before a longer run:
 
 ```bash

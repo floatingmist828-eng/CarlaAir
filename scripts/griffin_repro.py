@@ -2340,6 +2340,128 @@ def validate_run(profile_name: str, log_path: str, tolerance: float) -> dict[str
     }
 
 
+def baseline_expected_metrics(dataset: str, method: str) -> dict[str, float]:
+    for row in load_results():
+        if row["dataset"] == dataset and row["methods"] == method and is_zero_condition(row):
+            metrics = numeric_metrics(row)
+            return {"AP": metrics["AP"], "AMOTA": metrics["AMOTA"]}
+    raise SystemExit(f"No baseline paper metrics found for dataset={dataset!r}, method={method!r}")
+
+
+def metric_validation_entry(
+    dataset: str,
+    method: str,
+    metrics: dict[str, float],
+    tolerance: float,
+    profile: str = "log_section",
+) -> dict[str, Any]:
+    expected_metrics = baseline_expected_metrics(dataset, method)
+    checks = {}
+    missing = []
+    for name, expected in expected_metrics.items():
+        if name not in metrics:
+            missing.append(name)
+            continue
+        actual = metrics[name]
+        delta = actual - expected
+        checks[name] = {
+            "actual": actual,
+            "expected": expected,
+            "delta": delta,
+            "abs_delta": abs(delta),
+            "tolerance": tolerance,
+            "passed": abs(delta) <= tolerance,
+        }
+    return {
+        "profile": profile,
+        "dataset": dataset,
+        "method": method,
+        "metrics": metrics,
+        "checks": checks,
+        "missing_metrics": missing,
+        "passed": not missing and all(item["passed"] for item in checks.values()),
+    }
+
+
+def _late_fusion_section(text: str) -> str | None:
+    match = re.search(r"(?im)^run late\s*$", text)
+    if not match:
+        return None
+    next_run = re.search(r"(?im)^run\s+", text[match.end() :])
+    if next_run:
+        return text[match.end() : match.end() + next_run.start()]
+    return text[match.end() :]
+
+
+def parse_late_fusion_metrics(text: str) -> dict[str, float]:
+    metrics = {}
+    ap_match = re.search(r"(?im)^mAP:\s*([0-9]+(?:\.[0-9]+)?)\s*$", text)
+    if ap_match:
+        metrics["AP"] = float(ap_match.group(1))
+
+    amota_matches = re.findall(r"['\"]pts_bbox/amota['\"]\s*:\s*([0-9]+(?:\.[0-9]+)?)", text)
+    if amota_matches:
+        metrics["AMOTA"] = float(amota_matches[-1])
+    else:
+        table_matches = re.findall(r"(?im)^AMOTA\s+([0-9]+(?:\.[0-9]+)?)\s*$", text)
+        if table_matches:
+            metrics["AMOTA"] = float(table_matches[-1])
+    return metrics
+
+
+def summarize_run_log(log_path: str, paper_tolerance: float = 0.02, dataset: str = "50scenes_25m") -> dict[str, Any]:
+    path = Path(log_path)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    entries = []
+    for line in text.splitlines():
+        json_start = line.find("{")
+        if json_start < 0:
+            continue
+        try:
+            payload = json.loads(line[json_start:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if {"profile", "method", "metrics", "checks"} <= set(payload):
+            entries.append(payload)
+
+    methods = [entry["method"] for entry in entries]
+    late_section = _late_fusion_section(text)
+    if late_section and "3-late fusion" not in methods:
+        late_metrics = parse_late_fusion_metrics(late_section)
+        if late_metrics:
+            entries.append(metric_validation_entry(dataset, "3-late fusion", late_metrics, paper_tolerance))
+            methods.append("3-late fusion")
+    missing_methods = sorted(RUNNABLE_METHODS - set(methods))
+    paper_mismatches = []
+    for entry in entries:
+        for metric, check in entry.get("checks", {}).items():
+            abs_delta = float(check.get("abs_delta", abs(check.get("delta", 0.0))))
+            if abs_delta <= paper_tolerance:
+                continue
+            paper_mismatches.append(
+                {
+                    "method": entry["method"],
+                    "metric": metric,
+                    "actual": check.get("actual"),
+                    "expected": check.get("expected"),
+                    "abs_delta": abs_delta,
+                }
+            )
+    return {
+        "log": str(path),
+        "method_count": len(entries),
+        "methods": methods,
+        "missing_runnable_methods": missing_methods,
+        "all_passed": bool(entries) and all(entry.get("passed") for entry in entries),
+        "paper_tolerance": paper_tolerance,
+        "all_within_paper_tolerance": bool(entries) and not paper_mismatches,
+        "paper_mismatches": paper_mismatches,
+        "entries": entries,
+    }
+
+
 def run_profile(profile_name: str, dry_run: bool) -> int:
     payload = profile_payload(profile_name)
     print(json.dumps(payload, indent=2))
@@ -2485,6 +2607,12 @@ def main(argv: list[str] | None = None) -> int:
     result_pkl_parser.add_argument("--path", required=True)
     result_pkl_parser.add_argument("--json", action="store_true")
 
+    run_log_parser = subparsers.add_parser("summarize-run-log")
+    run_log_parser.add_argument("--log", required=True)
+    run_log_parser.add_argument("--paper-tolerance", type=float, default=0.02)
+    run_log_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    run_log_parser.add_argument("--json", action="store_true")
+
     run_parser = subparsers.add_parser("run-profile")
     run_parser.add_argument("--profile", required=True)
     run_parser.add_argument("--dry-run", action="store_true")
@@ -2583,6 +2711,8 @@ def main(argv: list[str] | None = None) -> int:
             return 3
     elif args.command == "analyze-result-pkl":
         emit(analyze_result_pkl(args.path), args.json)
+    elif args.command == "summarize-run-log":
+        emit(summarize_run_log(args.log, args.paper_tolerance, args.dataset), args.json)
     elif args.command == "run-profile":
         return run_profile(args.profile, args.dry_run)
     return 0

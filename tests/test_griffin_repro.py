@@ -1224,6 +1224,67 @@ def test_analyze_result_pkl_reports_prediction_class_coverage(tmp_path):
     assert summary["prediction_sets"]["detection"]["classes"]["pedestrian"]["score_bins"][">=0.5"] == 1
 
 
+def test_summarize_run_log_collects_method_validation_entries(tmp_path):
+    log_path = tmp_path / "combined.log"
+    vehicle = {
+        "profile": "smoke_25m_vehicle",
+        "dataset": "50scenes_25m",
+        "method": "0-no fusion",
+        "metrics": {"AP": 0.18, "AMOTA": 0.15},
+        "checks": {
+            "AP": {"actual": 0.18, "expected": 0.375, "delta": -0.195, "abs_delta": 0.195, "passed": False},
+            "AMOTA": {"actual": 0.15, "expected": 0.365, "delta": -0.215, "abs_delta": 0.215, "passed": False},
+        },
+        "missing_metrics": [],
+        "passed": False,
+    }
+    early = {
+        "profile": "smoke_25m_early",
+        "dataset": "50scenes_25m",
+        "method": "1-early fusion",
+        "metrics": {"AP": 0.23, "AMOTA": 0.27},
+        "checks": {
+            "AP": {"actual": 0.23, "expected": 0.607, "delta": -0.377, "abs_delta": 0.377, "passed": False},
+            "AMOTA": {"actual": 0.27, "expected": 0.67, "delta": -0.4, "abs_delta": 0.4, "passed": False},
+        },
+        "missing_metrics": [],
+        "passed": False,
+    }
+    log_path.write_text(
+        "run vehicle\n"
+        f"{json.dumps(vehicle)}\n"
+        "run early\n"
+        f"validation: {json.dumps(early)}\n"
+        "run late\n"
+        '{"expected": {"AMOTA": 0.488, "AP": 0.479}, "method": "2b1-cooptrack"}\n'
+        "mAP: 0.1336\n"
+        "Aggregated results:\n"
+        "AMOTA\t0.125\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli("summarize-run-log", "--log", str(log_path), "--json")
+    summary = json.loads(result.stdout)
+
+    assert summary["method_count"] == 3
+    assert summary["methods"] == ["0-no fusion", "1-early fusion", "3-late fusion"]
+    assert summary["all_passed"] is False
+    assert summary["paper_tolerance"] == 0.02
+    assert summary["all_within_paper_tolerance"] is False
+    assert summary["missing_runnable_methods"] == ["2b1-cooptrack"]
+    assert summary["paper_mismatches"][0] == {
+        "method": "0-no fusion",
+        "metric": "AP",
+        "actual": 0.18,
+        "expected": 0.375,
+        "abs_delta": 0.195,
+    }
+    assert summary["entries"][0]["checks"]["AP"]["expected"] == 0.375
+    assert summary["entries"][1]["checks"]["AMOTA"]["delta"] == -0.4
+    assert summary["entries"][2]["checks"]["AP"]["expected"] == 0.378
+    assert summary["entries"][2]["checks"]["AMOTA"]["actual"] == 0.125
+
+
 def test_write_mobaxterm_script_emits_asset_gate_and_isolated_eval(tmp_path):
     out_path = tmp_path / "run_smoke.sh"
     run_cli("write-mobaxterm-script", "--profile", "smoke_25m_instance", "--out", str(out_path), "--json")
