@@ -425,12 +425,39 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 
 This official-config batch strengthens the current paper-fit conclusion: early-fusion matches the Griffin-25m baseline and representative robustness axes (communication latency was separately verified at 100ms with AP `0.564283` vs paper `0.564`, AMOTA `0.639659` vs paper `0.640`), and late-fusion baseline matches after regenerating its official inputs. CoopTrack remains the outstanding mismatch: the official baseline config and 100ms latency config both run successfully with complete track-query cache coverage, but car AP remains about `0.05-0.06` below the released paper table.
 
+The early-fusion robustness sweep has now been expanded to every runnable Griffin-25m robustness row in `docs/detailed_results.csv`. The added wave manifests are `official_25m_early_robust_wave1_20260620_201838.json` and `official_25m_early_robust_wave2_20260620_203231.json`; their parsed summaries are saved next to the logs as `_summary.json` files. Every row below passed the paper tolerance check:
+
+```text
+condition                  actual AP   paper AP   actual AMOTA   paper AMOTA
+communication_latency_100  0.564283    0.564      0.639659       0.640
+communication_latency_200  0.508474    0.508      0.579983       0.580
+communication_latency_300  0.458718    0.459      0.513224       0.513
+communication_latency_400  0.420273    0.420      0.449895       0.450
+packet_loss_0.1            0.595825    0.596      0.668843       0.669
+packet_loss_0.2            0.583638    0.584      0.668156       0.668
+packet_loss_0.3            0.564822    0.565      0.639051       0.639
+packet_loss_0.4            0.548771    0.549      0.637282       0.637
+packet_loss_0.5            0.529606    0.530      0.610624       0.611
+translation_error_m_0.5    0.585816    0.586      0.668447       0.668
+translation_error_m_1.0    0.540785    0.541      0.634242       0.634
+translation_error_m_1.5    0.495353    0.495      0.576453       0.576
+translation_error_m_2.0    0.455762    0.456      0.517414       0.517
+translation_error_m_2.5    0.416354    0.416      0.454263       0.455
+rotation_error_deg_1       0.586875    0.587      0.663833       0.664
+rotation_error_deg_2       0.558018    0.558      0.635506       0.636
+rotation_error_deg_3       0.522681    0.523      0.583572       0.584
+rotation_error_deg_4       0.486817    0.487      0.533287       0.533
+rotation_error_deg_5       0.441835    0.442      0.484433       0.484
+```
+
+The current CoopTrack gap diagnostic is saved as `griffin_repro/artifacts/logs/official_25m_cooptrack_gap_diagnostics_20260620.json`. It confirms the official checkpoint md5 `7e1448188b6e99ca6303575c3466b97f`, complete `track_query` coverage (`1490/1490` expected files), no missing query/ref/score/id fields, and no missing official metadata. The remaining mismatch is output behavior: current CoopTrack baseline car `TP/FP/FN/IDS = 4685/1293/3611/24`, while the paper row reports `3755/599/4563/2`. This means the run is not under-detecting cars overall; it is producing substantially more false positives and identity switches than the paper table.
+
 The class-level 1490-frame metrics show the same paper-fit problem as the smaller subsets. Detection AP@2m is: no-fusion car `0.5401`, bicycle `0.1560`, pedestrian `0.0004`; early-fusion car `0.7570`, bicycle `0.1344`, pedestrian `0.0`; CoopTrack car `0.5061`, bicycle `0.0233`, pedestrian `0.0`; late-fusion car `0.4658`, bicycle `0.0124`, pedestrian `0.0`. Result-pkl diagnostics confirm the usable tracking predictions are heavily car-dominated: early-fusion tracking contains 6911 car, 289 bicycle, and 40 pedestrian predictions; CoopTrack tracking contains 6776 car, 81 bicycle, and 100 pedestrian predictions.
 
 Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000/1490-frame subsets:
 
 - Use `--metric-scope paper` for paper-table comparison; it reads the car-class AP/AMOTA rows that match the CSV metric convention.
-- Under the corrected paper-table scope, no-fusion, early-fusion, and late-fusion match the paper on the completed 1490-frame validation split when no-fusion is evaluated against the cooperative GT used by the paper table.
+- Under the corrected paper-table scope, no-fusion, early-fusion, and late-fusion match the paper on the completed 1490-frame validation split when no-fusion is evaluated against the cooperative GT used by the paper table. Early-fusion also matches every runnable Griffin-25m robustness row.
 - CoopTrack still does not fully match the paper table: it remains below the paper reference and below early-fusion in this run.
 - The aggregate three-class outputs remain useful diagnostics. They expose weak bicycle/pedestrian predictions, but they should not be used as the paper-table AP/AMOTA comparison.
 - `validate-run` `passed=true` in old aggregate logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not by itself a claim that the result equals the paper table.
