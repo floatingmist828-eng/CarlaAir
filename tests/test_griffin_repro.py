@@ -512,6 +512,60 @@ def test_materialize_partial_images_dry_run_returns_plan_without_writes(tmp_path
     assert not (official / "datasets").exists()
 
 
+def test_describe_partial_subset_reports_scene_and_class_coverage(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official = tmp_path / "official"
+    prefix = "griffin_50scenes_25m"
+
+    def write_infos(side, names_by_frame):
+        ann = official / "data" / "infos" / prefix / side / "griffin_infos_val.pkl"
+        ann.parent.mkdir(parents=True)
+        infos = []
+        for index, names in enumerate(names_by_frame):
+            scene = "scene_0" if index < 3 else "scene_1"
+            infos.append(
+                {
+                    "token": f"{side}_{index}",
+                    "scene_token": scene,
+                    "timestamp": index,
+                    "gt_names": names,
+                }
+            )
+        with ann.open("wb") as handle:
+            pickle.dump({"infos": infos, "metadata": {"version": "v1.0-trainval"}}, handle)
+
+    write_infos("cooperative", [["car"], ["car", "pedestrian"], ["bicycle"], ["car"], ["pedestrian"]])
+    write_infos("vehicle-side", [["car"], ["car"], [], ["car"], []])
+    write_infos("early-fusion", [["car"], ["pedestrian"], ["bicycle"], ["car"], ["pedestrian"]])
+    write_infos("drone-side", [["pedestrian"], ["car"], ["bicycle"], ["car"], ["pedestrian"]])
+    module.OFFICIAL_ROOT = official
+
+    payload = module.describe_partial_subset(
+        "smoke_25m_instance",
+        scene_limit=2,
+        samples_per_scene=2,
+    )
+
+    assert payload["dataset"] == "50scenes_25m"
+    assert payload["paper_scene_count"] == 47
+    assert payload["scene_limit"] == 2
+    assert payload["samples_per_scene"] == 2
+    assert payload["sides"]["cooperative"]["total_samples"] == 5
+    assert payload["sides"]["cooperative"]["scene_count"] == 2
+    assert payload["sides"]["cooperative"]["selected_sample_count"] == 4
+    assert payload["sides"]["cooperative"]["selected_scene_frame_counts"] == {"scene_0": 2, "scene_1": 2}
+    assert payload["sides"]["cooperative"]["class_annotation_counts"] == {
+        "car": 3,
+        "pedestrian": 2,
+    }
+    assert payload["sides"]["vehicle-side"]["frames_with_any_gt_names"] == 3
+    assert payload["sides"]["vehicle-side"]["class_frame_presence"] == {"car": 3}
+
+
 def test_materialize_partial_images_reports_progress_to_stderr(tmp_path, monkeypatch, capsys):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader

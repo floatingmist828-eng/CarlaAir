@@ -318,6 +318,8 @@ method            paper AP   paper AMOTA   partial AP        partial AMOTA   evi
 
 The 250-frame run first filled 64 missing vehicle-side images and 150 missing drone-side images, then completed all four methods. The later 300-frame, 400-frame, and 600-frame runs completed the same four-method sequence and stayed in the same metric range. The 600-frame run used `GRIFFIN_MATERIALIZE_JOBS=8` and completed the full four-method validation sequence in about 92 minutes, including 800 newly materialized vehicle-side images and 1000 newly materialized drone-side images. Early fusion remains the strongest runnable baseline in these subsets, which agrees with the paper's broad ordering. CoopTrack remains below no-fusion in these subsets, which still disagrees with the paper's Griffin-25m result and shows the current subset is not representative enough for a paper-level effect claim.
 
+The added subset coverage diagnostic records the exact annotation coverage used by the partial runs. For the 600-frame subset, cooperative annotations contain 7165 car, 851 bicycle, and 2359 pedestrian labels, with class frame-presence of 600/528/360 frames respectively. Vehicle-side annotations contain 4430 car, 343 bicycle, and 1288 pedestrian labels, with frame-presence of 600/313/223 frames. For the complete local Griffin-25m val annotation exposed by the official pkl files, the diagnostic reports 10 scenes and 1490 samples, not the 47-scene / 7000-sample paper-level raw scope. Its cooperative annotations contain 17926 car, 2096 bicycle, and 5123 pedestrian labels. The 600-frame metric blocks show the current paper-fit problem is not empty data but weak non-car performance: CoopTrack reaches car AP@2m 0.4868, but bicycle AP@2m 0.0007 and pedestrian AP@2m 0.0; early fusion reaches car AP@2m 0.7990 but pedestrian AP@2m 0.0.
+
 Paper-fit assessment for the 200/210/220/250/300/400/600-frame subsets:
 
 - Matches the paper only at the coarse method-ranking level that early fusion is the strongest runnable baseline in this subset.
@@ -350,6 +352,14 @@ bash griffin_repro/run_smoke_25m_late_mobaxterm.sh 2>&1 | tee griffin_repro/arti
 ```
 
 When increasing `GRIFFIN_PARTIAL_SAMPLES_PER_SCENE`, the materialization step now prints per-image progress to stderr while keeping stdout JSON-compatible. If the terminal is still printing `Materializing ... images: N/M`, the job is still filling image files, not yet running model evaluation. With `GRIFFIN_MATERIALIZE_JOBS>1`, the `N/M` lines represent scheduled items; after the last line, the process may still wait for the concurrent fetches to finish before evaluation starts.
+
+To inspect coverage before a longer run:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py describe-partial-subset --profile smoke_25m_instance --scene-limit 10 --samples-per-scene 60 --json
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py describe-partial-subset --profile smoke_25m_instance --scene-limit 10 --samples-per-scene 149 --json
+```
 
 ## Remote Sync
 

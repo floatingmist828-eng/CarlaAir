@@ -17,6 +17,7 @@ import subprocess
 import sys
 import struct
 import zlib
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -1163,6 +1164,97 @@ def _select_infos_for_partial_eval(
     return selected_infos, selected_scenes
 
 
+def _annotation_class_names(info: dict[str, Any]) -> list[str]:
+    names = []
+    for key in ("gt_names", "gt_names_3d"):
+        raw_names = info.get(key)
+        if hasattr(raw_names, "tolist"):
+            raw_names = raw_names.tolist()
+        if isinstance(raw_names, (list, tuple)):
+            names.extend(str(name) for name in raw_names)
+    ann_infos = info.get("ann_infos")
+    if isinstance(ann_infos, (list, tuple)) and len(ann_infos) >= 2:
+        raw_names = ann_infos[1]
+        if hasattr(raw_names, "tolist"):
+            raw_names = raw_names.tolist()
+        if isinstance(raw_names, (list, tuple)):
+            names.extend(str(name) for name in raw_names)
+    return names
+
+
+def _describe_subset_infos(
+    infos: list[dict[str, Any]],
+    scene_limit: int,
+    max_samples: int | None,
+    samples_per_scene: int | None,
+) -> dict[str, Any]:
+    scene_frame_counts = Counter(str(info.get("scene_token")) for info in infos if info.get("scene_token") is not None)
+    selected_infos, selected_scenes = _select_infos_for_partial_eval(
+        infos,
+        scene_limit,
+        max_samples,
+        samples_per_scene,
+    )
+    selected_scene_frame_counts = Counter(
+        str(info.get("scene_token")) for info in selected_infos if info.get("scene_token") is not None
+    )
+    class_annotation_counts: Counter[str] = Counter()
+    class_frame_presence: Counter[str] = Counter()
+    frames_with_any_gt_names = 0
+    for info in selected_infos:
+        names = _annotation_class_names(info)
+        if names:
+            frames_with_any_gt_names += 1
+        class_annotation_counts.update(names)
+        class_frame_presence.update(set(names))
+    return {
+        "total_samples": len(infos),
+        "scene_count": len(scene_frame_counts),
+        "scene_frame_counts": dict(sorted(scene_frame_counts.items())),
+        "selected_scene_count": len(selected_scenes),
+        "selected_sample_count": len(selected_infos),
+        "selected_scenes": selected_scenes,
+        "selected_scene_frame_counts": dict(sorted(selected_scene_frame_counts.items())),
+        "frames_with_any_gt_names": frames_with_any_gt_names,
+        "class_annotation_counts": dict(sorted(class_annotation_counts.items())),
+        "class_frame_presence": dict(sorted(class_frame_presence.items())),
+    }
+
+
+def describe_partial_subset(
+    profile_name: str,
+    scene_limit: int = 1,
+    max_samples: int | None = None,
+    samples_per_scene: int | None = None,
+) -> dict[str, Any]:
+    profile = profile_payload(profile_name)
+    dataset = profile["dataset"]
+    prefix = dataset_prefix(dataset)
+    sides = {}
+    for side in ("cooperative", "vehicle-side", "early-fusion", "drone-side"):
+        ann_path = OFFICIAL_ROOT / "data" / "infos" / prefix / side / "griffin_infos_val.pkl"
+        data = _load_pickle(ann_path)
+        sides[side] = {
+            "ann_file": _relative_posix(ann_path, OFFICIAL_ROOT),
+            **_describe_subset_infos(
+                list(data.get("infos", [])),
+                scene_limit,
+                max_samples,
+                samples_per_scene,
+            ),
+        }
+    return {
+        "profile": profile_name,
+        "dataset": dataset,
+        "dataset_prefix": prefix,
+        "paper_scene_count": DATASETS[dataset]["scene_count"],
+        "scene_limit": scene_limit,
+        "max_samples": max_samples,
+        "samples_per_scene": samples_per_scene,
+        "sides": sides,
+    }
+
+
 def prepare_partial_eval(
     profile_name: str,
     scene_limit: int = 1,
@@ -2244,6 +2336,13 @@ def main(argv: list[str] | None = None) -> int:
     materialize_parser.add_argument("--dry-run", action="store_true")
     materialize_parser.add_argument("--json", action="store_true")
 
+    describe_subset_parser = subparsers.add_parser("describe-partial-subset")
+    describe_subset_parser.add_argument("--profile", required=True)
+    describe_subset_parser.add_argument("--scene-limit", type=int, default=1)
+    describe_subset_parser.add_argument("--max-samples", type=int)
+    describe_subset_parser.add_argument("--samples-per-scene", type=int)
+    describe_subset_parser.add_argument("--json", action="store_true")
+
     script_parser = subparsers.add_parser("write-mobaxterm-script")
     script_parser.add_argument("--profile", required=True)
     script_parser.add_argument("--out", required=True)
@@ -2340,6 +2439,16 @@ def main(argv: list[str] | None = None) -> int:
                 args.samples_per_scene,
                 args.source_ann,
                 args.dry_run,
+            ),
+            args.json,
+        )
+    elif args.command == "describe-partial-subset":
+        emit(
+            describe_partial_subset(
+                args.profile,
+                args.scene_limit,
+                args.max_samples,
+                args.samples_per_scene,
             ),
             args.json,
         )
