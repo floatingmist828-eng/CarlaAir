@@ -338,10 +338,13 @@ def main():
     inf_det_pkl = mmcv.load(args.inf_det_pkl)
     inf_res = inf_det_pkl['bbox_results']
     inf_res_dict = {}
+    drop_prob = cfg.get('drop_prob', 0.0)
+    loc_noise_std = cfg.get('loc_noise_std', 0.0)
+    orien_noise_std = cfg.get('orien_noise_std', 0.0)
     for i_res in inf_res:
         # drop out bboxes randomly
         num_lines = i_res['boxes_3d'].tensor.shape[0]
-        mask = generate_drop_mask(num_lines, drop_prob=cfg.drop_prob)
+        mask = generate_drop_mask(num_lines, drop_prob=drop_prob)
         i_res['boxes_3d'] = drop_boxes_by_mask(i_res['boxes_3d'], mask)
         i_res['scores_3d'] = i_res['scores_3d'][~mask]
         i_res['labels_3d'] = i_res['labels_3d'][~mask]
@@ -468,8 +471,8 @@ def main():
         # add Noise to the transformation matrix
         veh2inf_rt = addNoise(
             veh2inf_rt,
-            loc_noise_std=cfg.loc_noise_std,
-            ori_noise_std=cfg.orien_noise_std,
+            loc_noise_std=loc_noise_std,
+            ori_noise_std=orien_noise_std,
         )
 
         late_fusion_result = late_fusion_model(veh_result, inf_result, veh2inf_rt)

@@ -2,6 +2,8 @@
 
 This directory isolates the Griffin paper reproduction from the legacy CarlaAir autonomous-driving scaffold.
 
+For the current paper reproduction outcome, see `GRIFFIN_REPRODUCTION_REPORT.md`. It summarizes the official Griffin-25m baseline, robustness, fusion-method coverage, remote evidence logs, and the remaining CoopTrack caveat.
+
 ## Scope
 
 The immediate goal is to reproduce the paper structure and run real partial closures, not to download and rerun the full 973 GB-scale dataset in one pass. The smoke profiles cover Griffin-25m vehicle-only (`smoke_25m_vehicle`), early-fusion (`smoke_25m_early`), and cooperative instance-fusion (`smoke_25m_instance`) baselines when the selected dataset and checkpoints are present.
@@ -450,6 +452,8 @@ rotation_error_deg_4       0.486817    0.487      0.533287       0.533
 rotation_error_deg_5       0.441835    0.442      0.484433       0.484
 ```
 
+The late-fusion robustness sweep has also been expanded to every runnable Griffin-25m robustness row. The full parsed summary is `griffin_repro/artifacts/logs/official_25m_late_robust_all_20260620_summary.json`: all 19 robustness rows passed AP and AMOTA within `paper_tolerance=0.02`. The latency rows required a small upstream-script compatibility fix because `det_result_late_fusion.py` assumed every late-fusion config had `drop_prob`, `loc_noise_std`, and `orien_noise_std`; latency configs do not define those fields, so this branch defaults them to `0.0`, matching the paper scenario semantics.
+
 The current CoopTrack gap diagnostic is saved as `griffin_repro/artifacts/logs/official_25m_cooptrack_gap_diagnostics_20260620.json`. It confirms the official checkpoint md5 `7e1448188b6e99ca6303575c3466b97f`, complete `track_query` coverage (`1490/1490` expected files), no missing query/ref/score/id fields, and no missing official metadata. The remaining mismatch is output behavior: current CoopTrack baseline car `TP/FP/FN/IDS = 4685/1293/3611/24`, while the paper row reports `3755/599/4563/2`. This means the run is not under-detecting cars overall; it is producing substantially more false positives and identity switches than the paper table.
 
 The class-level 1490-frame metrics show the same paper-fit problem as the smaller subsets. Detection AP@2m is: no-fusion car `0.5401`, bicycle `0.1560`, pedestrian `0.0004`; early-fusion car `0.7570`, bicycle `0.1344`, pedestrian `0.0`; CoopTrack car `0.5061`, bicycle `0.0233`, pedestrian `0.0`; late-fusion car `0.4658`, bicycle `0.0124`, pedestrian `0.0`. Result-pkl diagnostics confirm the usable tracking predictions are heavily car-dominated: early-fusion tracking contains 6911 car, 289 bicycle, and 40 pedestrian predictions; CoopTrack tracking contains 6776 car, 81 bicycle, and 100 pedestrian predictions.
@@ -457,7 +461,7 @@ The class-level 1490-frame metrics show the same paper-fit problem as the smalle
 Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000/1490-frame subsets:
 
 - Use `--metric-scope paper` for paper-table comparison; it reads the car-class AP/AMOTA rows that match the CSV metric convention.
-- Under the corrected paper-table scope, no-fusion, early-fusion, and late-fusion match the paper on the completed 1490-frame validation split when no-fusion is evaluated against the cooperative GT used by the paper table. Early-fusion also matches every runnable Griffin-25m robustness row.
+- Under the corrected paper-table scope, no-fusion, early-fusion, and late-fusion match the paper on the completed 1490-frame validation split when no-fusion is evaluated against the cooperative GT used by the paper table. Early-fusion and late-fusion also match every runnable Griffin-25m robustness row.
 - CoopTrack still does not fully match the paper table: it remains below the paper reference and below early-fusion in this run.
 - The aggregate three-class outputs remain useful diagnostics. They expose weak bicycle/pedestrian predictions, but they should not be used as the paper-table AP/AMOTA comparison.
 - `validate-run` `passed=true` in old aggregate logs means the official evaluator ran and AP/AMOTA were parsed inside the configured tolerance. It is not by itself a claim that the result equals the paper table.

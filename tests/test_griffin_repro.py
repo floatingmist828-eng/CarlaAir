@@ -178,6 +178,21 @@ def test_paper_run_matrix_can_emit_25m_robustness_commands():
     assert "tiny_track_r50_stream_bs1_3cls_late_fusion_200latency_ab3dmot.py" in late_latency["command"]
 
 
+def test_late_fusion_converter_defaults_optional_noise_fields():
+    converter = (
+        REPO_ROOT
+        / "griffin_repro"
+        / "official"
+        / "tools"
+        / "result_converter"
+        / "det_result_late_fusion.py"
+    ).read_text(encoding="utf-8")
+
+    assert "drop_prob = cfg.get('drop_prob', 0.0)" in converter
+    assert "loc_noise_std = cfg.get('loc_noise_std', 0.0)" in converter
+    assert "orien_noise_std = cfg.get('orien_noise_std', 0.0)" in converter
+
+
 def test_list_profiles_marks_runnable_configs_and_expected_metrics():
     result = run_cli("list-profiles", "--json")
     payload = json.loads(result.stdout)
