@@ -389,6 +389,12 @@ python scripts/griffin_repro.py summarize-eval-json \
 
 For CoopTrack, the remaining mismatch is now isolated to the instance-fusion output quality. The 1490-frame track-query cache has complete coverage (`1490/1490` files, no missing air-token files), the successful CoopTrack run loaded `ckpts/griffin_50scenes_25m/cooperative/instance_fusion/iter_33024.pth`, and the saved tracking output has no negative track ids or duplicate ids within a frame. The difference from the paper is that this run produces more car matches but many more high-confidence false positives and identity switches: paper `TP/FP/FN/IDS = 3755/599/4563/2`, current `4685/1293/3611/24`.
 
+The remote checkpoint audit on 2026-06-20 matched the upstream Griffin md5 list exactly: cooperative instance-fusion `7e1448188b6e99ca6303575c3466b97f`, drone-side `41734b8d764d1213935a231a3419f655`, early-fusion `ccf39651d3e4381ec06e4d0709821949`, and vehicle-side `1201f5692e390a75e5b5ab0efa0cae19`. The local upstream source manifest also matches `wang-jh18-SVM/Griffin` HEAD `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`, so the CoopTrack gap is not currently explained by a wrong released checkpoint or stale official source snapshot.
+
+The track-query cache audit uses the new `analyze-track-query-cache` command. On the 1490-frame CoopTrack run it reported `1490/1490` coverage, no extra files, no NaN/inf tensors, no `ref_pts` values outside `[0, 1]`, `query_feats/query_embeds/ref_pts/obj_idxes/scores` present in every file, and an average of `905.37` queries per frame with `5.37` active `obj_idxes >= 0` per frame. The cache does not contain `cache_motion_feats` or other `cache_*` fields, but the active instance-fusion path uses `CrossAgentSparseInteraction`, which consumes the query/ref/score/id fields and does not require those cache-motion fields.
+
+The remote asset audit currently shows only `datasets/griffin_50scenes_25m`, the Griffin-25m val info files, and the four Griffin-25m checkpoints are present. The 40m, 55m, and 100-scenes-random paper scene groups are represented in the matrix and runnable-command metadata, but they have not been real-run on the remote host because their datasets/checkpoints are not present there yet.
+
 The class-level 1490-frame metrics show the same paper-fit problem as the smaller subsets. Detection AP@2m is: no-fusion car `0.5401`, bicycle `0.1560`, pedestrian `0.0004`; early-fusion car `0.7570`, bicycle `0.1344`, pedestrian `0.0`; CoopTrack car `0.5061`, bicycle `0.0233`, pedestrian `0.0`; late-fusion car `0.4658`, bicycle `0.0124`, pedestrian `0.0`. Result-pkl diagnostics confirm the usable tracking predictions are heavily car-dominated: early-fusion tracking contains 6911 car, 289 bicycle, and 40 pedestrian predictions; CoopTrack tracking contains 6776 car, 81 bicycle, and 100 pedestrian predictions.
 
 Paper-fit assessment for the 200/210/220/250/300/400/600/800/1000/1490-frame subsets:
@@ -448,6 +454,22 @@ To audit class-level prediction coverage from a saved official result pkl:
 cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 /home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py analyze-result-pkl \
   --path griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls_partial_10scene_100per_scene/results-06201404.pkl \
+  --json
+```
+
+To audit the drone-side track-query cache consumed by CoopTrack:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py analyze-track-query-cache \
+  --query-dir griffin_repro/official/data/infos/griffin_50scenes_25m/drone-side/track_query \
+  --ann-file griffin_repro/official/data/infos/griffin_50scenes_25m/cooperative/griffin_infos_val_partial_10scene_149per_scene_parallel_instance_20260620_172629.pkl \
+  --key query_feats \
+  --key query_embeds \
+  --key obj_idxes \
+  --key ref_pts \
+  --key scores \
+  --key cache_motion_feats \
   --json
 ```
 

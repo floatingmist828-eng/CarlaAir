@@ -9,6 +9,7 @@ import csv
 import importlib.metadata
 import importlib.util
 import json
+import math
 import os
 import pickle
 import re
@@ -2343,6 +2344,138 @@ def analyze_result_pkl(path: str) -> dict[str, Any]:
     }
 
 
+def _object_value(obj: Any, key: str) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key)
+    if hasattr(obj, "get"):
+        try:
+            return obj.get(key)
+        except Exception:
+            pass
+    return getattr(obj, key, None)
+
+
+def _shape_of(value: Any) -> list[int] | None:
+    if value is None:
+        return None
+    if hasattr(value, "shape"):
+        return [int(dim) for dim in value.shape]
+    if isinstance(value, tuple):
+        value = list(value)
+    if isinstance(value, list):
+        if not value:
+            return [0]
+        child_shapes = [_shape_of(item) for item in value]
+        first = child_shapes[0]
+        if first is not None and all(shape == first for shape in child_shapes):
+            return [len(value), *first]
+        return [len(value)]
+    return []
+
+
+def _flat_numbers(value: Any) -> list[float]:
+    numbers = []
+    for item in _flat_values(value):
+        try:
+            numbers.append(float(item))
+        except (TypeError, ValueError):
+            continue
+    return numbers
+
+
+def _running_int_stat() -> dict[str, Any]:
+    return {"count": 0, "max": None, "mean": None, "min": None, "sum": 0}
+
+
+def _add_int_stat(stats: dict[str, Any], value: int) -> None:
+    stats["count"] += 1
+    stats["sum"] += value
+    stats["min"] = value if stats["min"] is None else min(stats["min"], value)
+    stats["max"] = value if stats["max"] is None else max(stats["max"], value)
+
+
+def _finish_int_stat(stats: dict[str, Any]) -> None:
+    if stats["count"]:
+        stats["mean"] = round(stats["sum"] / stats["count"], 4)
+
+
+def _annotation_tokens(ann_file: str | None) -> tuple[list[str], int | None]:
+    if not ann_file:
+        return [], None
+    payload = _load_pickle(Path(ann_file))
+    infos = payload if isinstance(payload, list) else payload.get("infos", [])
+    tokens = [
+        str(info.get("air_sample_token", info.get("token")))
+        for info in infos
+        if isinstance(info, dict) and info.get("air_sample_token", info.get("token")) is not None
+    ]
+    return tokens, len(infos)
+
+
+def analyze_track_query_cache(
+    query_dir: str,
+    ann_file: str | None = None,
+    keys: list[str] | None = None,
+    sample_limit: int = 3,
+) -> dict[str, Any]:
+    official_root = str(OFFICIAL_ROOT)
+    if official_root not in sys.path:
+        sys.path.insert(0, official_root)
+    root = Path(query_dir)
+    files = sorted(root.glob("*.pkl"))
+    expected_tokens, ann_samples = _annotation_tokens(ann_file)
+    expected_set = set(expected_tokens)
+    file_stems = {path.stem for path in files}
+    keys = keys or ["query_feats", "query_embeds", "obj_idxes", "ref_pts", "scores"]
+    summary: dict[str, Any] = {
+        "query_dir": str(root),
+        "ann_file": ann_file,
+        "ann_samples": ann_samples,
+        "track_query_files": len(files),
+        "expected_coverage": sum(1 for token in expected_tokens if token in file_stems),
+        "missing_expected": [token for token in expected_tokens if token not in file_stems][:20],
+        "extra_files": sorted(file_stems - expected_set)[:20] if expected_tokens else [],
+        "keys": {key: {"present_files": 0, "shapes": {}} for key in keys},
+        "rows": _running_int_stat(),
+        "valid_obj_idx_ge0": _running_int_stat(),
+        "nan_or_inf_files": [],
+        "ref_pts_outside_0_1_files": [],
+        "samples": [],
+    }
+
+    for index, path in enumerate(files):
+        payload = _load_pickle(path)
+        sample = {"file": path.name, "type": type(payload).__name__} if index < sample_limit else None
+        for key in keys:
+            value = _object_value(payload, key)
+            shape = _shape_of(value)
+            if sample is not None:
+                sample[key] = shape
+            if value is None:
+                continue
+            key_summary = summary["keys"][key]
+            key_summary["present_files"] += 1
+            shape_key = str(shape)
+            key_summary["shapes"][shape_key] = key_summary["shapes"].get(shape_key, 0) + 1
+            numbers = _flat_numbers(value)
+            if any(not math.isfinite(number) for number in numbers):
+                summary["nan_or_inf_files"].append(path.name)
+            if key == "query_feats" and shape:
+                _add_int_stat(summary["rows"], int(shape[0]))
+            if key == "obj_idxes":
+                _add_int_stat(summary["valid_obj_idx_ge0"], sum(1 for number in numbers if number >= 0))
+            if key == "ref_pts" and any(number < 0 or number > 1 for number in numbers):
+                summary["ref_pts_outside_0_1_files"].append(path.name)
+        if sample is not None:
+            summary["samples"].append(sample)
+
+    _finish_int_stat(summary["rows"])
+    _finish_int_stat(summary["valid_obj_idx_ge0"])
+    summary["nan_or_inf_files"] = summary["nan_or_inf_files"][:20]
+    summary["ref_pts_outside_0_1_files"] = summary["ref_pts_outside_0_1_files"][:20]
+    return summary
+
+
 def validate_run(profile_name: str, log_path: str, tolerance: float, metric_scope: str = "aggregate") -> dict[str, Any]:
     payload = profile_payload(profile_name)
     path = Path(log_path)
@@ -2829,6 +2962,13 @@ def main(argv: list[str] | None = None) -> int:
     result_pkl_parser.add_argument("--path", required=True)
     result_pkl_parser.add_argument("--json", action="store_true")
 
+    track_query_parser = subparsers.add_parser("analyze-track-query-cache")
+    track_query_parser.add_argument("--query-dir", required=True)
+    track_query_parser.add_argument("--ann-file")
+    track_query_parser.add_argument("--key", action="append")
+    track_query_parser.add_argument("--sample-limit", type=int, default=3)
+    track_query_parser.add_argument("--json", action="store_true")
+
     run_log_parser = subparsers.add_parser("summarize-run-log")
     run_log_parser.add_argument("--log", required=True)
     run_log_parser.add_argument("--paper-tolerance", type=float, default=0.02)
@@ -2949,6 +3089,8 @@ def main(argv: list[str] | None = None) -> int:
             return 3
     elif args.command == "analyze-result-pkl":
         emit(analyze_result_pkl(args.path), args.json)
+    elif args.command == "analyze-track-query-cache":
+        emit(analyze_track_query_cache(args.query_dir, args.ann_file, args.key, args.sample_limit), args.json)
     elif args.command == "summarize-run-log":
         emit(summarize_run_log(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
     elif args.command == "summarize-run-logs":

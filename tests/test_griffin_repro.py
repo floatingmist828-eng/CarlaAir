@@ -1262,6 +1262,76 @@ def test_analyze_result_pkl_reports_prediction_class_coverage(tmp_path):
     assert summary["prediction_sets"]["detection"]["classes"]["pedestrian"]["score_bins"][">=0.5"] == 1
 
 
+def test_analyze_track_query_cache_summarizes_coverage_and_fields(tmp_path):
+    query_dir = tmp_path / "track_query"
+    query_dir.mkdir()
+    ann_path = tmp_path / "griffin_infos_val.pkl"
+    ann_path.write_bytes(
+        pickle.dumps(
+            {
+                "infos": [
+                    {"air_sample_token": "air_a"},
+                    {"air_sample_token": "air_b"},
+                    {"air_sample_token": "air_missing"},
+                ]
+            }
+        )
+    )
+    (query_dir / "air_a.pkl").write_bytes(
+        pickle.dumps(
+            {
+                "query_feats": [[1.0, 2.0], [3.0, 4.0]],
+                "query_embeds": [[0.0, 0.0], [1.0, 1.0]],
+                "ref_pts": [[0.2, 0.3, 0.4], [0.5, 0.6, 0.7]],
+                "obj_idxes": [-1, 7],
+                "scores": [0.1, 0.9],
+            }
+        )
+    )
+    (query_dir / "air_b.pkl").write_bytes(
+        pickle.dumps(
+            {
+                "query_feats": [[5.0, 6.0]],
+                "query_embeds": [[2.0, 2.0]],
+                "ref_pts": [[0.1, 0.1, 0.1]],
+                "obj_idxes": [8],
+                "scores": [0.8],
+            }
+        )
+    )
+    (query_dir / "extra.pkl").write_bytes(
+        pickle.dumps(
+            {
+                "query_feats": [],
+                "query_embeds": [],
+                "ref_pts": [],
+                "obj_idxes": [],
+                "scores": [],
+            }
+        )
+    )
+
+    result = run_cli(
+        "analyze-track-query-cache",
+        "--query-dir",
+        str(query_dir),
+        "--ann-file",
+        str(ann_path),
+        "--json",
+    )
+    summary = json.loads(result.stdout)
+
+    assert summary["track_query_files"] == 3
+    assert summary["ann_samples"] == 3
+    assert summary["expected_coverage"] == 2
+    assert summary["missing_expected"] == ["air_missing"]
+    assert summary["extra_files"] == ["extra"]
+    assert summary["rows"] == {"count": 3, "max": 2, "mean": 1.0, "min": 0, "sum": 3}
+    assert summary["valid_obj_idx_ge0"] == {"count": 3, "max": 1, "mean": 0.6667, "min": 0, "sum": 2}
+    assert summary["keys"]["query_feats"]["present_files"] == 3
+    assert summary["keys"]["query_feats"]["shapes"] == {"[0]": 1, "[1, 2]": 1, "[2, 2]": 1}
+
+
 def test_summarize_run_log_collects_method_validation_entries(tmp_path):
     log_path = tmp_path / "combined.log"
     vehicle = {
