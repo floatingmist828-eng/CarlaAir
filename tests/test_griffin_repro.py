@@ -1497,6 +1497,90 @@ def test_summarize_eval_json_extracts_paper_scope_metrics(tmp_path):
     assert summary["passed"] is True
 
 
+def test_summarize_eval_json_can_compare_condition_specific_paper_rows(tmp_path):
+    eval_dir = tmp_path / "json_output"
+    det_dir = eval_dir / "det"
+    track_dir = eval_dir / "track"
+    det_dir.mkdir(parents=True)
+    track_dir.mkdir(parents=True)
+    (det_dir / "metrics_summary.json").write_text(
+        json.dumps({"mean_dist_aps": {"car": 0.564}, "label_aps": {"car": {"2.0": 0.61}}}),
+        encoding="utf-8",
+    )
+    (track_dir / "metrics_summary.json").write_text(
+        json.dumps(
+            {
+                "label_metrics": {
+                    "amota": {"car": 0.64},
+                    "gt": {"car": 8265.0},
+                    "tp": {"car": 5791.0},
+                    "fp": {"car": 588.0},
+                    "fn": {"car": 2462.0},
+                    "ids": {"car": 12.0},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "summarize-eval-json",
+        "--eval-dir",
+        str(eval_dir),
+        "--dataset",
+        "50scenes_25m",
+        "--method",
+        "1-early fusion",
+        "--condition-id",
+        "communication_latency_ms_100",
+        "--paper-tolerance",
+        "0.001",
+        "--json",
+    )
+    summary = json.loads(result.stdout)
+
+    assert summary["condition_id"] == "communication_latency_ms_100"
+    assert summary["checks"]["AP"]["expected"] == 0.564
+    assert summary["checks"]["AMOTA"]["expected"] == 0.64
+    assert summary["paper_metrics"]["GT"] == 8265.0
+    assert summary["passed"] is True
+
+
+def test_summarize_official_log_compares_direct_paper_class_metrics(tmp_path):
+    official_log = tmp_path / "official_late.log"
+    official_log.write_text(
+        "Per-class results:\n"
+        "Object Class\tAP\tATE\tASE\tAOE\tAVE\tAAE\n"
+        "car\t0.378\t0.330\t0.698\t0.144\t2.945\t1.000\n"
+        "======\n"
+        "Per-class results:\n"
+        "\t\tAMOTA\tAMOTP\tRECALL\tMOTAR\tGT\tMOTA\tMOTP\tMT\tML\tFAF\tTP\tFP\tFN\tIDS\tFRAG\tTID\tLGD\n"
+        "car     \t0.377\t1.047\t0.365\t0.739\t8320\t0.269\t0.355\t17\t57\t53.2\t3033\t792\t5282\t5\t12\t9.89\t13.45\n",
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        "summarize-official-log",
+        "--log",
+        str(official_log),
+        "--dataset",
+        "50scenes_25m",
+        "--method",
+        "3-late fusion",
+        "--paper-tolerance",
+        "0.001",
+        "--json",
+    )
+    summary = json.loads(result.stdout)
+
+    assert summary["profile"] == "official_log"
+    assert summary["metric_scope"] == "paper"
+    assert summary["metrics"] == {"AP": 0.378, "AMOTA": 0.377}
+    assert summary["checks"]["AP"]["expected"] == 0.378
+    assert summary["checks"]["AMOTA"]["expected"] == 0.377
+    assert summary["passed"] is True
+
+
 def test_summarize_run_logs_merges_parallel_method_logs(tmp_path):
     main_log = tmp_path / "main.log"
     instance_log = tmp_path / "instance.log"

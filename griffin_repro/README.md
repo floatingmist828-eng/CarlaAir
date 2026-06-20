@@ -157,6 +157,7 @@ python scripts/griffin_repro.py materialize-partial-images --profile smoke_25m_i
 python scripts/griffin_repro.py prepare-drone-query-partial-eval --profile smoke_25m_instance --scene-limit 1 --max-samples 20
 python scripts/griffin_repro.py validate-run --profile smoke_25m_instance --log griffin_repro/official/<path-to-eval-log>
 python scripts/griffin_repro.py run-profile --profile smoke_25m_instance
+python scripts/griffin_repro.py summarize-official-log --log griffin_repro/artifacts/logs/<official-log>.log --dataset 50scenes_25m --method "3-late fusion" --json
 ```
 
 Expected paper reference for this smoke profile is AP `0.479` and AMOTA `0.488`.
@@ -394,6 +395,35 @@ The remote checkpoint audit on 2026-06-20 matched the upstream Griffin md5 list 
 The track-query cache audit uses the new `analyze-track-query-cache` command. On the 1490-frame CoopTrack run it reported `1490/1490` coverage, no extra files, no NaN/inf tensors, no `ref_pts` values outside `[0, 1]`, `query_feats/query_embeds/ref_pts/obj_idxes/scores` present in every file, and an average of `905.37` queries per frame with `5.37` active `obj_idxes >= 0` per frame. The cache does not contain `cache_motion_feats` or other `cache_*` fields, but the active instance-fusion path uses `CrossAgentSparseInteraction`, which consumes the query/ref/score/id fields and does not require those cache-motion fields.
 
 The remote asset audit currently shows only `datasets/griffin_50scenes_25m`, the Griffin-25m val info files, and the four Griffin-25m checkpoints are present. The 40m, 55m, and 100-scenes-random paper scene groups are represented in the matrix and runnable-command metadata, but they have not been real-run on the remote host because their datasets/checkpoints are not present there yet.
+
+### Official 25m Paper-Scope Verification
+
+The 2026-06-20 official-config batch moved beyond smoke/partial tags and ran the upstream Griffin-25m configs directly on the remote multi-A100 host. The batch manifest is `griffin_repro/artifacts/logs/official_25m_batch_20260620_194535.json`; each row below was summarized from official `metrics_summary.json` or official log output with paper-scope car-class AP/AMOTA, then compared with `docs/detailed_results.csv` using `paper_tolerance=0.02`.
+
+```text
+method            condition                 actual AP   paper AP   actual AMOTA   paper AMOTA   status      evidence
+1-early fusion    baseline                  0.607394    0.607      0.669747       0.670         matches     official_25m_early_baseline_20260620_194535.log
+1-early fusion    packet_loss_0.3           0.564822    0.565      0.639051       0.639         matches     official_25m_early_drop30_20260620_194535.log
+1-early fusion    translation_error_m_1.5   0.495353    0.495      0.576453       0.576         matches     official_25m_early_loc15_20260620_194535.log
+1-early fusion    rotation_error_deg_3      0.522681    0.523      0.583572       0.584         matches     official_25m_early_orien3_20260620_194535.log
+2b1-cooptrack     baseline                  0.420317    0.479      0.453223       0.488         below paper official_25m_cooptrack_baseline_20260620_194535.log
+2b1-cooptrack     communication_latency_100 0.412454    0.463      0.452798       0.467         AP below    official_25m_cooptrack_latency100_20260620_194535.log
+3-late fusion     baseline                  0.377       0.378      0.379          0.377         matches     official_25m_late_baseline_20260620_200431.log
+```
+
+The late-fusion baseline in this table used freshly generated official vehicle/drone pkl inputs from `official_25m_vehicle_baseline_20260620_195720.log` and `official_25m_drone_query_eval_20260620_195720.log`, then ran `tools/eval_late_fusion.sh` with the upstream late-fusion and AB3DMOT configs. The new helper command can summarize such bare official logs directly:
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py summarize-official-log \
+  --log griffin_repro/artifacts/logs/official_25m_late_baseline_20260620_200431.log \
+  --dataset 50scenes_25m \
+  --method "3-late fusion" \
+  --paper-tolerance 0.02 \
+  --json
+```
+
+This official-config batch strengthens the current paper-fit conclusion: early-fusion matches the Griffin-25m baseline and representative robustness axes (communication latency was separately verified at 100ms with AP `0.564283` vs paper `0.564`, AMOTA `0.639659` vs paper `0.640`), and late-fusion baseline matches after regenerating its official inputs. CoopTrack remains the outstanding mismatch: the official baseline config and 100ms latency config both run successfully with complete track-query cache coverage, but car AP remains about `0.05-0.06` below the released paper table.
 
 The class-level 1490-frame metrics show the same paper-fit problem as the smaller subsets. Detection AP@2m is: no-fusion car `0.5401`, bicycle `0.1560`, pedestrian `0.0004`; early-fusion car `0.7570`, bicycle `0.1344`, pedestrian `0.0`; CoopTrack car `0.5061`, bicycle `0.0233`, pedestrian `0.0`; late-fusion car `0.4658`, bicycle `0.0124`, pedestrian `0.0`. Result-pkl diagnostics confirm the usable tracking predictions are heavily car-dominated: early-fusion tracking contains 6911 car, 289 bicycle, and 40 pedestrian predictions; CoopTrack tracking contains 6776 car, 81 bicycle, and 100 pedestrian predictions.
 

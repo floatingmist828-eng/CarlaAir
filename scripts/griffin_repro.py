@@ -2512,11 +2512,28 @@ def validate_run(profile_name: str, log_path: str, tolerance: float, metric_scop
 
 
 def baseline_expected_metrics(dataset: str, method: str) -> dict[str, float]:
+    return paper_expected_metrics(dataset, method, "baseline")
+
+
+def paper_expected_metrics(dataset: str, method: str, condition_id: str = "baseline") -> dict[str, float]:
     for row in load_results():
-        if row["dataset"] == dataset and row["methods"] == method and is_zero_condition(row):
+        row_condition_id, _ = condition_from_row(row)
+        if row["dataset"] == dataset and row["methods"] == method and row_condition_id == condition_id:
             metrics = numeric_metrics(row)
             return {"AP": metrics["AP"], "AMOTA": metrics["AMOTA"]}
-    raise SystemExit(f"No baseline paper metrics found for dataset={dataset!r}, method={method!r}")
+    raise SystemExit(
+        f"No paper metrics found for dataset={dataset!r}, method={method!r}, condition_id={condition_id!r}"
+    )
+
+
+def paper_row_metrics(dataset: str, method: str, condition_id: str = "baseline") -> dict[str, float]:
+    for row in load_results():
+        row_condition_id, _ = condition_from_row(row)
+        if row["dataset"] == dataset and row["methods"] == method and row_condition_id == condition_id:
+            return numeric_metrics(row)
+    raise SystemExit(
+        f"No paper row found for dataset={dataset!r}, method={method!r}, condition_id={condition_id!r}"
+    )
 
 
 def metric_validation_entry(
@@ -2527,8 +2544,9 @@ def metric_validation_entry(
     profile: str = "log_section",
     metric_scope: str = "aggregate",
     log: str | None = None,
+    condition_id: str = "baseline",
 ) -> dict[str, Any]:
-    expected_metrics = baseline_expected_metrics(dataset, method)
+    expected_metrics = paper_expected_metrics(dataset, method, condition_id)
     checks = {}
     missing = []
     for name, expected in expected_metrics.items():
@@ -2549,6 +2567,7 @@ def metric_validation_entry(
         "profile": profile,
         "dataset": dataset,
         "method": method,
+        "condition_id": condition_id,
         "metric_scope": metric_scope,
         "metrics": metrics,
         "checks": checks,
@@ -2582,6 +2601,7 @@ def summarize_eval_json(
     method: str,
     paper_tolerance: float = 0.02,
     class_name: str = "car",
+    condition_id: str = "baseline",
 ) -> dict[str, Any]:
     root = Path(eval_dir)
     det_path = _summary_file(root, Path("det/metrics_summary.json").as_posix())
@@ -2603,11 +2623,20 @@ def summarize_eval_json(
     ):
         if metric_name in label_metrics and class_name in label_metrics[metric_name]:
             metrics[output_name] = _class_value(label_metrics, metric_name, class_name)
-    entry = metric_validation_entry(dataset, method, metrics, paper_tolerance, "eval_json", "paper")
+    entry = metric_validation_entry(
+        dataset,
+        method,
+        metrics,
+        paper_tolerance,
+        "eval_json",
+        "paper",
+        condition_id=condition_id,
+    )
     entry.update(
         {
             "eval_dir": str(root),
             "class_name": class_name,
+            "paper_metrics": paper_row_metrics(dataset, method, condition_id),
             "source_files": {
                 "detection": str(det_path),
                 "tracking": str(track_path),
@@ -2615,6 +2644,30 @@ def summarize_eval_json(
             "ap_distances": det.get("label_aps", {}).get(class_name, {}),
         }
     )
+    return entry
+
+
+def summarize_official_log(
+    log: str,
+    dataset: str,
+    method: str,
+    paper_tolerance: float = 0.02,
+    class_name: str = "car",
+    condition_id: str = "baseline",
+) -> dict[str, Any]:
+    path = Path(log)
+    metrics = parse_paper_class_metrics(path.read_text(encoding="utf-8", errors="replace"), class_name)
+    entry = metric_validation_entry(
+        dataset,
+        method,
+        metrics,
+        paper_tolerance,
+        "official_log",
+        "paper",
+        str(path),
+        condition_id,
+    )
+    entry.update({"class_name": class_name, "paper_metrics": paper_row_metrics(dataset, method, condition_id)})
     return entry
 
 
@@ -2989,7 +3042,17 @@ def main(argv: list[str] | None = None) -> int:
     eval_json_parser.add_argument("--method", required=True)
     eval_json_parser.add_argument("--paper-tolerance", type=float, default=0.02)
     eval_json_parser.add_argument("--class-name", default="car")
+    eval_json_parser.add_argument("--condition-id", default="baseline")
     eval_json_parser.add_argument("--json", action="store_true")
+
+    official_log_parser = subparsers.add_parser("summarize-official-log")
+    official_log_parser.add_argument("--log", required=True)
+    official_log_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    official_log_parser.add_argument("--method", required=True)
+    official_log_parser.add_argument("--paper-tolerance", type=float, default=0.02)
+    official_log_parser.add_argument("--class-name", default="car")
+    official_log_parser.add_argument("--condition-id", default="baseline")
+    official_log_parser.add_argument("--json", action="store_true")
 
     run_parser = subparsers.add_parser("run-profile")
     run_parser.add_argument("--profile", required=True)
@@ -3096,7 +3159,29 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "summarize-run-logs":
         emit(summarize_run_logs(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
     elif args.command == "summarize-eval-json":
-        emit(summarize_eval_json(args.eval_dir, args.dataset, args.method, args.paper_tolerance, args.class_name), args.json)
+        emit(
+            summarize_eval_json(
+                args.eval_dir,
+                args.dataset,
+                args.method,
+                args.paper_tolerance,
+                args.class_name,
+                args.condition_id,
+            ),
+            args.json,
+        )
+    elif args.command == "summarize-official-log":
+        emit(
+            summarize_official_log(
+                args.log,
+                args.dataset,
+                args.method,
+                args.paper_tolerance,
+                args.class_name,
+                args.condition_id,
+            ),
+            args.json,
+        )
     elif args.command == "run-profile":
         return run_profile(args.profile, args.dry_run)
     return 0
