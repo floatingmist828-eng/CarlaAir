@@ -38,17 +38,24 @@
 - `griffin_repro/artifacts/logs/official_25m_pytest_full_after_testfix_20260621_1216.log`
 - `griffin_repro/artifacts/logs/official_25m_md5_repair_20260621_25m_md5_repair_range.log`
 - `griffin_repro/artifacts/logs/official_25m_md5_repair_before_20260621_25m_md5_repair_range.json`
+- `griffin_repro/artifacts/logs/official_25m_md5_repair_after_localrelay_20260621_1302.json`
+- `griffin_repro/artifacts/logs/official_25m_package_full_20260621_192352.json`
+- `griffin_repro/artifacts/logs/official_25m_md5_full_20260621_192352.json`
+- `griffin_repro/artifacts/logs/official_25m_checkpoint_25m_20260621_192352.json`
+- `griffin_repro/artifacts/logs/official_25m_audit_25m_assets_20260621_192352.json`
+- `griffin_repro/artifacts/logs/official_25m_source_diff_20260621_192352.json`
+- `griffin_repro/artifacts/logs/official_25m_pytest_full_20260621_192352.log`
 - local relay log on Windows host: `D:\griffin_25m_md5_repair_cache\localrelay_20260621_1302.out.log`
 
 远端环境 `ready=true`，8 张 A100 可见，Python `3.8.20`，`torch=1.9.1+cu111`，`mmcv=1.4.0`，`mmdet=2.14.0`，`mmdet3d=0.17.1`，`mmseg=0.14.1` 均匹配当前复现环境。25m split 文件 `data/split_datas/griffin_50scenes_25m.json` 存在，官方 split 统计为 train `37`、val `10`、total `47` scenes；当前 val 闭环实际使用 `1490` frames。
 
 `audit-25m-assets` 已按真实 nuScenes 目录层级 `griffin-nuscenes/<side>/v1.0-trainval/*.json` 审计。`vehicle-side`、`drone-side`、`early-fusion`、`cooperative` 四套 metadata 均包含 `scene.json`、`sample.json`、`sample_data.json`、`sample_annotation.json`、`instance.json`、`calibrated_sensor.json`、`ego_pose.json`，没有 metadata 缺失。No Fusion、Early Fusion、Late Fusion、CoopTrack 四个 25m config 均存在，官方 evaluator 文件 `tools/dist_eval.sh`、`tools/analysis_tools/compute_BPS.py`、`projects/mmdet3d_plugin/datasets/griffin_dataset.py` 均存在。
 
-25m checkpoint 清单远端校验为 `ready=true`、`complete_count=5/5`、`total_size_bytes=1104957567`。25m full 原始数据包已经按文件大小补齐，2026-06-21 远端 `check-data-packages --package-profile full` 复核为 `ready=true`、`complete_count=15/15`、`complete_size_bytes=167190016122`。但是 full MD5 审计尚未通过：`official_25m_md5_full_20260621_1050_auto.json` 中 `matched_count=7/14`，7 个大相机 zip 大小正确但 MD5 mismatch，且抽查 `unzip -t` 对 `drone_camera_left.zip`、`vehicle_camera_front.zip` 报错。因此当前可以证明 25m 评估闭环可运行、full package 已 size-complete，但不能声称 full 原始包已通过完整性校验。
+25m checkpoint 清单远端校验为 `ready=true`、`complete_count=5/5`、`total_size_bytes=1104957567`。25m full 原始数据包已经按文件大小补齐，2026-06-21 远端 `check-data-packages --package-profile full` 复核为 `ready=true`、`complete_count=15/15`、`complete_size_bytes=167190016122`。此前 `official_25m_md5_full_20260621_1050_auto.json` 暴露出 7 个大相机 zip 的 MD5 mismatch；已通过 `localrelay_20260621_1302` 在本机重下这些坏包、本地 MD5 校验、SFTP 上传远端临时文件、远端二次 MD5 校验后替换。最终远端 `official_25m_md5_full_20260621_192352.json` 返回 `ready=true`、`checked_count=14`、`matched_count=14`，并且 7 个修复包已重新 `unzip -oq` 到官方数据目录。
 
 新增 `verify-data-md5` 独立审计命令，用官方 `md5.txt` 复查当前 package profile 中的 archive；若文件大小未达 manifest 预期，会先报告 `size-mismatch` 并跳过 MD5 计算，避免对 partial zip 做无效哈希。该命令应在 full package `ready=true` 后作为最终数据包完整性证据运行。
 
-新增 `repair_50scenes_25m_full_md5_mobaxterm.sh` 用于修复 size-complete 但 MD5 mismatch 的 25m archives。脚本会读取 `verify-data-md5` 的 mismatch 列表，对每个坏包重新下载到 `.redownload.<stamp>` 临时文件，先校验 size 和 MD5，再把原文件保留为 `.corrupt.<stamp>` 并替换；替换后会清理对应 extraction marker 并重新 `unzip -oq`。远端直连 hf-mirror 的小文件测速仅约 `0.19 MB/s`，HuggingFace 原站在远端超时；本机到 HuggingFace 原站 range 下载可达约 `5 MB/s` 单连接、并发小分片约 `14 MB/s`，本机到远端 SFTP 上传约 `8.8 MB/s`。因此当前改用 `repair_50scenes_25m_full_md5_localrelay.py`：本机下载、按 MD5 校验、SFTP 上传到远端临时文件，远端二次 size/MD5 校验后才替换；默认在远端替换成功后删除本地中转 zip，避免长期占用本机空间。`localrelay_20260621_1302` 已完成并替换 `drone_camera_back.zip`、`drone_camera_bottom.zip`，正在继续修复剩余坏包。在 final `verify-data-md5 --package-profile full` 返回 `ready=true` 前，数据完整性仍列为待闭合。
+新增 `repair_50scenes_25m_full_md5_mobaxterm.sh` 用于修复 size-complete 但 MD5 mismatch 的 25m archives。脚本会读取 `verify-data-md5` 的 mismatch 列表，对每个坏包重新下载到 `.redownload.<stamp>` 临时文件，先校验 size 和 MD5，再把原文件保留为 `.corrupt.<stamp>` 并替换；替换后会清理对应 extraction marker 并重新 `unzip -oq`。远端直连 hf-mirror 的小文件测速仅约 `0.19 MB/s`，HuggingFace 原站在远端超时；本机到 HuggingFace 原站 range 下载可达约 `5 MB/s` 单连接、并发小分片约 `14 MB/s`，本机到远端 SFTP 上传约 `8.8 MB/s`。因此当前改用 `repair_50scenes_25m_full_md5_localrelay.py`：本机下载、按 MD5 校验、SFTP 上传到远端临时文件，远端二次 size/MD5 校验后才替换；默认在远端替换成功后删除本地中转 zip，避免长期占用本机空间。`localrelay_20260621_1302` 已完成 7 个坏包修复，最终 full MD5 已通过；本地中转 zip/parts 已清理，远端本次生成的 `.corrupt.localrelay_20260621_1302` 坏包备份也已在正式包 MD5 通过后删除以释放服务器空间。
 
 ## 基线结果
 
@@ -119,7 +126,7 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 ## 仍未闭合的论文内容
 
-- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 已经 `15/15` size-complete，但 MD5 发现 7 个大相机 zip mismatch，当前正在用 local relay 重下坏包并逐个替换。因此在 final full MD5 通过前，只能表述为“25m full package 已下载到预期大小，完整性修复中”，不能表述为“25m 全量原始数据包已完整校验通过”。
+- `50scenes_25m`：当前验收范围内的官方 full package 已闭合。远端 `check-data-packages --package-profile full` 为 `ready=true`、`complete_count=15/15`、`complete_size_bytes=167190016122`；远端 `verify-data-md5 --package-profile full` 为 `ready=true`、`checked_count=14`、`matched_count=14`；25m checkpoint 清单为 `ready=true`、`complete_count=5/5`。已 materialized 的 25m validation 子集继续支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验。
 - `50scenes_40m`、`50scenes_55m`、`100scenes_random`：这些不是当前验收范围。本轮严格限定 Griffin-50scenes-25m，不下载、不运行 40m/55m/random；论文矩阵中仅保留它们作为对照，不声明真实复现。
 - `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
 - upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
@@ -271,4 +278,4 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 
 ## 当前结论
 
-当前分支已经完成 Griffin-25m 的主要复现闭环：数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、BPS 统计、A100 进度吞吐记录、真实远端实验日志与汇总 artifact。这个状态应表述为“25m 主要闭环和部分/验证子集真实复现”，不是“完整论文全部结果已复现”。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack、25m full package MD5 repair、V2X-ViT/Where2Comm/UniV2X 可运行闭环、以及 RTX 3090 同硬件 FPS 对齐仍需继续补齐。
+当前分支已经完成 Griffin-25m 的主要复现闭环：25m full package 文件大小与 MD5、数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、BPS 统计、A100 进度吞吐记录、真实远端实验日志与汇总 artifact。这个状态应表述为“25m full 数据包完整校验通过，25m 主要 benchmark 闭环真实复现”，不是“完整论文全部结果已复现”。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack、V2X-ViT/Where2Comm/UniV2X 可运行闭环、以及 RTX 3090 同硬件 FPS 对齐仍需继续补齐。
