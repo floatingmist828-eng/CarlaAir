@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0, help="Repair at most N mismatched archives.")
     parser.add_argument("--only-name", action="append", default=[], help="Repair only this archive basename.")
     parser.add_argument("--no-final-verify", action="store_true", help="Skip final full MD5 and extraction.")
+    parser.add_argument(
+        "--keep-local-archives",
+        action="store_true",
+        help="Keep locally downloaded zip files after verified remote replacement.",
+    )
     return parser.parse_args()
 
 
@@ -287,6 +292,9 @@ def main() -> int:
             local_zip = download_archive(item, args.base_url, cache_dir, args.parts, args.workers)
             upload_and_replace(client, local_zip, item, args.remote_root, stamp)
             repaired.append(local_zip.name)
+            if not args.keep_local_archives:
+                local_zip.unlink(missing_ok=True)
+                print(f"[local] removed {local_zip.name}", flush=True)
         if repaired and not args.no_final_verify:
             final_remote_verify(client, args.remote_root, stamp, repaired)
     finally:

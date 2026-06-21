@@ -1665,6 +1665,8 @@ def test_full_md5_localrelay_script_downloads_verifies_and_uploads_without_embed
     assert "--workers" in script
     assert "--only-name" in script
     assert "--no-final-verify" in script
+    assert "--keep-local-archives" in script
+    assert "local_zip.unlink" in script
     assert '"--max-time"' in script
     assert '"10240"' in script
     assert '"-r"' in script

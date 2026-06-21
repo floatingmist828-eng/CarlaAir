@@ -48,7 +48,7 @@
 
 新增 `verify-data-md5` 独立审计命令，用官方 `md5.txt` 复查当前 package profile 中的 archive；若文件大小未达 manifest 预期，会先报告 `size-mismatch` 并跳过 MD5 计算，避免对 partial zip 做无效哈希。该命令应在 full package `ready=true` 后作为最终数据包完整性证据运行。
 
-新增 `repair_50scenes_25m_full_md5_mobaxterm.sh` 用于修复 size-complete 但 MD5 mismatch 的 25m archives。脚本会读取 `verify-data-md5` 的 mismatch 列表，对每个坏包重新下载到 `.redownload.<stamp>` 临时文件，先校验 size 和 MD5，再把原文件保留为 `.corrupt.<stamp>` 并替换；替换后会清理对应 extraction marker 并重新 `unzip -oq`。远端直连 hf-mirror 的小文件测速仅约 `0.19 MB/s`，HuggingFace 原站在远端超时；本机到 HuggingFace 原站 range 下载可达约 `5 MB/s` 单连接、并发小分片约 `14 MB/s`，本机到远端 SFTP 上传约 `8.8 MB/s`。因此当前改用 `repair_50scenes_25m_full_md5_localrelay.py`：本机下载、按 MD5 校验、SFTP 上传到远端临时文件，远端二次 size/MD5 校验后才替换。`localrelay_20260621_1302` 已完成并替换 `drone_camera_back.zip`，正在继续修复剩余坏包。在 final `verify-data-md5 --package-profile full` 返回 `ready=true` 前，数据完整性仍列为待闭合。
+新增 `repair_50scenes_25m_full_md5_mobaxterm.sh` 用于修复 size-complete 但 MD5 mismatch 的 25m archives。脚本会读取 `verify-data-md5` 的 mismatch 列表，对每个坏包重新下载到 `.redownload.<stamp>` 临时文件，先校验 size 和 MD5，再把原文件保留为 `.corrupt.<stamp>` 并替换；替换后会清理对应 extraction marker 并重新 `unzip -oq`。远端直连 hf-mirror 的小文件测速仅约 `0.19 MB/s`，HuggingFace 原站在远端超时；本机到 HuggingFace 原站 range 下载可达约 `5 MB/s` 单连接、并发小分片约 `14 MB/s`，本机到远端 SFTP 上传约 `8.8 MB/s`。因此当前改用 `repair_50scenes_25m_full_md5_localrelay.py`：本机下载、按 MD5 校验、SFTP 上传到远端临时文件，远端二次 size/MD5 校验后才替换；默认在远端替换成功后删除本地中转 zip，避免长期占用本机空间。`localrelay_20260621_1302` 已完成并替换 `drone_camera_back.zip`、`drone_camera_bottom.zip`，正在继续修复剩余坏包。在 final `verify-data-md5 --package-profile full` 返回 `ready=true` 前，数据完整性仍列为待闭合。
 
 ## 基线结果
 
@@ -197,6 +197,8 @@ python -u griffin_repro/repair_50scenes_25m_full_md5_localrelay.py `
   --base-url https://huggingface.co/datasets/wjh-svm/Griffin/resolve/main
 Remove-Item Env:\GRIFFIN_REMOTE_PASSWORD
 ```
+
+该脚本默认远端校验替换成功后删除本地 zip；只有需要保留本地缓存时才额外加 `--keep-local-archives`。
 
 等待 full 数据包完成并自动执行最终数据审计：
 
