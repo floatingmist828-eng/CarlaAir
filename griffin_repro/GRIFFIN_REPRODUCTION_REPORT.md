@@ -45,6 +45,8 @@
 - `griffin_repro/artifacts/logs/official_25m_audit_25m_assets_20260621_192352.json`
 - `griffin_repro/artifacts/logs/official_25m_source_diff_20260621_192352.json`
 - `griffin_repro/artifacts/logs/official_25m_pytest_full_20260621_192352.log`
+- `griffin_repro/artifacts/logs/official_25m_paper_run_matrix_20260621_193547.json`
+- `griffin_repro/artifacts/logs/official_25m_val_image_readability_20260621_193810.json`
 - local relay log on Windows host: `D:\griffin_25m_md5_repair_cache\localrelay_20260621_1302.out.log`
 
 远端环境 `ready=true`，8 张 A100 可见，Python `3.8.20`，`torch=1.9.1+cu111`，`mmcv=1.4.0`，`mmdet=2.14.0`，`mmdet3d=0.17.1`，`mmseg=0.14.1` 均匹配当前复现环境。25m split 文件 `data/split_datas/griffin_50scenes_25m.json` 存在，官方 split 统计为 train `37`、val `10`、total `47` scenes；当前 val 闭环实际使用 `1490` frames。
@@ -52,6 +54,8 @@
 `audit-25m-assets` 已按真实 nuScenes 目录层级 `griffin-nuscenes/<side>/v1.0-trainval/*.json` 审计。`vehicle-side`、`drone-side`、`early-fusion`、`cooperative` 四套 metadata 均包含 `scene.json`、`sample.json`、`sample_data.json`、`sample_annotation.json`、`instance.json`、`calibrated_sensor.json`、`ego_pose.json`，没有 metadata 缺失。No Fusion、Early Fusion、Late Fusion、CoopTrack 四个 25m config 均存在，官方 evaluator 文件 `tools/dist_eval.sh`、`tools/analysis_tools/compute_BPS.py`、`projects/mmdet3d_plugin/datasets/griffin_dataset.py` 均存在。
 
 25m checkpoint 清单远端校验为 `ready=true`、`complete_count=5/5`、`total_size_bytes=1104957567`。25m full 原始数据包已经按文件大小补齐，2026-06-21 远端 `check-data-packages --package-profile full` 复核为 `ready=true`、`complete_count=15/15`、`complete_size_bytes=167190016122`。此前 `official_25m_md5_full_20260621_1050_auto.json` 暴露出 7 个大相机 zip 的 MD5 mismatch；已通过 `localrelay_20260621_1302` 在本机重下这些坏包、本地 MD5 校验、SFTP 上传远端临时文件、远端二次 MD5 校验后替换。最终远端 `official_25m_md5_full_20260621_192352.json` 返回 `ready=true`、`checked_count=14`、`matched_count=14`，并且 7 个修复包已重新 `unzip -oq` 到官方数据目录。
+
+修复后补做了 25m validation 图像可读性审计：`official_25m_val_image_readability_20260621_193810.json` 返回 `ready=true`。该审计按四套官方 val info pkl 的相对路径检查真实输入图像，`vehicle-side` 5960/5960、`drone-side` 7450/7450、`early-fusion` 13410/13410、`cooperative` 5960/5960 均可由 PIL 打开并通过 `verify()`，missing 和 unreadable 均为 0。
 
 新增 `verify-data-md5` 独立审计命令，用官方 `md5.txt` 复查当前 package profile 中的 archive；若文件大小未达 manifest 预期，会先报告 `size-mismatch` 并跳过 MD5 计算，避免对 partial zip 做无效哈希。该命令应在 full package `ready=true` 后作为最终数据包完整性证据运行。
 
@@ -128,8 +132,8 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 - `50scenes_25m`：当前验收范围内的官方 full package 已闭合。远端 `check-data-packages --package-profile full` 为 `ready=true`、`complete_count=15/15`、`complete_size_bytes=167190016122`；远端 `verify-data-md5 --package-profile full` 为 `ready=true`、`checked_count=14`、`matched_count=14`；25m checkpoint 清单为 `ready=true`、`complete_count=5/5`。已 materialized 的 25m validation 子集继续支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验。
 - `50scenes_40m`、`50scenes_55m`、`100scenes_random`：这些不是当前验收范围。本轮严格限定 Griffin-50scenes-25m，不下载、不运行 40m/55m/random；论文矩阵中仅保留它们作为对照，不声明真实复现。
-- `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
-- upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
+- `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前官方 GitHub HEAD `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4` 的 `projects/configs_griffin_50scenes_25m` 下没有 V2X-ViT、Where2Comm、UniV2X 的 25m 可运行 config。2026-06-21 远端 `paper-run-matrix --dataset 50scenes_25m --include-robustness` 复核为 `emitted_rows=121`、`runnable_config_rows=61`、`pipeline_inputs_required=20`、`paper_result_only_rows=60`；其中 V2X-ViT、Where2Comm、UniV2X 各 20 行均为 `paper_result_only`，不能伪造为已跑通。
+- upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布；Hugging Face 数据仓库公开文件树包含 `ckpts/` 和 `datasets/`，但当前官方 GitHub 页面仍无 Releases，且 25m GitHub configs 未提供 V2X-ViT/Where2Comm/UniV2X 直跑闭环。
 - `BPS/FPS`：已新增 `efficiency-audit` 命令并在远端生成 `griffin_repro/artifacts/logs/official_25m_efficiency_audit_20260621.json`。按官方 `compute_BPS.py` 的 late-fusion 公式和其注释掉的 CoopTrack payload 公式，1490-frame 25m baseline 得到 Late Fusion BPS `2492.496644`、CoopTrack BPS `9379651.973154`。官方仓库未发现 `compute_FPS.py`；当前只记录 A100 日志进度吞吐估计，CoopTrack `8.8 task/s`、Late Fusion baseline `7.3 task/s`，不能和论文单张 RTX 3090 FPS 直接等价。
 
 ## 验证命令
