@@ -162,6 +162,13 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --json
 ```
 
+等待 full 数据包完成并自动执行最终数据审计：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+bash griffin_repro/finalize_25m_full_validation_mobaxterm.sh
+```
+
 复查 25m split、metadata、config、checkpoint、evaluator 资产：
 
 ```bash

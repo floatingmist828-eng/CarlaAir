@@ -18,6 +18,7 @@ SCRIPT = REPO_ROOT / "scripts" / "griffin_repro.py"
 SYNC_SCRIPT = REPO_ROOT / "scripts" / "sync_griffin_remote.py"
 MANIFEST = REPO_ROOT / "griffin_repro" / "manifest.json"
 OFFICIAL = REPO_ROOT / "griffin_repro" / "official"
+FINALIZER_SCRIPT = REPO_ROOT / "griffin_repro" / "finalize_25m_full_validation_mobaxterm.sh"
 
 
 class _StrictQueryPayload:
@@ -1608,6 +1609,20 @@ def test_write_data_script_full_profile_verifies_full_archive_set(tmp_path):
     assert "drone_camera_instance_segmentation.zip|3558624019" in script
     assert "check-data-packages --dataset 50scenes_25m --package-profile full --json" in script
     assert "check-partial-assets --profile smoke_25m_instance" in script
+
+
+def test_full_validation_finalizer_waits_for_download_and_records_audits():
+    script = FINALIZER_SCRIPT.read_text(encoding="utf-8")
+
+    assert "download_50scenes_25m_full" in script
+    assert "check-data-packages --dataset 50scenes_25m --package-profile full --json" in script
+    assert "verify-data-md5 --dataset 50scenes_25m --package-profile full --json" in script
+    assert "check-checkpoint-packages --dataset 50scenes_25m --json" in script
+    assert "audit-25m-assets --json" in script
+    assert "official-source-diff --reference-root" in script
+    assert "-m pytest tests/test_griffin_repro.py -q" in script
+    assert "official_25m_full_finalize_" in script
+    assert "carlaair_active_world" not in script
 
 
 def test_check_data_packages_reports_missing_local_archives():
