@@ -1629,7 +1629,32 @@ def test_full_validation_finalizer_waits_for_download_and_records_audits():
     assert "carlaair_active_world" not in script
 
 
-def test_check_data_packages_reports_missing_local_archives():
+def test_full_md5_repair_script_redownloads_mismatches_safely():
+    script = (REPO_ROOT / "griffin_repro/repair_50scenes_25m_full_md5_mobaxterm.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "verify-data-md5" in script
+    assert 'REPAIR_JOBS="${GRIFFIN_REPAIR_JOBS:-3}"' in script
+    assert 'REPAIR_PARTS="${GRIFFIN_REPAIR_PARTS:-1}"' in script
+    assert "GRIFFIN_REPAIR_JOBS must be a positive integer" in script
+    assert "GRIFFIN_REPAIR_PARTS must be a positive integer" in script
+    assert "REPAIR_PARTS=1" in script
+    assert "wait -n" in script
+    assert "status\") == \"mismatch\"" in script
+    assert (
+        'curl --silent --show-error --fail --retry 5 --retry-all-errors --connect-timeout 30 --speed-limit 1024 '
+        '--speed-time 120 -L -o "$tmp"'
+    ) in script
+    assert '-r "$start-$end" -o "$part_path"' in script
+    assert "Range part size mismatch" in script
+    assert " -C - " not in script
+    assert "$target.corrupt.$STAMP" in script
+    assert "MD5 repair did not converge" in script
+    assert 'unzip -oq "$ARCHIVE_DIR/$name" -d "$DATA_PARENT"' in script
+
+
+def test_check_data_packages_reports_local_archive_state():
     result = run_cli(
         "check-data-packages",
         "--dataset",
@@ -1643,8 +1668,9 @@ def test_check_data_packages_reports_missing_local_archives():
     assert payload["package_profile"] == "smoke_25m_instance"
     assert payload["package_count"] == 12
     assert payload["total_size_bytes"] == 162300524941
-    assert payload["ready"] is False
+    assert payload["ready"] is all(item["complete"] for item in payload["checks"])
     assert any(item["path"].endswith("drone_camera_back.zip") for item in payload["checks"])
+    assert any(item["path"].endswith("md5.txt") for item in payload["checks"])
 
 
 def test_check_data_packages_reports_oversized_corrupt_archives(tmp_path):
