@@ -1615,6 +1615,10 @@ def test_full_validation_finalizer_waits_for_download_and_records_audits():
     script = FINALIZER_SCRIPT.read_text(encoding="utf-8")
 
     assert "download_50scenes_25m_full" in script
+    assert "ps -eo pid=,comm=,args=" in script
+    assert "comm == \"curl\"" in script
+    assert "griffin_repro/download_50scenes_25m_full_mobaxterm.sh" in script
+    assert "pgrep -af 'download_50scenes_25m_full|curl" not in script
     assert "check-data-packages --dataset 50scenes_25m --package-profile full --json" in script
     assert "verify-data-md5 --dataset 50scenes_25m --package-profile full --json" in script
     assert "check-checkpoint-packages --dataset 50scenes_25m --json" in script

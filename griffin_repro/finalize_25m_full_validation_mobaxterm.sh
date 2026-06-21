@@ -20,7 +20,20 @@ echo "PYTHON=$PYTHON"
 echo "REFERENCE_ROOT=$REFERENCE_ROOT"
 
 download_active() {
-  pgrep -af 'download_50scenes_25m_full|curl .*griffin_50scenes_25m' | grep -v grep >/dev/null 2>&1
+  ps -eo pid=,comm=,args= | "$PYTHON" -c '
+import sys
+
+for raw in sys.stdin:
+    parts = raw.strip().split(None, 2)
+    if len(parts) < 3:
+        continue
+    _, comm, args = parts
+    if comm == "curl" and "griffin_50scenes_25m" in args:
+        raise SystemExit(0)
+    if comm == "bash" and "griffin_repro/download_50scenes_25m_full_mobaxterm.sh" in args:
+        raise SystemExit(0)
+raise SystemExit(1)
+'
 }
 
 package_ready() {
