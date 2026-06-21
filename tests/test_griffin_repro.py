@@ -1654,6 +1654,29 @@ def test_full_md5_repair_script_redownloads_mismatches_safely():
     assert 'unzip -oq "$ARCHIVE_DIR/$name" -d "$DATA_PARENT"' in script
 
 
+def test_full_md5_localrelay_script_downloads_verifies_and_uploads_without_embedded_password():
+    script = (REPO_ROOT / "griffin_repro/repair_50scenes_25m_full_md5_localrelay.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "GRIFFIN_REMOTE_PASSWORD" in script
+    assert "godfp" not in script
+    assert "ThreadPoolExecutor" in script
+    assert "--workers" in script
+    assert "--only-name" in script
+    assert "--no-final-verify" in script
+    assert '"--max-time"' in script
+    assert '"10240"' in script
+    assert '"-r"' in script
+    assert "part size mismatch" in script
+    assert "md5_file(zip_path)" in script
+    assert ".redownload.{stamp}.localrelay" in script
+    assert "md5sum" in script
+    assert ".corrupt." in script
+    assert "verify-data-md5" in script
+    assert "unzip" in script
+
+
 def test_check_data_packages_reports_local_archive_state():
     result = run_cli(
         "check-data-packages",

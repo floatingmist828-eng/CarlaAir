@@ -38,6 +38,7 @@
 - `griffin_repro/artifacts/logs/official_25m_pytest_full_after_testfix_20260621_1216.log`
 - `griffin_repro/artifacts/logs/official_25m_md5_repair_20260621_25m_md5_repair_range.log`
 - `griffin_repro/artifacts/logs/official_25m_md5_repair_before_20260621_25m_md5_repair_range.json`
+- local relay log on Windows host: `D:\griffin_25m_md5_repair_cache\localrelay_20260621_1302.out.log`
 
 远端环境 `ready=true`，8 张 A100 可见，Python `3.8.20`，`torch=1.9.1+cu111`，`mmcv=1.4.0`，`mmdet=2.14.0`，`mmdet3d=0.17.1`，`mmseg=0.14.1` 均匹配当前复现环境。25m split 文件 `data/split_datas/griffin_50scenes_25m.json` 存在，官方 split 统计为 train `37`、val `10`、total `47` scenes；当前 val 闭环实际使用 `1490` frames。
 
@@ -47,7 +48,7 @@
 
 新增 `verify-data-md5` 独立审计命令，用官方 `md5.txt` 复查当前 package profile 中的 archive；若文件大小未达 manifest 预期，会先报告 `size-mismatch` 并跳过 MD5 计算，避免对 partial zip 做无效哈希。该命令应在 full package `ready=true` 后作为最终数据包完整性证据运行。
 
-新增 `repair_50scenes_25m_full_md5_mobaxterm.sh` 用于修复 size-complete 但 MD5 mismatch 的 25m archives。脚本会读取 `verify-data-md5` 的 mismatch 列表，对每个坏包重新下载到 `.redownload.<stamp>` 临时文件，先校验 size 和 MD5，再把原文件保留为 `.corrupt.<stamp>` 并替换；替换后会清理对应 extraction marker 并重新 `unzip -oq`。当前远端已切换到 `GRIFFIN_REPAIR_JOBS=2`、`GRIFFIN_REPAIR_PARTS=6` 的 range 分片修复任务，日志为 `official_25m_md5_repair_20260621_25m_md5_repair_range.log`。在 `official_25m_md5_repair_after_20260621_25m_md5_repair_range.json` 出现且 `ready=true` 前，数据完整性仍列为待闭合。
+新增 `repair_50scenes_25m_full_md5_mobaxterm.sh` 用于修复 size-complete 但 MD5 mismatch 的 25m archives。脚本会读取 `verify-data-md5` 的 mismatch 列表，对每个坏包重新下载到 `.redownload.<stamp>` 临时文件，先校验 size 和 MD5，再把原文件保留为 `.corrupt.<stamp>` 并替换；替换后会清理对应 extraction marker 并重新 `unzip -oq`。远端直连 hf-mirror 的小文件测速仅约 `0.19 MB/s`，HuggingFace 原站在远端超时；本机到 HuggingFace 原站 range 下载可达约 `5 MB/s` 单连接、并发小分片约 `14 MB/s`，本机到远端 SFTP 上传约 `8.8 MB/s`。因此当前改用 `repair_50scenes_25m_full_md5_localrelay.py`：本机下载、按 MD5 校验、SFTP 上传到远端临时文件，远端二次 size/MD5 校验后才替换。`localrelay_20260621_1302` 已完成并替换 `drone_camera_back.zip`，正在继续修复剩余坏包。在 final `verify-data-md5 --package-profile full` 返回 `ready=true` 前，数据完整性仍列为待闭合。
 
 ## 基线结果
 
@@ -118,7 +119,7 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 ## 仍未闭合的论文内容
 
-- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 已经 `15/15` size-complete，但 MD5 发现 7 个大相机 zip mismatch，当前正在用 range repair 脚本重下坏包。因此在 repair-after MD5 通过前，只能表述为“25m full package 已下载到预期大小，完整性修复中”，不能表述为“25m 全量原始数据包已完整校验通过”。
+- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 已经 `15/15` size-complete，但 MD5 发现 7 个大相机 zip mismatch，当前正在用 local relay 重下坏包并逐个替换。因此在 final full MD5 通过前，只能表述为“25m full package 已下载到预期大小，完整性修复中”，不能表述为“25m 全量原始数据包已完整校验通过”。
 - `50scenes_40m`、`50scenes_55m`、`100scenes_random`：这些不是当前验收范围。本轮严格限定 Griffin-50scenes-25m，不下载、不运行 40m/55m/random；论文矩阵中仅保留它们作为对照，不声明真实复现。
 - `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
 - upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
@@ -182,6 +183,19 @@ GRIFFIN_REPAIR_PARTS=6 \
 GRIFFIN_REPAIR_BASE_URL=https://hf-mirror.com/datasets/wjh-svm/Griffin/resolve/main \
 GRIFFIN_REPAIR_FALLBACK_BASE_URL=https://huggingface.co/datasets/wjh-svm/Griffin/resolve/main \
 bash griffin_repro/repair_50scenes_25m_full_md5_mobaxterm.sh
+```
+
+远端直连过慢时，在 Windows 本机用 local relay 修复：
+
+```powershell
+$env:GRIFFIN_REMOTE_PASSWORD = '<password>'
+python -u griffin_repro/repair_50scenes_25m_full_md5_localrelay.py `
+  --parts 128 `
+  --workers 16 `
+  --stamp localrelay_20260621_1302 `
+  --cache-dir D:\griffin_25m_md5_repair_cache `
+  --base-url https://huggingface.co/datasets/wjh-svm/Griffin/resolve/main
+Remove-Item Env:\GRIFFIN_REMOTE_PASSWORD
 ```
 
 等待 full 数据包完成并自动执行最终数据审计：
