@@ -83,11 +83,11 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 ## 仍未闭合的论文内容
 
-- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。但原始 full package 清单仍是 `4/15` 完整，因此不能表述为 25m 全量原始数据包已完整下载。
-- `50scenes_40m`、`50scenes_55m`、`100scenes_random`：论文矩阵和命令映射已覆盖，且本分支已补齐 Hugging Face 数据包/checkpoint 静态清单。数据包体量分别约为 40m `203.25 GB`、55m `192.91 GB`、random `403.92 GB`；checkpoint 分别约为 40m `1.54 GB`、55m `0.88 GB`、random `1.54 GB`。远端当前尚未落盘这些大包，因此还不能声称真实复现。
+- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 正在续传，2026-06-21 最近一次探测为 `12/15` 完整、剩余约 `11.1 GB` 且仍在减少，因此在 full 校验完成前不能表述为 25m 全量原始数据包已完整下载。
+- `50scenes_40m`、`50scenes_55m`、`100scenes_random`：这些不是当前验收范围。本轮严格限定 Griffin-50scenes-25m，不下载、不运行 40m/55m/random；论文矩阵中仅保留它们作为对照，不声明真实复现。
 - `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
 - upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
-- `BPS/FPS`：指标体系已建模，官方 `tools/analysis_tools/compute_BPS.py` 存在，但脚本硬编码路径且 CoopTrack BPS 段为注释状态；未发现官方 `compute_FPS.py`。因此 AP/AMOTA 已真实验证，BPS/FPS 还需要统一硬件测速脚本补齐。
+- `BPS/FPS`：已新增 `efficiency-audit` 命令并在远端生成 `griffin_repro/artifacts/logs/official_25m_efficiency_audit_20260621.json`。按官方 `compute_BPS.py` 的 late-fusion 公式和其注释掉的 CoopTrack payload 公式，1490-frame 25m baseline 得到 Late Fusion BPS `2492.496644`、CoopTrack BPS `9379651.973154`。官方仓库未发现 `compute_FPS.py`；当前只记录 A100 日志进度吞吐估计，CoopTrack `8.8 task/s`、Late Fusion baseline `7.3 task/s`，不能和论文单张 RTX 3090 FPS 直接等价。
 
 ## 验证命令
 
@@ -108,12 +108,13 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --json
 ```
 
-查看待补 checkpoint 清单：
+核验 25m full 数据包续传状态：
 
 ```bash
 cd /home/fp/CARLA/CarlaAir-v0.1.7/code
-/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py checkpoint-packages \
-  --dataset 50scenes_55m \
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py check-data-packages \
+  --dataset 50scenes_25m \
+  --package-profile full \
   --json
 ```
 
@@ -152,6 +153,19 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --json
 ```
 
+复查 BPS/FPS 记录：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py efficiency-audit \
+  --dataset 50scenes_25m \
+  --late-result-pkl griffin_repro/official/projects/work_dirs_griffin_50scenes_25m/cooperative/late_fusion/tiny_track_r50_stream_bs1_3cls_late_fusion/results.pkl \
+  --cooptrack-query-dir griffin_repro/official/data/infos/griffin_50scenes_25m/drone-side/track_query \
+  --log griffin_repro/artifacts/logs/official_25m_cooptrack_score07_20260620_234817.log \
+  --log griffin_repro/artifacts/logs/official_25m_late_baseline_20260620_200431.log \
+  --json
+```
+
 ## 当前结论
 
-当前分支已经完成 Griffin-25m 的主要复现闭环：数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、真实远端 A100 实验日志与汇总 artifact。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack、25m 全量原始包、40m/55m/random 数据与 checkpoint、V2X-ViT/Where2Comm/UniV2X 可运行闭环、BPS/FPS 统一测速仍需继续补齐。
+当前分支已经完成 Griffin-25m 的主要复现闭环：数据转换、官方 checkpoint 加载、baseline、早融合全鲁棒性、晚融合全鲁棒性、CoopTrack baseline 和鲁棒性验证、paper-scope 指标解析、BPS 统计、A100 进度吞吐记录、真实远端实验日志与汇总 artifact。若按“主要融合方式和鲁棒性场景贴合论文”评估，no-fusion、early-fusion、late-fusion 已经可以作为复现成果；若按“所有方法严格完全一致”评估，CoopTrack、25m 全量原始包最终校验、V2X-ViT/Where2Comm/UniV2X 可运行闭环、以及 RTX 3090 同硬件 FPS 对齐仍需继续补齐。

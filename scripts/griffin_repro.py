@@ -344,6 +344,284 @@ def verify_layout() -> dict[str, Any]:
     }
 
 
+def path_check(rel_path: str, root: Path | None = None) -> dict[str, Any]:
+    base = root or OFFICIAL_ROOT
+    path = base / rel_path
+    return {
+        "path": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
+        "exists": path.exists(),
+        "is_dir": path.is_dir(),
+        "is_file": path.is_file(),
+        "size_bytes": path.stat().st_size if path.exists() and path.is_file() else None,
+    }
+
+
+def split_summary(dataset: str) -> dict[str, Any]:
+    prefix = dataset_prefix(dataset)
+    rel_path = f"data/split_datas/{prefix}.json"
+    path = OFFICIAL_ROOT / rel_path
+    summary = path_check(rel_path)
+    counts = {}
+    total = 0
+    if path.exists():
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        split = payload.get("batch_split", payload)
+        for name, scenes in split.items():
+            if isinstance(scenes, list):
+                counts[name] = len(scenes)
+                total += len(scenes)
+    summary.update({"counts": counts, "total_scenes": total})
+    return summary
+
+
+def audit_25m_assets() -> dict[str, Any]:
+    dataset = "50scenes_25m"
+    prefix = dataset_prefix(dataset)
+    nuscenes_required = [
+        "scene.json",
+        "sample.json",
+        "sample_data.json",
+        "sample_annotation.json",
+        "instance.json",
+        "calibrated_sensor.json",
+        "ego_pose.json",
+    ]
+    directories = {
+        "griffin_release_vehicle_side": f"datasets/{prefix}/griffin-release/vehicle-side",
+        "griffin_release_drone_side": f"datasets/{prefix}/griffin-release/drone-side",
+        "griffin_nuscenes_cooperative": f"datasets/{prefix}/griffin-nuscenes/cooperative",
+    }
+    info_pkls = {
+        "vehicle-side": f"data/infos/{prefix}/vehicle-side/griffin_infos_val.pkl",
+        "drone-side": f"data/infos/{prefix}/drone-side/griffin_infos_val.pkl",
+        "cooperative": f"data/infos/{prefix}/cooperative/griffin_infos_val.pkl",
+    }
+    configs = {
+        method: base_config_for(dataset, method)
+        for method in RUNNABLE_METHOD_ORDER
+    }
+    evaluator_paths = {
+        "dist_eval.sh": "tools/dist_eval.sh",
+        "compute_BPS.py": "tools/analysis_tools/compute_BPS.py",
+        "griffin_dataset.py": "projects/mmdet3d_plugin/datasets/griffin_dataset.py",
+    }
+    nuscenes = {}
+    for side in ("cooperative",):
+        side_checks = {}
+        for name in nuscenes_required:
+            side_checks[name] = path_check(f"datasets/{prefix}/griffin-nuscenes/{side}/{name}")
+        nuscenes[side] = side_checks
+    return {
+        "dataset": dataset,
+        "dataset_prefix": prefix,
+        "fixed_height": DATASETS[dataset]["altitude"],
+        "data_packages": check_data_packages(dataset, "full"),
+        "checkpoint_packages": check_checkpoint_packages(dataset),
+        "split": split_summary(dataset),
+        "directories": {name: path_check(rel_path) for name, rel_path in directories.items()},
+        "info_pkls": {name: path_check(rel_path) for name, rel_path in info_pkls.items()},
+        "nuscenes_metadata": nuscenes,
+        "configs": {
+            method: (
+                path_check(config)
+                if config
+                else {"path": None, "exists": False, "is_dir": False, "is_file": False, "size_bytes": None}
+            )
+            for method, config in configs.items()
+        },
+        "evaluator": {name: path_check(rel_path) for name, rel_path in evaluator_paths.items()},
+    }
+
+
+def _first_dim(value: Any) -> int:
+    if value is None:
+        return 0
+    if hasattr(value, "shape") and value.shape:
+        return int(value.shape[0])
+    if isinstance(value, dict):
+        return 0
+    try:
+        return len(value)
+    except TypeError:
+        return 1
+
+
+def _numel(value: Any) -> int:
+    if value is None:
+        return 0
+    if hasattr(value, "numel"):
+        return int(value.numel())
+    if hasattr(value, "shape") and value.shape:
+        total = 1
+        for dim in value.shape:
+            total *= int(dim)
+        return total
+    if isinstance(value, dict):
+        return sum(_numel(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return sum(_numel(item) for item in value)
+    return 1
+
+
+def _float_payload_bytes(value: Any) -> int:
+    if value is None:
+        return 0
+    if hasattr(value, "element_size"):
+        return _numel(value) * int(value.element_size())
+    dtype = getattr(value, "dtype", None)
+    itemsize = getattr(dtype, "itemsize", None)
+    return _numel(value) * int(itemsize or 4)
+
+
+def _boxes_center(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value.get("center")
+    return getattr(value, "center", None)
+
+
+def _payload_get(payload: Any, key: str) -> Any:
+    if isinstance(payload, dict):
+        return payload.get(key)
+    if hasattr(payload, "get"):
+        try:
+            return payload.get(key)
+        except KeyError:
+            return None
+    return getattr(payload, key, None)
+
+
+def _read_pickle_file(path: str | Path) -> Any:
+    official_path = str(OFFICIAL_ROOT)
+    if official_path not in sys.path:
+        sys.path.insert(0, official_path)
+    with Path(path).open("rb") as handle:
+        return pickle.load(handle)
+
+
+def _late_fusion_bps(result_pkl: str | Path, data_frequency_hz: int) -> dict[str, Any]:
+    payload = _read_pickle_file(result_pkl)
+    results = payload.get("bbox_results", []) if isinstance(payload, dict) else []
+    total_bytes = 0
+    result_counts = []
+    tokens = []
+    for result in results:
+        labels = result.get("labels_3d", [])
+        result_num = _first_dim(labels)
+        result_counts.append(result_num)
+        if "token" in result:
+            tokens.append(str(result["token"]))
+        total_bytes += result_num
+        total_bytes += result_num * 4
+        total_bytes += _first_dim(_boxes_center(result.get("boxes_3d"))) * 7 * 4
+    sample_count = len(results)
+    avg_bytes = total_bytes / sample_count if sample_count else 0.0
+    avg_results = sum(result_counts) / sample_count if sample_count else 0.0
+    return {
+        "source": str(Path(result_pkl)),
+        "samples": sample_count,
+        "tokens": tokens,
+        "BPS": round(avg_bytes * data_frequency_hz, 6),
+        "result_per_frame": round(avg_results, 6),
+        "formula": "official compute_BPS late-fusion payload: label + score + 7 box floats at 10 Hz",
+    }
+
+
+def _cooptrack_bps(query_dir: str | Path, data_frequency_hz: int, tokens: list[str] | None = None) -> dict[str, Any]:
+    root = Path(query_dir)
+    if tokens:
+        query_files = [root / f"{token}.pkl" for token in tokens if (root / f"{token}.pkl").exists()]
+    else:
+        query_files = sorted(root.glob("*.pkl"))
+    total_bytes = 0
+    result_counts = []
+    keys = ["query_feats", "cache_motion_feats", "ref_pts"]
+    for path in query_files:
+        payload = _read_pickle_file(path)
+        result_counts.append(_first_dim(_payload_get(payload, "ref_pts")))
+        for key in keys:
+            total_bytes += _float_payload_bytes(_payload_get(payload, key))
+    sample_count = len(query_files)
+    avg_bytes = total_bytes / sample_count if sample_count else 0.0
+    avg_results = sum(result_counts) / sample_count if sample_count else 0.0
+    missing = [token for token in (tokens or []) if not (root / f"{token}.pkl").exists()]
+    return {
+        "source": str(root),
+        "samples": sample_count,
+        "missing_token_files": missing,
+        "BPS": round(avg_bytes * data_frequency_hz, 6),
+        "result_per_frame": round(avg_results, 6),
+        "formula": "official commented CoopTrack BPS payload: query_feats + cache_motion_feats + ref_pts at 10 Hz",
+    }
+
+
+def _parse_efficiency_log(path: str | Path) -> dict[str, Any]:
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    fps_patterns = [
+        r"\bFPS\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+        r"\bfps\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+        r"([0-9]+(?:\.[0-9]+)?)\s*(?:samples/s|sample/s)\b",
+    ]
+    eval_time_patterns = [
+        r"\bEval time\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+        r"\beval_time_seconds\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+    ]
+    fps = None
+    eval_time = None
+    for pattern in fps_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            fps = float(match.group(1))
+            break
+    for pattern in eval_time_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            eval_time = float(match.group(1))
+            break
+    completed_rates = []
+    for match in re.finditer(
+        r"(\d+)\s*/\s*(\d+),\s*([0-9]+(?:\.[0-9]+)?)\s*task/s,\s*elapsed:\s*\d+s",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        if int(match.group(1)) == int(match.group(2)):
+            completed_rates.append(float(match.group(3)))
+    return {
+        "path": str(Path(path)),
+        "fps": fps,
+        "estimated_fps_from_progress": min(completed_rates) if completed_rates else None,
+        "completed_progress_task_s": completed_rates,
+        "eval_time_seconds": eval_time,
+    }
+
+
+def efficiency_audit(
+    dataset: str = "50scenes_25m",
+    late_result_pkl: str | None = None,
+    cooptrack_query_dir: str | None = None,
+    logs: list[str] | None = None,
+) -> dict[str, Any]:
+    if dataset not in DATASETS:
+        raise SystemExit(f"Unknown dataset {dataset!r}")
+    data_frequency_hz = 10
+    methods = {}
+    tokens = None
+    if late_result_pkl:
+        late_summary = _late_fusion_bps(late_result_pkl, data_frequency_hz)
+        tokens = late_summary.pop("tokens")
+        methods["3-late fusion"] = late_summary
+    if cooptrack_query_dir:
+        methods["2b1-cooptrack"] = _cooptrack_bps(cooptrack_query_dir, data_frequency_hz, tokens)
+    return {
+        "dataset": dataset,
+        "dataset_prefix": dataset_prefix(dataset),
+        "data_frequency_hz": data_frequency_hz,
+        "hardware_note": "Paper FPS was reported on a single RTX 3090; current FPS must be recorded with the actual hardware.",
+        "methods": methods,
+        "logs": [_parse_efficiency_log(path) for path in (logs or [])],
+    }
+
+
 def dataset_prefix(dataset: str) -> str:
     if dataset not in DATASETS:
         raise SystemExit(f"Unknown dataset {dataset!r}")
@@ -677,6 +955,139 @@ def checkpoint_packages(dataset: str) -> dict[str, Any]:
     }
 
 
+def checkpoint_download_script(dataset: str) -> str:
+    package_payload = checkpoint_packages(dataset)
+    prefix = package_payload["dataset_prefix"]
+    rows = "\n".join(
+        f'  "{item["path"]}|{item["size_bytes"]}"'
+        for item in package_payload["packages"]
+    )
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${{GRIFFIN_REPRO_ROOT:-/home/fp/CARLA/CarlaAir-v0.1.7/code}}"
+BASE_URL="${{GRIFFIN_CHECKPOINT_BASE_URL:-https://hf-mirror.com/datasets/wjh-svm/Griffin/resolve/main}}"
+CKPT_ROOT="$ROOT/griffin_repro/official/ckpts/{prefix}"
+TOTAL_SIZE_BYTES={package_payload["total_size_bytes"]}
+DOWNLOAD_JOBS="${{GRIFFIN_CHECKPOINT_DOWNLOAD_JOBS:-4}}"
+DOWNLOAD_MAX_PASSES="${{GRIFFIN_CHECKPOINT_DOWNLOAD_MAX_PASSES:-8}}"
+LOCK_FILE="$CKPT_ROOT/.download.lock"
+
+if ! help wait 2>/dev/null | grep -q -- "-n"; then
+  DOWNLOAD_JOBS=1
+fi
+
+mkdir -p "$CKPT_ROOT"
+exec 9>"$LOCK_FILE"
+if command -v flock >/dev/null 2>&1; then
+  if ! flock -n 9; then
+    echo "Another Griffin checkpoint download is already active for $CKPT_ROOT." >&2
+    exit 75
+  fi
+fi
+cd "$ROOT"
+
+packages=(
+{rows}
+)
+
+download_one() {{
+  local rel_path="$1"
+  local expected_size="$2"
+  local output
+  local url
+  local actual_size
+  output="$ROOT/griffin_repro/official/$rel_path"
+  url="$BASE_URL/$rel_path"
+  mkdir -p "$(dirname "$output")"
+
+  if [ -f "$output" ]; then
+    actual_size="$(stat -c%s "$output")"
+    if [ "$actual_size" = "$expected_size" ]; then
+      echo "OK size: $rel_path"
+      return
+    fi
+    if [ "$actual_size" -gt "$expected_size" ]; then
+      echo "$rel_path is larger than expected; deleting corrupt partial checkpoint before retry"
+      rm -f "$output"
+    fi
+  fi
+
+  echo "Downloading $rel_path from $url"
+  curl --retry 5 --connect-timeout 30 -L -C - -o "$output" "$url"
+  actual_size="$(stat -c%s "$output")"
+  if [ "$actual_size" != "$expected_size" ]; then
+    echo "Size mismatch for $rel_path: expected $expected_size, got $actual_size" >&2
+    exit 4
+  fi
+}}
+
+all_selected_complete() {{
+  local item
+  local rel_path
+  local expected_size
+  local output
+  local actual_size
+  for item in "${{packages[@]}}"; do
+    rel_path="${{item%%|*}}"
+    expected_size="${{item##*|}}"
+    output="$ROOT/griffin_repro/official/$rel_path"
+    if [ ! -f "$output" ]; then
+      return 1
+    fi
+    actual_size="$(stat -c%s "$output")"
+    if [ "$actual_size" != "$expected_size" ]; then
+      return 1
+    fi
+  done
+  return 0
+}}
+
+download_pass() {{
+  local download_fail=0
+  local active_jobs=0
+  local item
+  for item in "${{packages[@]}}"; do
+    download_one "${{item%%|*}}" "${{item##*|}}" &
+    active_jobs=$((active_jobs + 1))
+    if [ "$active_jobs" -ge "$DOWNLOAD_JOBS" ]; then
+      if ! wait -n; then
+        download_fail=1
+      fi
+      active_jobs=$((active_jobs - 1))
+    fi
+  done
+
+  while [ "$active_jobs" -gt 0 ]; do
+    if ! wait -n; then
+      download_fail=1
+    fi
+    active_jobs=$((active_jobs - 1))
+  done
+
+  return "$download_fail"
+}}
+
+for pass in $(seq 1 "$DOWNLOAD_MAX_PASSES"); do
+  echo "Checkpoint download pass $pass/$DOWNLOAD_MAX_PASSES for {dataset}"
+  if download_pass && all_selected_complete; then
+    break
+  fi
+  if [ "$pass" -lt "$DOWNLOAD_MAX_PASSES" ]; then
+    echo "Download pass $pass did not complete all selected Griffin checkpoints; retrying with resume."
+    sleep 15
+  fi
+done
+
+if ! all_selected_complete; then
+  echo "Selected Griffin checkpoint set is incomplete after $DOWNLOAD_MAX_PASSES pass(es)." >&2
+  exit 4
+fi
+
+python scripts/griffin_repro.py check-checkpoint-packages --dataset {dataset} --json
+"""
+
+
 def data_download_script(dataset: str, package_profile: str = "smoke_25m_instance") -> str:
     package_payload = data_packages(dataset, package_profile)
     prefix = package_payload["dataset_prefix"]
@@ -834,6 +1245,7 @@ for item in "${{packages[@]}}"; do
 done
 
 cd "$ROOT"
+python scripts/griffin_repro.py check-data-packages --dataset {dataset} --package-profile {package_profile} --json
 python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance --json
 """
 
@@ -851,6 +1263,20 @@ def write_data_script(dataset: str, out: str, package_profile: str = "smoke_25m_
         "bytes": path.stat().st_size,
         "total_size_bytes": payload["total_size_bytes"],
         "full_total_size_bytes": payload["full_total_size_bytes"],
+    }
+
+
+def write_checkpoint_script(dataset: str, out: str) -> dict[str, Any]:
+    path = Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_lf(path, checkpoint_download_script(dataset))
+    payload = checkpoint_packages(dataset)
+    return {
+        "dataset": dataset,
+        "dataset_prefix": payload["dataset_prefix"],
+        "path": str(path),
+        "bytes": path.stat().st_size,
+        "total_size_bytes": payload["total_size_bytes"],
     }
 
 
@@ -3178,6 +3604,9 @@ def main(argv: list[str] | None = None) -> int:
     verify_parser = subparsers.add_parser("verify-layout")
     verify_parser.add_argument("--json", action="store_true")
 
+    audit_25m_parser = subparsers.add_parser("audit-25m-assets")
+    audit_25m_parser.add_argument("--json", action="store_true")
+
     summary_parser = subparsers.add_parser("summarize-results")
     summary_parser.add_argument("--json", action="store_true")
 
@@ -3197,6 +3626,11 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint_check_parser = subparsers.add_parser("check-checkpoint-packages")
     checkpoint_check_parser.add_argument("--dataset", required=True, choices=sorted(DATASETS))
     checkpoint_check_parser.add_argument("--json", action="store_true")
+
+    checkpoint_script_parser = subparsers.add_parser("write-checkpoint-script")
+    checkpoint_script_parser.add_argument("--dataset", required=True, choices=sorted(DATASETS))
+    checkpoint_script_parser.add_argument("--out", required=True)
+    checkpoint_script_parser.add_argument("--json", action="store_true")
 
     data_script_parser = subparsers.add_parser("write-data-script")
     data_script_parser.add_argument("--dataset", required=True)
@@ -3324,6 +3758,13 @@ def main(argv: list[str] | None = None) -> int:
     run_logs_parser.add_argument("--metric-scope", default="aggregate", choices=["aggregate", "paper"])
     run_logs_parser.add_argument("--json", action="store_true")
 
+    efficiency_parser = subparsers.add_parser("efficiency-audit")
+    efficiency_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
+    efficiency_parser.add_argument("--late-result-pkl")
+    efficiency_parser.add_argument("--cooptrack-query-dir")
+    efficiency_parser.add_argument("--log", action="append")
+    efficiency_parser.add_argument("--json", action="store_true")
+
     eval_json_parser = subparsers.add_parser("summarize-eval-json")
     eval_json_parser.add_argument("--eval-dir", required=True)
     eval_json_parser.add_argument("--dataset", default="50scenes_25m", choices=sorted(DATASETS))
@@ -3361,6 +3802,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "verify-layout":
         emit(verify_layout(), args.json)
+    elif args.command == "audit-25m-assets":
+        emit(audit_25m_assets(), args.json)
     elif args.command == "summarize-results":
         emit(result_summary(), args.json)
     elif args.command == "env-check":
@@ -3374,6 +3817,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(checkpoint_packages(args.dataset), args.json)
     elif args.command == "check-checkpoint-packages":
         emit(check_checkpoint_packages(args.dataset), args.json)
+    elif args.command == "write-checkpoint-script":
+        emit(write_checkpoint_script(args.dataset, args.out), args.json)
     elif args.command == "write-data-script":
         emit(write_data_script(args.dataset, args.out, args.package_profile), args.json)
     elif args.command == "check-data-packages":
@@ -3462,6 +3907,11 @@ def main(argv: list[str] | None = None) -> int:
         emit(summarize_run_log(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
     elif args.command == "summarize-run-logs":
         emit(summarize_run_logs(args.log, args.paper_tolerance, args.dataset, args.metric_scope), args.json)
+    elif args.command == "efficiency-audit":
+        emit(
+            efficiency_audit(args.dataset, args.late_result_pkl, args.cooptrack_query_dir, args.log),
+            args.json,
+        )
     elif args.command == "summarize-eval-json":
         emit(
             summarize_eval_json(

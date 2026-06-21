@@ -19,6 +19,16 @@ MANIFEST = REPO_ROOT / "griffin_repro" / "manifest.json"
 OFFICIAL = REPO_ROOT / "griffin_repro" / "official"
 
 
+class _StrictQueryPayload:
+    def __init__(self, fields):
+        self._fields = fields
+
+    def get(self, name):
+        if name not in self._fields:
+            raise KeyError(name)
+        return self._fields[name]
+
+
 def run_cli(*args):
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
@@ -1038,6 +1048,27 @@ def test_checkpoint_packages_lists_released_model_weights():
     assert payload_55m["total_size_bytes"] == 882185460
 
 
+def test_write_checkpoint_script_downloads_released_model_weights(tmp_path):
+    out_path = tmp_path / "download_ckpts.sh"
+    result = run_cli("write-checkpoint-script", "--dataset", "50scenes_25m", "--out", str(out_path), "--json")
+    payload = json.loads(result.stdout)
+    script = out_path.read_text(encoding="utf-8")
+
+    assert payload["path"] == str(out_path)
+    assert payload["dataset"] == "50scenes_25m"
+    assert payload["dataset_prefix"] == "griffin_50scenes_25m"
+    assert payload["total_size_bytes"] == 1104957567
+    assert "https://hf-mirror.com/datasets/wjh-svm/Griffin/resolve/main" in script
+    assert "TOTAL_SIZE_BYTES=1104957567" in script
+    assert "ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth|219802531" in script
+    assert "CKPT_ROOT=\"$ROOT/griffin_repro/official/ckpts/griffin_50scenes_25m\"" in script
+    assert "curl --retry 5 --connect-timeout 30 -L -C -" in script
+    assert "is larger than expected; deleting corrupt partial checkpoint before retry" in script
+    assert "check-checkpoint-packages --dataset 50scenes_25m --json" in script
+    assert "unzip" not in script
+    assert "carlaair_active_world" not in script
+
+
 def test_check_checkpoint_packages_reports_local_file_completeness(tmp_path):
     spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
     assert spec and spec.loader
@@ -1074,6 +1105,242 @@ def test_check_checkpoint_packages_reports_local_file_completeness(tmp_path):
     assert missing["actual_size_bytes"] == 0
     assert missing["missing_size_bytes"] == 6
     assert missing["complete"] is False
+
+
+def test_audit_25m_assets_summarizes_fixed_height_reproduction_inputs(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkey_root = tmp_path / "repo"
+    module.REPO_ROOT = monkey_root
+    module.REPRO_ROOT = monkey_root / "griffin_repro"
+    module.OFFICIAL_ROOT = monkey_root / "griffin_repro" / "official"
+    module.MANIFEST_PATH = monkey_root / "griffin_repro" / "manifest.json"
+    module.RESULTS_CSV = module.OFFICIAL_ROOT / "docs" / "detailed_results.csv"
+
+    split_dir = module.OFFICIAL_ROOT / "data" / "split_datas"
+    split_dir.mkdir(parents=True)
+    (split_dir / "griffin_50scenes_25m.json").write_text(
+        json.dumps({"batch_split": {"train": ["scene-a"], "val": ["scene-b", "scene-c"]}}),
+        encoding="utf-8",
+    )
+
+    archive_dir = module.OFFICIAL_ROOT / "datasets" / "griffin_50scenes_25m" / "archives"
+    archive_dir.mkdir(parents=True)
+    module.DATA_PACKAGES["50scenes_25m"] = [
+        ("datasets/griffin_50scenes_25m/md5.txt", 3),
+        ("datasets/griffin_50scenes_25m/vehicle_metadata.zip", 4),
+    ]
+    (archive_dir / "md5.txt").write_bytes(b"123")
+    (archive_dir / "vehicle_metadata.zip").write_bytes(b"1234")
+
+    ckpt_root = module.OFFICIAL_ROOT / "ckpts" / "griffin_50scenes_25m"
+    (ckpt_root / "drone-side").mkdir(parents=True)
+    module.CHECKPOINT_PACKAGES["50scenes_25m"] = [
+        ("ckpts/griffin_50scenes_25m/drone-side/iter_33024.pth", 5),
+    ]
+    (ckpt_root / "drone-side" / "iter_33024.pth").write_bytes(b"12345")
+
+    for rel_path in [
+        "datasets/griffin_50scenes_25m/griffin-release/vehicle-side",
+        "datasets/griffin_50scenes_25m/griffin-release/drone-side",
+        "datasets/griffin_50scenes_25m/griffin-nuscenes/cooperative",
+        "data/infos/griffin_50scenes_25m/vehicle-side",
+        "data/infos/griffin_50scenes_25m/drone-side",
+        "data/infos/griffin_50scenes_25m/cooperative",
+        "projects/configs_griffin_50scenes_25m/vehicle-side",
+        "projects/configs_griffin_50scenes_25m/early-fusion",
+        "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion",
+        "projects/configs_griffin_50scenes_25m/cooperative/late_fusion",
+        "tools/analysis_tools",
+        "tools",
+    ]:
+        (module.OFFICIAL_ROOT / rel_path).mkdir(parents=True, exist_ok=True)
+
+    for name in ["scene.json", "sample.json", "sample_data.json", "calibrated_sensor.json", "ego_pose.json"]:
+        (module.OFFICIAL_ROOT / "datasets" / "griffin_50scenes_25m" / "griffin-nuscenes" / "cooperative" / name).write_text("[]", encoding="utf-8")
+    for rel_path in [
+        "data/infos/griffin_50scenes_25m/vehicle-side/griffin_infos_val.pkl",
+        "data/infos/griffin_50scenes_25m/drone-side/griffin_infos_val.pkl",
+        "data/infos/griffin_50scenes_25m/cooperative/griffin_infos_val.pkl",
+        "projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+        "projects/configs_griffin_50scenes_25m/early-fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+        "projects/configs_griffin_50scenes_25m/cooperative/instance_fusion/tiny_track_r50_stream_bs8_48epoch_3cls.py",
+        "projects/configs_griffin_50scenes_25m/cooperative/late_fusion/tiny_track_r50_stream_bs1_3cls_late_fusion.py",
+        "tools/dist_eval.sh",
+        "tools/analysis_tools/compute_BPS.py",
+    ]:
+        (module.OFFICIAL_ROOT / rel_path).write_bytes(b"0")
+
+    summary = module.audit_25m_assets()
+
+    assert summary["dataset"] == "50scenes_25m"
+    assert summary["fixed_height"] == "25 +/- 2 m"
+    assert summary["data_packages"]["ready"] is True
+    assert summary["checkpoint_packages"]["ready"] is True
+    assert summary["split"]["exists"] is True
+    assert summary["split"]["counts"] == {"train": 1, "val": 2}
+    assert summary["directories"]["griffin_release_vehicle_side"]["exists"] is True
+    assert summary["nuscenes_metadata"]["cooperative"]["calibrated_sensor.json"]["exists"] is True
+    assert summary["configs"]["2b1-cooptrack"]["exists"] is True
+    assert summary["evaluator"]["dist_eval.sh"]["exists"] is True
+
+
+def test_efficiency_audit_computes_25m_bps_and_log_fps(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    late_result = tmp_path / "late.pkl"
+    with late_result.open("wb") as handle:
+        pickle.dump(
+            {
+                "bbox_results": [
+                    {
+                        "token": "sample-a",
+                        "labels_3d": [0, 1],
+                        "scores_3d": [0.9, 0.8],
+                        "boxes_3d": {"center": [[0.0] * 7, [1.0] * 7]},
+                    },
+                    {
+                        "token": "sample-b",
+                        "labels_3d": [0],
+                        "scores_3d": [0.7],
+                        "boxes_3d": {"center": [[2.0] * 7]},
+                    },
+                ]
+            },
+            handle,
+        )
+
+    query_dir = tmp_path / "track_query"
+    query_dir.mkdir()
+    with (query_dir / "sample-a.pkl").open("wb") as handle:
+        pickle.dump(
+            {
+                "query_feats": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                "cache_motion_feats": [[1.0, 2.0], [3.0, 4.0]],
+                "ref_pts": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            },
+            handle,
+        )
+    with (query_dir / "sample-b.pkl").open("wb") as handle:
+        pickle.dump(
+            {
+                "query_feats": [[1.0, 2.0, 3.0]],
+                "cache_motion_feats": [[1.0, 2.0]],
+                "ref_pts": [[0.1, 0.2, 0.3]],
+            },
+            handle,
+        )
+
+    log_path = tmp_path / "eval.log"
+    log_path.write_text("FPS: 12.5\nEval time: 0.45\n", encoding="utf-8")
+
+    summary = module.efficiency_audit(
+        dataset="50scenes_25m",
+        late_result_pkl=str(late_result),
+        cooptrack_query_dir=str(query_dir),
+        logs=[str(log_path)],
+    )
+
+    assert summary["dataset"] == "50scenes_25m"
+    assert summary["hardware_note"].startswith("Paper FPS was reported")
+    assert summary["methods"]["3-late fusion"]["BPS"] == 495.0
+    assert summary["methods"]["3-late fusion"]["result_per_frame"] == 1.5
+    assert summary["methods"]["2b1-cooptrack"]["BPS"] == 480.0
+    assert summary["methods"]["2b1-cooptrack"]["result_per_frame"] == 1.5
+    assert summary["logs"][0]["fps"] == 12.5
+    assert summary["logs"][0]["eval_time_seconds"] == 0.45
+
+
+def test_efficiency_audit_pickle_loader_can_resolve_official_project_modules(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    official_root = tmp_path / "official"
+    package_dir = official_root / "projects"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (package_dir / "fake_payload.py").write_text(
+        "class Payload:\n"
+        "    def __init__(self, value):\n"
+        "        self.value = value\n",
+        encoding="utf-8",
+    )
+
+    sys.path.insert(0, str(official_root))
+    try:
+        fake_payload = importlib.import_module("projects.fake_payload")
+        payload_path = tmp_path / "payload.pkl"
+        with payload_path.open("wb") as handle:
+            pickle.dump(fake_payload.Payload(7), handle)
+    finally:
+        sys.path.remove(str(official_root))
+        sys.modules.pop("projects.fake_payload", None)
+        sys.modules.pop("projects", None)
+
+    module.OFFICIAL_ROOT = official_root
+
+    payload = module._read_pickle_file(payload_path)
+
+    assert payload.value == 7
+
+
+def test_efficiency_audit_tolerates_missing_optional_query_fields(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    query_dir = tmp_path / "track_query"
+    query_dir.mkdir()
+    with (query_dir / "sample-a.pkl").open("wb") as handle:
+        pickle.dump(
+            _StrictQueryPayload(
+                {
+                    "query_feats": [[1.0, 2.0, 3.0]],
+                    "ref_pts": [[0.1, 0.2, 0.3]],
+                }
+            ),
+            handle,
+        )
+
+    summary = module.efficiency_audit(
+        dataset="50scenes_25m",
+        cooptrack_query_dir=str(query_dir),
+    )
+
+    assert summary["methods"]["2b1-cooptrack"]["samples"] == 1
+    assert summary["methods"]["2b1-cooptrack"]["BPS"] == 240.0
+    assert summary["methods"]["2b1-cooptrack"]["result_per_frame"] == 1.0
+
+
+def test_efficiency_log_parser_records_completed_progress_throughput(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    log_path = tmp_path / "progress.log"
+    log_path.write_text(
+        "[>>>>>>>>] 1490/1490, 7.8 task/s, elapsed: 191s, ETA: 0s\n"
+        "[>>>>>>>>] 1490/1490, 1421.0 task/s, elapsed: 1s, ETA: 0s\n"
+        "Eval time: 16.5s\n",
+        encoding="utf-8",
+    )
+
+    summary = module._parse_efficiency_log(log_path)
+
+    assert summary["fps"] is None
+    assert summary["estimated_fps_from_progress"] == 7.8
+    assert summary["completed_progress_task_s"] == [7.8, 1421.0]
+    assert summary["eval_time_seconds"] == 16.5
 
 
 def test_data_packages_can_select_smoke_eval_archives_only():
@@ -1154,6 +1421,29 @@ def test_write_data_script_downloads_from_mirror_with_checksums(tmp_path):
     assert "extracted.to-data-parent" in script
     assert "check-partial-assets --profile smoke_25m_instance" in script
     assert "carlaair_active_world" not in script
+
+
+def test_write_data_script_full_profile_verifies_full_archive_set(tmp_path):
+    out_path = tmp_path / "download_full_data.sh"
+    result = run_cli(
+        "write-data-script",
+        "--dataset",
+        "50scenes_25m",
+        "--package-profile",
+        "full",
+        "--out",
+        str(out_path),
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    script = out_path.read_text(encoding="utf-8")
+
+    assert payload["package_profile"] == "full"
+    assert payload["total_size_bytes"] == 167190016122
+    assert "vehicle_lidar.zip|214487013" in script
+    assert "drone_camera_instance_segmentation.zip|3558624019" in script
+    assert "check-data-packages --dataset 50scenes_25m --package-profile full --json" in script
+    assert "check-partial-assets --profile smoke_25m_instance" in script
 
 
 def test_check_data_packages_reports_missing_local_archives():

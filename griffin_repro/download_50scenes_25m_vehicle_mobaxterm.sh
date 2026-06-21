@@ -153,4 +153,5 @@ for item in "${packages[@]}"; do
 done
 
 cd "$ROOT"
+python scripts/griffin_repro.py check-data-packages --dataset 50scenes_25m --package-profile smoke_25m_vehicle --json
 python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance --json

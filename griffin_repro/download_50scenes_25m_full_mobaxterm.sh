@@ -6,8 +6,8 @@ BASE_URL="${GRIFFIN_DATA_BASE_URL:-https://hf-mirror.com/datasets/wjh-svm/Griffi
 DATA_PARENT="$ROOT/griffin_repro/official/datasets"
 DATA_ROOT="$ROOT/griffin_repro/official/datasets/griffin_50scenes_25m"
 ARCHIVE_DIR="${GRIFFIN_ARCHIVE_DIR:-$DATA_ROOT/archives}"
-PACKAGE_PROFILE="smoke_25m_instance"
-TOTAL_SIZE_BYTES=162300524941
+PACKAGE_PROFILE="full"
+TOTAL_SIZE_BYTES=167190016122
 FULL_TOTAL_SIZE_BYTES=167190016122
 DOWNLOAD_JOBS="${GRIFFIN_DOWNLOAD_JOBS:-3}"
 DOWNLOAD_MAX_PASSES="${GRIFFIN_DOWNLOAD_MAX_PASSES:-12}"
@@ -31,14 +31,17 @@ packages=(
   "datasets/griffin_50scenes_25m/drone_camera_back.zip|19492671867"
   "datasets/griffin_50scenes_25m/drone_camera_bottom.zip|19047808871"
   "datasets/griffin_50scenes_25m/drone_camera_front.zip|19486880375"
+  "datasets/griffin_50scenes_25m/drone_camera_instance_segmentation.zip|3558624019"
   "datasets/griffin_50scenes_25m/drone_camera_left.zip|19309526941"
   "datasets/griffin_50scenes_25m/drone_camera_right.zip|19669453631"
   "datasets/griffin_50scenes_25m/drone_metadata.zip|14384997"
   "datasets/griffin_50scenes_25m/md5.txt|898"
   "datasets/griffin_50scenes_25m/vehicle_camera_back.zip|17138643853"
   "datasets/griffin_50scenes_25m/vehicle_camera_front.zip|16257201694"
+  "datasets/griffin_50scenes_25m/vehicle_camera_instance_segmentation.zip|1116380149"
   "datasets/griffin_50scenes_25m/vehicle_camera_left.zip|15554668466"
   "datasets/griffin_50scenes_25m/vehicle_camera_right.zip|16318407065"
+  "datasets/griffin_50scenes_25m/vehicle_lidar.zip|214487013"
   "datasets/griffin_50scenes_25m/vehicle_metadata.zip|10876283"
 )
 
@@ -159,5 +162,5 @@ for item in "${packages[@]}"; do
 done
 
 cd "$ROOT"
-python scripts/griffin_repro.py check-data-packages --dataset 50scenes_25m --package-profile smoke_25m_instance --json
+python scripts/griffin_repro.py check-data-packages --dataset 50scenes_25m --package-profile full --json
 python scripts/griffin_repro.py check-partial-assets --profile smoke_25m_instance --json
