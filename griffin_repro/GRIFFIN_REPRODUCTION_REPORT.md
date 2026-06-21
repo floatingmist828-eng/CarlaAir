@@ -14,6 +14,28 @@
 
 论文 `docs/detailed_results.csv` 对齐的是 car 类 paper-scope 指标：检测 AP 来自 car class AP，跟踪 AMOTA 来自 car class AMOTA。官方 evaluator 的三类 aggregate mAP/AMOTA 不应直接和论文表格比。当前报告统一使用 `paper_tolerance=0.02` 判断是否贴合论文。
 
+## 代码与配置 Diff
+
+新增 `official-source-diff` 审计命令，用本地/远端 `griffin_repro/official` 对照 GitHub upstream HEAD `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，并对文本文件标准化换行后再比较，避免 CRLF/LF 噪声。自动生成的 `codex_*`、`*_partial_*`、`*_stable_query_*` 25m experiment wrapper 不计入官方源码/config diff。远端审计 artifact 为 `griffin_repro/artifacts/logs/official_25m_source_diff_20260621_102613.log`；当前 25m config 没有实质差异，实质 source diff 为 `modified_count=1`、`extra_count=4`、`missing_count=0`。
+
+- `tools/result_converter/det_result_late_fusion.py`：唯一 modified 文件，用于给 late-fusion converter 的 `drop_prob / loc_noise_std / orien_noise_std` 补默认值，避免 latency config 缺字段时报错；不改 GT 或 evaluator 规则。
+- `projects/ab3dmot_plugin/easydict.py`、`xinshuo_io.py`、`xinshuo_miscellaneous.py`、`xinshuo_visualization.py`：额外 helper 文件，用于让 AB3DMOT tracking 转换链路在当前环境下可导入运行。
+
+## 数据、配置与资产审计
+
+远端审计 artifact：
+
+- `griffin_repro/artifacts/logs/official_25m_env_check_20260621_102613.log`
+- `griffin_repro/artifacts/logs/official_25m_checkpoint_25m_20260621_102613.log`
+- `griffin_repro/artifacts/logs/official_25m_audit_25m_assets_20260621_102847.log`
+- `griffin_repro/artifacts/logs/official_25m_package_full_20260621_103132.log`
+
+远端环境 `ready=true`，8 张 A100 可见，Python `3.8.20`，`torch=1.9.1+cu111`，`mmcv=1.4.0`，`mmdet=2.14.0`，`mmdet3d=0.17.1`，`mmseg=0.14.1` 均匹配当前复现环境。25m split 文件 `data/split_datas/griffin_50scenes_25m.json` 存在，官方 split 统计为 train `37`、val `10`、total `47` scenes；当前 val 闭环实际使用 `1490` frames。
+
+`audit-25m-assets` 已按真实 nuScenes 目录层级 `griffin-nuscenes/<side>/v1.0-trainval/*.json` 审计。`vehicle-side`、`drone-side`、`early-fusion`、`cooperative` 四套 metadata 均包含 `scene.json`、`sample.json`、`sample_data.json`、`sample_annotation.json`、`instance.json`、`calibrated_sensor.json`、`ego_pose.json`，没有 metadata 缺失。No Fusion、Early Fusion、Late Fusion、CoopTrack 四个 25m config 均存在，官方 evaluator 文件 `tools/dist_eval.sh`、`tools/analysis_tools/compute_BPS.py`、`projects/mmdet3d_plugin/datasets/griffin_dataset.py` 均存在。
+
+25m checkpoint 清单远端校验为 `ready=true`、`complete_count=5/5`、`total_size_bytes=1104957567`。25m full 原始数据包仍在续传，最近远端校验为 `ready=false`、`complete_count=14/15`，仅 `datasets/griffin_50scenes_25m/drone_camera_left.zip` 未完成：`actual_size_bytes=11307716497`、`expected_size_bytes=19309526941`、`missing_size_bytes=8001810444`。因此当前可以证明 25m 评估闭环可运行，但不能声称 full 原始包已全部下载完成。
+
 ## 基线结果
 
 远端汇总文件：`griffin_repro/artifacts/logs/official_25m_baseline_all_20260620_summary.json`。
@@ -83,7 +105,7 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 ## 仍未闭合的论文内容
 
-- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 正在续传，2026-06-21 最近一次探测为 `12/15` 完整、剩余约 `11.1 GB` 且仍在减少，因此在 full 校验完成前不能表述为 25m 全量原始数据包已完整下载。
+- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 正在续传，2026-06-21 最近一次探测为 `14/15` 完整，仅 `drone_camera_left.zip` 剩余约 `8.00 GB`，因此在 full 校验完成前不能表述为 25m 全量原始数据包已完整下载。
 - `50scenes_40m`、`50scenes_55m`、`100scenes_random`：这些不是当前验收范围。本轮严格限定 Griffin-50scenes-25m，不下载、不运行 40m/55m/random；论文矩阵中仅保留它们作为对照，不声明真实复现。
 - `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
 - upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
@@ -108,6 +130,16 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --json
 ```
 
+复查官方配置/源码差异：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+test -d /tmp/griffin-official-9c02ba4/.git || git clone --depth 1 https://github.com/wang-jh18-SVM/Griffin.git /tmp/griffin-official-9c02ba4
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py official-source-diff \
+  --reference-root /tmp/griffin-official-9c02ba4 \
+  --json
+```
+
 核验 25m full 数据包续传状态：
 
 ```bash
@@ -116,6 +148,13 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --dataset 50scenes_25m \
   --package-profile full \
   --json
+```
+
+复查 25m split、metadata、config、checkpoint、evaluator 资产：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py audit-25m-assets --json
 ```
 
 核验本地 checkpoint 是否完整：
@@ -164,6 +203,13 @@ cd /home/fp/CARLA/CarlaAir-v0.1.7/code
   --log griffin_repro/artifacts/logs/official_25m_cooptrack_score07_20260620_234817.log \
   --log griffin_repro/artifacts/logs/official_25m_late_baseline_20260620_200431.log \
   --json
+```
+
+复查复现辅助脚本回归测试：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python -m pytest tests/test_griffin_repro.py -q
 ```
 
 ## 当前结论

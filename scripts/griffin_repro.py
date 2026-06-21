@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
+import hashlib
 import importlib.metadata
 import importlib.util
 import json
@@ -30,6 +31,18 @@ MANIFEST_PATH = REPRO_ROOT / "manifest.json"
 RESULTS_CSV = OFFICIAL_ROOT / "docs" / "detailed_results.csv"
 CONDA_INSTALLER_URL = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
 _ZIP_CENTRAL_DIRECTORY_CACHE: dict[tuple[str, int], tuple[int, bytes]] = {}
+OFFICIAL_DIFF_INCLUDE_PREFIXES = [
+    "README.md",
+    "requirements.txt",
+    "docs/detailed_results.csv",
+    "projects/ab3dmot_plugin/",
+    "projects/configs_griffin_50scenes_25m/",
+    "projects/mmdet3d_plugin/",
+    "tools/",
+]
+OFFICIAL_DIFF_IGNORE_PREFIXES = ["ckpts/", "data/", "datasets/", "projects/work_dirs"]
+OFFICIAL_DIFF_TEXT_SUFFIXES = {".bash", ".cfg", ".csv", ".json", ".md", ".py", ".sh", ".txt", ".yml"}
+OFFICIAL_DIFF_GENERATED_CONFIG_MARKERS = ["codex_", "_partial_", "_stable_query_"]
 
 DATASETS = {
     "50scenes_25m": {
@@ -378,6 +391,7 @@ def split_summary(dataset: str) -> dict[str, Any]:
 def audit_25m_assets() -> dict[str, Any]:
     dataset = "50scenes_25m"
     prefix = dataset_prefix(dataset)
+    nuscenes_version = "v1.0-trainval"
     nuscenes_required = [
         "scene.json",
         "sample.json",
@@ -407,15 +421,16 @@ def audit_25m_assets() -> dict[str, Any]:
         "griffin_dataset.py": "projects/mmdet3d_plugin/datasets/griffin_dataset.py",
     }
     nuscenes = {}
-    for side in ("cooperative",):
+    for side in ("vehicle-side", "drone-side", "early-fusion", "cooperative"):
         side_checks = {}
         for name in nuscenes_required:
-            side_checks[name] = path_check(f"datasets/{prefix}/griffin-nuscenes/{side}/{name}")
+            side_checks[name] = path_check(f"datasets/{prefix}/griffin-nuscenes/{side}/{nuscenes_version}/{name}")
         nuscenes[side] = side_checks
     return {
         "dataset": dataset,
         "dataset_prefix": prefix,
         "fixed_height": DATASETS[dataset]["altitude"],
+        "nuscenes_version": nuscenes_version,
         "data_packages": check_data_packages(dataset, "full"),
         "checkpoint_packages": check_checkpoint_packages(dataset),
         "split": split_summary(dataset),
@@ -431,6 +446,98 @@ def audit_25m_assets() -> dict[str, Any]:
             for method, config in configs.items()
         },
         "evaluator": {name: path_check(rel_path) for name, rel_path in evaluator_paths.items()},
+    }
+
+
+def _posix_relative(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
+def _included_official_source(path: str) -> bool:
+    if any(path.startswith(prefix) for prefix in OFFICIAL_DIFF_IGNORE_PREFIXES):
+        return False
+    if "/__pycache__/" in f"/{path}" or path.endswith(".pyc"):
+        return False
+    if path.startswith("projects/configs_griffin_50scenes_25m/"):
+        name = Path(path).name
+        if any(marker in name for marker in OFFICIAL_DIFF_GENERATED_CONFIG_MARKERS):
+            return False
+    return any(path == prefix.rstrip("/") or path.startswith(prefix) for prefix in OFFICIAL_DIFF_INCLUDE_PREFIXES)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    payload = path.read_bytes()
+    if path.suffix.lower() in OFFICIAL_DIFF_TEXT_SUFFIXES:
+        payload = payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    digest.update(payload)
+    return digest.hexdigest()
+
+
+def _source_files(root: Path) -> dict[str, Path]:
+    files: dict[str, Path] = {}
+    if not root.exists():
+        return files
+    for path in root.rglob("*"):
+        if path.is_file():
+            rel_path = _posix_relative(path, root)
+            if _included_official_source(rel_path):
+                files[rel_path] = path
+    return files
+
+
+def official_source_diff(reference_root: str) -> dict[str, Any]:
+    reference = Path(reference_root)
+    if not reference.exists():
+        raise SystemExit(f"Missing Griffin reference root: {reference}")
+    current_files = _source_files(OFFICIAL_ROOT)
+    reference_files = _source_files(reference)
+    differences = []
+    for rel_path in sorted(set(current_files) | set(reference_files)):
+        current_path = current_files.get(rel_path)
+        reference_path = reference_files.get(rel_path)
+        if current_path is None:
+            differences.append(
+                {
+                    "path": rel_path,
+                    "status": "missing",
+                    "reference_sha256": _file_sha256(reference_path),
+                    "current_sha256": None,
+                }
+            )
+        elif reference_path is None:
+            differences.append(
+                {
+                    "path": rel_path,
+                    "status": "extra",
+                    "reference_sha256": None,
+                    "current_sha256": _file_sha256(current_path),
+                }
+            )
+        else:
+            current_hash = _file_sha256(current_path)
+            reference_hash = _file_sha256(reference_path)
+            if current_hash != reference_hash:
+                differences.append(
+                    {
+                        "path": rel_path,
+                        "status": "modified",
+                        "reference_sha256": reference_hash,
+                        "current_sha256": current_hash,
+                    }
+                )
+    return {
+        "reference_root": str(reference),
+        "current_root": str(OFFICIAL_ROOT),
+        "include_prefixes": OFFICIAL_DIFF_INCLUDE_PREFIXES,
+        "ignored_prefixes": OFFICIAL_DIFF_IGNORE_PREFIXES,
+        "ignored_generated_config_markers": OFFICIAL_DIFF_GENERATED_CONFIG_MARKERS,
+        "reference_file_count": len(reference_files),
+        "current_file_count": len(current_files),
+        "modified_count": sum(1 for item in differences if item["status"] == "modified"),
+        "missing_count": sum(1 for item in differences if item["status"] == "missing"),
+        "extra_count": sum(1 for item in differences if item["status"] == "extra"),
+        "differences": differences,
     }
 
 
@@ -3607,6 +3714,10 @@ def main(argv: list[str] | None = None) -> int:
     audit_25m_parser = subparsers.add_parser("audit-25m-assets")
     audit_25m_parser.add_argument("--json", action="store_true")
 
+    source_diff_parser = subparsers.add_parser("official-source-diff")
+    source_diff_parser.add_argument("--reference-root", required=True)
+    source_diff_parser.add_argument("--json", action="store_true")
+
     summary_parser = subparsers.add_parser("summarize-results")
     summary_parser.add_argument("--json", action="store_true")
 
@@ -3804,6 +3915,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(verify_layout(), args.json)
     elif args.command == "audit-25m-assets":
         emit(audit_25m_assets(), args.json)
+    elif args.command == "official-source-diff":
+        emit(official_source_diff(args.reference_root), args.json)
     elif args.command == "summarize-results":
         emit(result_summary(), args.json)
     elif args.command == "env-check":

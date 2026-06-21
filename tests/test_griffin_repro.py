@@ -1159,8 +1159,26 @@ def test_audit_25m_assets_summarizes_fixed_height_reproduction_inputs(tmp_path):
     ]:
         (module.OFFICIAL_ROOT / rel_path).mkdir(parents=True, exist_ok=True)
 
-    for name in ["scene.json", "sample.json", "sample_data.json", "calibrated_sensor.json", "ego_pose.json"]:
-        (module.OFFICIAL_ROOT / "datasets" / "griffin_50scenes_25m" / "griffin-nuscenes" / "cooperative" / name).write_text("[]", encoding="utf-8")
+    for side in ["vehicle-side", "drone-side", "early-fusion", "cooperative"]:
+        metadata_dir = (
+            module.OFFICIAL_ROOT
+            / "datasets"
+            / "griffin_50scenes_25m"
+            / "griffin-nuscenes"
+            / side
+            / "v1.0-trainval"
+        )
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        for name in [
+            "scene.json",
+            "sample.json",
+            "sample_data.json",
+            "sample_annotation.json",
+            "instance.json",
+            "calibrated_sensor.json",
+            "ego_pose.json",
+        ]:
+            (metadata_dir / name).write_text("[]", encoding="utf-8")
     for rel_path in [
         "data/infos/griffin_50scenes_25m/vehicle-side/griffin_infos_val.pkl",
         "data/infos/griffin_50scenes_25m/drone-side/griffin_infos_val.pkl",
@@ -1183,9 +1201,91 @@ def test_audit_25m_assets_summarizes_fixed_height_reproduction_inputs(tmp_path):
     assert summary["split"]["exists"] is True
     assert summary["split"]["counts"] == {"train": 1, "val": 2}
     assert summary["directories"]["griffin_release_vehicle_side"]["exists"] is True
+    assert summary["nuscenes_metadata"]["vehicle-side"]["ego_pose.json"]["exists"] is True
+    assert summary["nuscenes_metadata"]["drone-side"]["sample_data.json"]["exists"] is True
+    assert summary["nuscenes_metadata"]["early-fusion"]["scene.json"]["exists"] is True
     assert summary["nuscenes_metadata"]["cooperative"]["calibrated_sensor.json"]["exists"] is True
     assert summary["configs"]["2b1-cooptrack"]["exists"] is True
     assert summary["evaluator"]["dist_eval.sh"]["exists"] is True
+
+
+def test_official_source_diff_tracks_config_and_tool_changes(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    repo_root = tmp_path / "repo"
+    official_root = repo_root / "griffin_repro" / "official"
+    reference_root = tmp_path / "upstream"
+    module.REPO_ROOT = repo_root
+    module.OFFICIAL_ROOT = official_root
+
+    rel_config = "projects/configs_griffin_50scenes_25m/vehicle-side/base.py"
+    rel_tool = "tools/dist_eval.sh"
+    rel_plugin = "projects/mmdet3d_plugin/datasets/griffin_dataset.py"
+    rel_generated = "projects/work_dirs_griffin_50scenes_25m/result.pkl"
+    for root in (official_root, reference_root):
+        (root / rel_config).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel_tool).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel_plugin).parent.mkdir(parents=True, exist_ok=True)
+    (reference_root / rel_config).write_text("model='official'\n", encoding="utf-8")
+    (official_root / rel_config).write_text("model='patched'\n", encoding="utf-8")
+    (reference_root / rel_tool).write_text("bash official\n", encoding="utf-8")
+    (official_root / rel_tool).write_text("bash official\n", encoding="utf-8")
+    (reference_root / rel_plugin).write_text("dataset = 'official'\n", encoding="utf-8")
+    (official_root / rel_plugin).write_text("dataset = 'official'\n", encoding="utf-8")
+    (official_root / "tools" / "extra_wrapper.sh").write_text("echo helper\n", encoding="utf-8")
+    (official_root / rel_generated).parent.mkdir(parents=True, exist_ok=True)
+    (official_root / rel_generated).write_bytes(b"ignored")
+
+    summary = module.official_source_diff(str(reference_root))
+
+    assert summary["reference_root"].endswith("upstream")
+    assert summary["modified_count"] == 1
+    assert summary["missing_count"] == 0
+    assert summary["extra_count"] == 1
+    assert summary["ignored_prefixes"] == ["ckpts/", "data/", "datasets/", "projects/work_dirs"]
+    by_path = {item["path"]: item for item in summary["differences"]}
+    assert by_path[rel_config]["status"] == "modified"
+    assert by_path["tools/extra_wrapper.sh"]["status"] == "extra"
+    assert rel_generated not in by_path
+
+
+def test_official_source_diff_ignores_line_endings_and_pycache(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    repo_root = tmp_path / "repo"
+    official_root = repo_root / "griffin_repro" / "official"
+    reference_root = tmp_path / "upstream"
+    module.REPO_ROOT = repo_root
+    module.OFFICIAL_ROOT = official_root
+
+    rel_config = "projects/configs_griffin_50scenes_25m/vehicle-side/base.py"
+    for root in (official_root, reference_root):
+        (root / rel_config).parent.mkdir(parents=True, exist_ok=True)
+    (reference_root / rel_config).write_bytes(b"model='official'\r\nvalue=1\r\n")
+    (official_root / rel_config).write_bytes(b"model='official'\nvalue=1\n")
+    pycache_file = official_root / "projects" / "ab3dmot_plugin" / "__pycache__" / "helper.cpython-312.pyc"
+    pycache_file.parent.mkdir(parents=True)
+    pycache_file.write_bytes(b"ignored")
+    for rel_generated_config in (
+        "projects/configs_griffin_50scenes_25m/vehicle-side/codex_score07_eval.py",
+        "projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls_partial_1scene.py",
+        "projects/configs_griffin_50scenes_25m/vehicle-side/tiny_track_r50_stream_bs8_48epoch_3cls_stable_query_topk.py",
+    ):
+        generated_config = official_root / rel_generated_config
+        generated_config.parent.mkdir(parents=True, exist_ok=True)
+        generated_config.write_text("# generated experiment wrapper\n", encoding="utf-8")
+
+    summary = module.official_source_diff(str(reference_root))
+
+    assert summary["modified_count"] == 0
+    assert summary["extra_count"] == 0
+    assert summary["differences"] == []
 
 
 def test_efficiency_audit_computes_25m_bps_and_log_fps(tmp_path):
