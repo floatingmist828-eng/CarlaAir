@@ -1426,6 +1426,81 @@ def check_data_packages(dataset: str, package_profile: str = "smoke_25m_instance
     }
 
 
+def _file_md5(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_md5_manifest(path: Path) -> dict[str, str]:
+    checksums: dict[str, str] = {}
+    if not path.exists():
+        return checksums
+    for line in path.read_text(encoding="utf-8").splitlines():
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+        checksum = parts[0].lower()
+        archive_name = Path(parts[-1].lstrip("*")).name
+        if len(checksum) == 32:
+            checksums[archive_name] = checksum
+    return checksums
+
+
+def verify_data_package_md5(dataset: str, package_profile: str = "smoke_25m_instance") -> dict[str, Any]:
+    payload = data_packages(dataset, package_profile)
+    archive_dir = OFFICIAL_ROOT / "datasets" / payload["dataset_prefix"] / "archives"
+    manifest_path = archive_dir / "md5.txt"
+    manifest = _load_md5_manifest(manifest_path)
+    checks = []
+    for item in payload["packages"]:
+        archive_name = Path(item["path"]).name
+        if archive_name == "md5.txt":
+            continue
+        archive_path = archive_dir / archive_name
+        expected_md5 = manifest.get(archive_name)
+        actual_size = archive_path.stat().st_size if archive_path.exists() else 0
+        if not archive_path.exists():
+            status = "missing"
+            actual_md5 = None
+        elif actual_size != item["size_bytes"]:
+            status = "size-mismatch"
+            actual_md5 = None
+        elif expected_md5 is None:
+            status = "missing-md5-entry"
+            actual_md5 = _file_md5(archive_path)
+        else:
+            actual_md5 = _file_md5(archive_path)
+            status = "matched" if actual_md5 == expected_md5 else "mismatch"
+        checks.append(
+            {
+                "path": item["path"],
+                "archive": archive_name,
+                "file": str(archive_path.relative_to(REPO_ROOT)).replace("\\", "/"),
+                "expected_size_bytes": item["size_bytes"],
+                "actual_size_bytes": actual_size,
+                "expected_md5": expected_md5,
+                "actual_md5": actual_md5,
+                "status": status,
+                "matched": status == "matched",
+            }
+        )
+    return {
+        "dataset": dataset,
+        "dataset_prefix": payload["dataset_prefix"],
+        "package_profile": package_profile,
+        "archive_dir": str(archive_dir.relative_to(REPO_ROOT)).replace("\\", "/"),
+        "md5_manifest": str(manifest_path.relative_to(REPO_ROOT)).replace("\\", "/"),
+        "md5_manifest_exists": manifest_path.exists(),
+        "checked_count": len(checks),
+        "matched_count": sum(1 for item in checks if item["matched"]),
+        "ready": bool(checks) and all(item["matched"] for item in checks),
+        "checks": checks,
+    }
+
+
 def check_checkpoint_packages(dataset: str) -> dict[str, Any]:
     payload = checkpoint_packages(dataset)
     checkpoint_dir = OFFICIAL_ROOT / "ckpts" / payload["dataset_prefix"]
@@ -3754,6 +3829,11 @@ def main(argv: list[str] | None = None) -> int:
     data_check_parser.add_argument("--package-profile", default="smoke_25m_instance", choices=sorted(DATA_PACKAGE_PROFILES))
     data_check_parser.add_argument("--json", action="store_true")
 
+    data_md5_parser = subparsers.add_parser("verify-data-md5")
+    data_md5_parser.add_argument("--dataset", required=True)
+    data_md5_parser.add_argument("--package-profile", default="smoke_25m_instance", choices=sorted(DATA_PACKAGE_PROFILES))
+    data_md5_parser.add_argument("--json", action="store_true")
+
     env_script_parser = subparsers.add_parser("write-env-script")
     env_script_parser.add_argument("--out", required=True)
     env_script_parser.add_argument("--json", action="store_true")
@@ -3936,6 +4016,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(write_data_script(args.dataset, args.out, args.package_profile), args.json)
     elif args.command == "check-data-packages":
         emit(check_data_packages(args.dataset, args.package_profile), args.json)
+    elif args.command == "verify-data-md5":
+        emit(verify_data_package_md5(args.dataset, args.package_profile), args.json)
     elif args.command == "write-env-script":
         emit(write_env_script(args.out), args.json)
     elif args.command == "paper-matrix":

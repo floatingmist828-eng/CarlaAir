@@ -28,13 +28,15 @@
 - `griffin_repro/artifacts/logs/official_25m_env_check_20260621_102613.log`
 - `griffin_repro/artifacts/logs/official_25m_checkpoint_25m_20260621_102613.log`
 - `griffin_repro/artifacts/logs/official_25m_audit_25m_assets_20260621_102847.log`
-- `griffin_repro/artifacts/logs/official_25m_package_full_20260621_103132.log`
+- `griffin_repro/artifacts/logs/official_25m_package_full_20260621_104036.log`
 
 远端环境 `ready=true`，8 张 A100 可见，Python `3.8.20`，`torch=1.9.1+cu111`，`mmcv=1.4.0`，`mmdet=2.14.0`，`mmdet3d=0.17.1`，`mmseg=0.14.1` 均匹配当前复现环境。25m split 文件 `data/split_datas/griffin_50scenes_25m.json` 存在，官方 split 统计为 train `37`、val `10`、total `47` scenes；当前 val 闭环实际使用 `1490` frames。
 
 `audit-25m-assets` 已按真实 nuScenes 目录层级 `griffin-nuscenes/<side>/v1.0-trainval/*.json` 审计。`vehicle-side`、`drone-side`、`early-fusion`、`cooperative` 四套 metadata 均包含 `scene.json`、`sample.json`、`sample_data.json`、`sample_annotation.json`、`instance.json`、`calibrated_sensor.json`、`ego_pose.json`，没有 metadata 缺失。No Fusion、Early Fusion、Late Fusion、CoopTrack 四个 25m config 均存在，官方 evaluator 文件 `tools/dist_eval.sh`、`tools/analysis_tools/compute_BPS.py`、`projects/mmdet3d_plugin/datasets/griffin_dataset.py` 均存在。
 
-25m checkpoint 清单远端校验为 `ready=true`、`complete_count=5/5`、`total_size_bytes=1104957567`。25m full 原始数据包仍在续传，最近远端校验为 `ready=false`、`complete_count=14/15`，仅 `datasets/griffin_50scenes_25m/drone_camera_left.zip` 未完成：`actual_size_bytes=11307716497`、`expected_size_bytes=19309526941`、`missing_size_bytes=8001810444`。因此当前可以证明 25m 评估闭环可运行，但不能声称 full 原始包已全部下载完成。
+25m checkpoint 清单远端校验为 `ready=true`、`complete_count=5/5`、`total_size_bytes=1104957567`。25m full 原始数据包仍在续传，最近远端校验为 `ready=false`、`complete_count=14/15`，仅 `datasets/griffin_50scenes_25m/drone_camera_left.zip` 未完成：`actual_size_bytes=12461084561`、`expected_size_bytes=19309526941`、`missing_size_bytes=6848442380`。因此当前可以证明 25m 评估闭环可运行，但不能声称 full 原始包已全部下载完成。
+
+新增 `verify-data-md5` 独立审计命令，用官方 `md5.txt` 复查当前 package profile 中的 archive；若文件大小未达 manifest 预期，会先报告 `size-mismatch` 并跳过 MD5 计算，避免对 partial zip 做无效哈希。该命令应在 full package `ready=true` 后作为最终数据包完整性证据运行。
 
 ## 基线结果
 
@@ -105,7 +107,7 @@ Late-fusion latency 配置暴露了 upstream converter 的一个兼容缺口：`
 
 ## 仍未闭合的论文内容
 
-- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 正在续传，2026-06-21 最近一次探测为 `14/15` 完整，仅 `drone_camera_left.zip` 剩余约 `8.00 GB`，因此在 full 校验完成前不能表述为 25m 全量原始数据包已完整下载。
+- `50scenes_25m`：当前远端不需要把原始大包全部补齐才能复现关键闭环。已 materialize 的 25m validation 子集可支撑 1490-frame 官方评估、no-fusion/early-fusion/late-fusion/CoopTrack baseline 和鲁棒性实验；25m checkpoint 清单已 `5/5` 完整。原始 full package 正在续传，2026-06-21 最近一次探测为 `14/15` 完整，仅 `drone_camera_left.zip` 剩余约 `6.85 GB`，因此在 full 校验完成前不能表述为 25m 全量原始数据包已完整下载。
 - `50scenes_40m`、`50scenes_55m`、`100scenes_random`：这些不是当前验收范围。本轮严格限定 Griffin-50scenes-25m，不下载、不运行 40m/55m/random；论文矩阵中仅保留它们作为对照，不声明真实复现。
 - `2a1-v2x-vit`、`2a2-where2comm`、`2b2-univ2x`：论文结果已保留在矩阵中，但当前 zip/upstream checkout 下没有完整可直接运行的 config/checkpoint 闭环；不能伪造为已跑通。
 - upstream GitHub `main` 已核对为 `9c02ba4a37201edfc2b95ddbcdc2ff9aff47e7f4`，与 manifest 一致。README 最新消息提到 55m subset/checkpoint、UniV2X pretrained model 和 robustness config 已发布，但仓库页面未提供 GitHub Releases；远端当前仍需从数据源补齐实际数据包和 checkpoint 后才能启动这些行。
@@ -145,6 +147,16 @@ test -d /tmp/griffin-official-9c02ba4/.git || git clone --depth 1 https://github
 ```bash
 cd /home/fp/CARLA/CarlaAir-v0.1.7/code
 /home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py check-data-packages \
+  --dataset 50scenes_25m \
+  --package-profile full \
+  --json
+```
+
+复查 25m full 数据包 MD5：
+
+```bash
+cd /home/fp/CARLA/CarlaAir-v0.1.7/code
+/home/fp/miniconda3/envs/griffin/bin/python scripts/griffin_repro.py verify-data-md5 \
   --dataset 50scenes_25m \
   --package-profile full \
   --json

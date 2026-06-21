@@ -1,4 +1,5 @@
 import json
+import hashlib
 import importlib.util
 import io
 import pickle
@@ -1105,6 +1106,69 @@ def test_check_checkpoint_packages_reports_local_file_completeness(tmp_path):
     assert missing["actual_size_bytes"] == 0
     assert missing["missing_size_bytes"] == 6
     assert missing["complete"] is False
+
+
+def test_verify_data_package_md5_reports_matches_mismatches_and_missing_files(tmp_path):
+    spec = importlib.util.spec_from_file_location("griffin_repro_module", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkey_root = tmp_path / "repo"
+    module.REPO_ROOT = monkey_root
+    module.OFFICIAL_ROOT = monkey_root / "griffin_repro" / "official"
+    archive_dir = module.OFFICIAL_ROOT / "datasets" / "tiny_prefix" / "archives"
+    archive_dir.mkdir(parents=True)
+    good_payload = b"good"
+    bad_payload = b"bad"
+    (archive_dir / "good.zip").write_bytes(good_payload)
+    (archive_dir / "bad.zip").write_bytes(bad_payload)
+    (archive_dir / "md5.txt").write_text(
+        "\n".join(
+            [
+                f"{hashlib.md5(good_payload).hexdigest()}  ./good.zip",
+                f"{hashlib.md5(b'expected').hexdigest()}  ./bad.zip",
+                f"{hashlib.md5(b'missing').hexdigest()}  ./missing.zip",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    module.DATASETS["tiny"] = {
+        "dataset_prefix": "tiny_prefix",
+        "scene_count": 1,
+        "altitude": "unit",
+    }
+    module.DATA_PACKAGES["tiny"] = [
+        ("datasets/tiny_prefix/md5.txt", len((archive_dir / "md5.txt").read_bytes())),
+        ("datasets/tiny_prefix/good.zip", len(good_payload)),
+        ("datasets/tiny_prefix/bad.zip", len(bad_payload)),
+        ("datasets/tiny_prefix/partial.zip", 7),
+        ("datasets/tiny_prefix/missing.zip", 7),
+    ]
+    partial_payload = b"part"
+    (archive_dir / "partial.zip").write_bytes(partial_payload)
+    module.DATA_PACKAGE_PROFILES["tiny_profile"] = {
+        "datasets/tiny_prefix/md5.txt",
+        "datasets/tiny_prefix/good.zip",
+        "datasets/tiny_prefix/bad.zip",
+        "datasets/tiny_prefix/partial.zip",
+        "datasets/tiny_prefix/missing.zip",
+    }
+
+    summary = module.verify_data_package_md5("tiny", "tiny_profile")
+
+    assert summary["dataset"] == "tiny"
+    assert summary["package_profile"] == "tiny_profile"
+    assert summary["ready"] is False
+    assert summary["checked_count"] == 4
+    assert summary["matched_count"] == 1
+    checks = {item["archive"]: item for item in summary["checks"]}
+    assert checks["good.zip"]["status"] == "matched"
+    assert checks["bad.zip"]["status"] == "mismatch"
+    assert checks["partial.zip"]["status"] == "size-mismatch"
+    assert checks["partial.zip"]["actual_md5"] is None
+    assert checks["missing.zip"]["status"] == "missing"
 
 
 def test_audit_25m_assets_summarizes_fixed_height_reproduction_inputs(tmp_path):
